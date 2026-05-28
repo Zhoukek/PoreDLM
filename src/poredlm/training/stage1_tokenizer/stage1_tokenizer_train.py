@@ -26,9 +26,9 @@ from accelerate import Accelerator, DistributedType
 # Relative imports from the same package
 # Note: The relative imports might need adjustment depending on your package structure.
 # If this script is run directly, you might need to add the parent directory to sys.path.
-from .dataset import NanoporeSignalDataset
-from .tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
-from .tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
+from dataset import NanoporeSignalDataset
+from tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
+from tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
 
 from accelerate import InitProcessGroupKwargs
 from datetime import timedelta

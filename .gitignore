@@ -62,7 +62,6 @@ Thumbs.db
 *.onnx
 *.bin
 *.ckpt
-models/
 checkpoints/
 runs/
 outputs/
