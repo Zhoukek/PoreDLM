@@ -1,0 +1,117 @@
+# VQ-VAE 模型训练配置文件
+# 用于 nanopore 测序信号 tokenization 的模型训练
+
+# ============================================================
+# 数据配置
+# ============================================================
+data:
+  # 数据集路径
+  train_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
+  evaluation_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/validation"
+  
+  # 数据加载
+  num_workers: 64
+  val_ratio: 0.2  # 验证集比例（当 evaluation_npy_dir 未设置时使用）
+  prefetch_factor: 8192
+  
+  # 数据分块
+  dataset_logic_chunk_size: 2400
+  chunk_size: 12000
+
+# ============================================================
+# 模型配置
+# ============================================================
+model:
+  # 模型类型选择
+  model_type: 0
+  codebook_type: "VQ"
+  cnn_type: 0
+  
+  # 码本配置
+  codebook_size: 65536
+  learnable_codebook: false
+  init_codebook_path: ""  # 可选，预初始化码本路径
+  
+  # 预训练权重
+  cnn_checkpoint_path: ""  # CNN编码器预训练权重
+  freeze_cnn: 0  # 0: 不冻结, 1: 冻结
+
+  teacher_model_path: ""  # 用于蒸馏的教师模型路径（仅当 codebook_type 是 "VQ_distill" 时使用）
+
+
+# ============================================================
+# 训练配置
+# ============================================================
+training:
+  # 基础训练参数
+  num_epochs: 20
+  lr: 2.0e-05
+  
+  # 批次大小配置
+  global_batch_size: 2048   # 全局批次大小
+  device_micro_batch_size: 64  # 每个设备的微批次大小
+  
+  # 混合精度与梯度
+  mixed_precision: "no"  # 可选: "no", "fp16", "bf16", "fp8"
+  gradient_clipping: 1.0
+  cpu: false  # 强制使用CPU（调试用）
+
+
+# ============================================================
+# 损失函数配置
+# ============================================================
+loss:
+  # 承诺损失（Commitment Loss）
+  use_dynamic_commitment_weight: true
+  commitment_weight: 9.0
+  commitment_weight_freeze_steps: 1000
+  commitment_weight_lr: 0.001
+  commitment_weight_rpc: 10
+  
+  # 正则化损失
+  codebook_diversity_loss_weight: 0.0  # 码本多样性损失
+  orthogonal_reg_weight: 0.0  # 正交正则化损失
+
+
+# ============================================================
+# 学习率调度配置
+# ============================================================
+lr_scheduler:
+  type: "cosine"  # 可选: "constant", "cosine", "linear"
+  warmup_steps: 1000
+  warmup_start_factor: 0.01
+  warmup_end_factor: 1.0
+  main_scheduler_end_factor: 0.4
+
+
+# ============================================================
+# 检查点与日志配置
+# ============================================================
+checkpoint:
+  # 保存路径
+  output_model_path: "models/porepgt_vqe_tokenizer"
+  loss_csv_path: "train_loss.csv"
+  
+  # 保存频率
+  save_checkpoint_every_spoch: 1000
+  loss_log_interval: 10
+  
+  # 动态权重平均器（DWA）日志频率
+  update_loss_weight_every: 10
+
+
+# ============================================================
+# 评估配置
+# ============================================================
+evaluation:
+  do_evaluate: true
+  evaluate_every_spoch: 500
+
+
+# ============================================================
+# 实验跟踪（Weights & Biases）
+# ============================================================
+wandb:
+  use_wandb: true
+  project: "train_vqe_dna04g"
+  name: "test-zhoukexuan-model_type0-cnn_type0-baseline"
