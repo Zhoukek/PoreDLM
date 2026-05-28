@@ -19,10 +19,12 @@ eggs/
 # ==============================
 # Virtual Environments
 # ==============================
+.venv/
 venv/
 ENV/
+env/
 .env
-.venv
+.env.*
 env.bak/
 venv.bak/
 
@@ -46,6 +48,7 @@ Thumbs.db
 # Logs and Databases
 # ==============================
 *.log
+*.tmp
 *.sqlite
 
 # ==============================
@@ -62,7 +65,11 @@ Thumbs.db
 models/
 checkpoints/
 runs/
-data/
+outputs/
+data/raw/
+data/interim/
+data/processed/
+data/external/
 *.fast5
 *.fastq
 *.fq

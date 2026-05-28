@@ -1,0 +1,29 @@
+seed: 42
+
+reproducibility:
+  seed: 42
+  deterministic: true
+  benchmark: false
+  warn_only: true
+
+distributed:
+  enabled: true
+  backend: nccl
+  find_unused_parameters: false
+
+data:
+  train_dir: data/processed/stage1/train
+  valid_dir: data/processed/stage1/valid
+  stride: 16
+
+model:
+  encoder: cnn
+  hidden_size: 256
+  vq_codes: 4096
+  contextual_backbone: bert
+
+training:
+  batch_size: 32
+  max_steps: 100000
+  learning_rate: 0.0003
+  output_dir: outputs/stage1_tokenizer

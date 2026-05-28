@@ -1,0 +1,26 @@
+seed: 42
+
+reproducibility:
+  seed: 42
+  deterministic: true
+  benchmark: false
+  warn_only: true
+
+distributed:
+  enabled: true
+  backend: nccl
+  find_unused_parameters: false
+
+data:
+  train_dir: data/processed/stage3/train
+  valid_dir: data/processed/stage3/valid
+
+task:
+  name: basecalling
+  decoder: ctc
+
+training:
+  batch_size: 16
+  max_steps: 50000
+  learning_rate: 0.00005
+  output_dir: outputs/stage3_finetune
