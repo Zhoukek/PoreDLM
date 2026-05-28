@@ -49,7 +49,7 @@ training:
   
   # 批次大小配置
   global_batch_size: 2048   # 全局批次大小
-  device_micro_batch_size: 64  # 每个设备的微批次大小
+  device_micro_batch_size: 28  # 每个设备的微批次大小
   
   # 混合精度与梯度
   mixed_precision: "no"  # 可选: "no", "fp16", "bf16", "fp8"

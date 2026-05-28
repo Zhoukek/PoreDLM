@@ -6,8 +6,7 @@ from vector_quantize_pytorch import VectorQuantize
 from typing import Tuple, Dict
 from bonito.util import load_model 
 
-from poredlm.models import BERTEncoder
-from poredlm.models import SignalCNN
+from models import SignalCNN
 
 import warnings
 

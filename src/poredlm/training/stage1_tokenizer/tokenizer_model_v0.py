@@ -6,8 +6,7 @@ from vector_quantize_pytorch import VectorQuantize
 from typing import Tuple, Dict
 from bonito.util import load_model 
 
-from models import BERTEncoder
-from poredlm.models import SignalCNN
+from models import SignalCNN
 
 # 强制使用标准实现
 torch.backends.cuda.enable_flash_sdp(False)  # 禁用 flash SDP
@@ -19,7 +18,7 @@ class Nanopore_Tokenizer_Model_V0(nn.Module):
     """
     Nanopore VQ Tokenizer for Direct RNA Sequencing (130 bps, 4 kHz)
 
-    支持多种 CNN 架构配置，通过 `cnn_type` 切换：
+    支持多种 CNN 架构配置，通过 `cnn_type` 切换：E
         - cnn_type=0: 大容量非严格对称模型（默认）
         - cnn_type=1: 小容量严格对称模型（通道数 1→16→32→64）
 

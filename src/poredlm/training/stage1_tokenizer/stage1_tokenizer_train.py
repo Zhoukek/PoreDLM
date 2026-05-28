@@ -1295,7 +1295,6 @@ def main():
         output_model_path=config.get("checkpoint", {}).get("output_model_path", "nanopore_vq_tokenizer.pth"),
         loss_csv_path=config.get("checkpoint", {}).get("loss_csv_path", "train_loss.csv"),
         save_checkpoint_every_spoch=config.get("checkpoint", {}).get("save_checkpoint_every_spoch", 10),
-        loss_log_interval=config.get("checkpoint", {}).get("loss_log_interval", 10),
         update_loss_weight_every=config.get("checkpoint", {}).get("update_loss_weight_every", 10),
         
         # 评估配置
