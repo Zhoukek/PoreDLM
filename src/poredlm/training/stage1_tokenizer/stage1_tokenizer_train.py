@@ -29,6 +29,7 @@ from accelerate import Accelerator, DistributedType
 from dataset import NanoporeSignalDataset
 from tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
 from tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
+from tokenizer_model_v2 import Nanopore_Tokenizer_Model_V2
 
 from accelerate import InitProcessGroupKwargs
 from datetime import timedelta
@@ -742,7 +743,20 @@ def vqe_train(
             teacher_model_path=teacher_model_path,
         )
     elif codebook_type == "VQ_distill_BERT" and model_type == 2:
-        pass
+        model = Nanopore_Tokenizer_Model_V2(
+            codebook_size=codebook_size,
+            codebook_decay=codebook_decay,
+            codebook_emadc=codebook_emadc,
+            commitment_weight=commitment_weight,
+            codebook_diversity_loss_weight=codebook_diversity_loss_weight,
+            orthogonal_reg_weight=orthogonal_reg_weight,
+            cnn_type=cnn_type,
+            init_codebook_path=init_codebook_path,
+            cnn_checkpoint_path = cnn_checkpoint_path,
+            freeze_cnn = freeze_cnn,
+            learnable_codebook=learnable_codebook,
+            teacher_model_path=teacher_model_path,
+        )
     else:
         print("error model type. exit")
         return 
@@ -897,6 +911,8 @@ def vqe_train(
     total_steps = len(train_dataloader) * num_epochs
     total_global_steps = total_training_global_steps
     total_spochs = total_steps // update_loss_weight_every
+
+    distill_loss = None
     # 在训练循环开始前
     if accelerator.is_main_process:
         print(f"\n=== 调度器详细调试 ===")
@@ -1045,7 +1061,10 @@ def vqe_train(
                 g_ortho = ortho_loss.item()
                 g_diver = diver_loss.item()
                 g_total = total_loss.item()
-                g_distill = distill_loss.item() if model_type == 25 else 0.0
+                if distill_loss is not None:
+                    g_distill = distill_loss.item()
+                else:
+                    g_distill = 0.0
 
                 # Log metrics (main process only)
                 if accelerator.is_main_process:

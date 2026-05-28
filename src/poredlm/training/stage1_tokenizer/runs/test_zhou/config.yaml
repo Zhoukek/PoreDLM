@@ -23,8 +23,8 @@ data:
 # ============================================================
 model:
   # 模型类型选择
-  model_type: 0
-  codebook_type: "VQ"
+  model_type: 2
+  codebook_type: "VQ_distill_BERT"
   cnn_type: 0
   
   # 码本配置
@@ -36,7 +36,7 @@ model:
   cnn_checkpoint_path: ""  # CNN编码器预训练权重
   freeze_cnn: 0  # 0: 不冻结, 1: 冻结
 
-  teacher_model_path: ""  # 用于蒸馏的教师模型路径（仅当 codebook_type 是 "VQ_distill" 时使用）
+  teacher_model_path: "/mnt/zzbnew/rnamodel/model/bonito/dna_basic_0121"  # 用于蒸馏的教师模型路径（仅当 codebook_type 是 "VQ_distill" 时使用）
 
 
 # ============================================================
@@ -114,4 +114,4 @@ evaluation:
 wandb:
   use_wandb: true
   project: "train_vqe_dna04g"
-  name: "test-zhoukexuan-model_type0-cnn_type0-baseline"
+  name: "test-zhoukexuan-model_type1-cnn_type0-baseline"
