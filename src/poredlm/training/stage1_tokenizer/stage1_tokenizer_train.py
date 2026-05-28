@@ -34,6 +34,21 @@ from tokenizer_model_v2 import Nanopore_Tokenizer_Model_V2
 from accelerate import InitProcessGroupKwargs
 from datetime import timedelta
 
+def seed_all(seed: int):
+    """Seed all rng objects."""
+    import random
+
+    import numpy as np
+
+    if seed < 0 or seed > 2**32 - 1:
+        raise ValueError(f"Seed {seed} is invalid. It must be on [0; 2^32 - 1]")
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    # torch.manual_seed may call manual_seed_all but calling it again here
+    # to make sure it gets called at least once
+    torch.cuda.manual_seed_all(seed)
+
 
 def write_runtime_json(runtime_dict, filename="runtime.json"):
     """
@@ -349,6 +364,7 @@ def vqe_train(
     cpu: bool = False, # Set to True to force CPU training
     dataset_logic_chunk_size: int = 6000,
     teacher_model_path: str = None,
+    seed: int = 42,
 ):
     """
     Training of Nanopore VQ tokenizer using Hugging Face Accelerate.
@@ -422,7 +438,10 @@ def vqe_train(
         dataset_logic_chunk_size=dataset_logic_chunk_size,
         codebook_type=codebook_type,
         teacher_model_path=teacher_model_path,
+        seed=seed
     )
+
+    seed_all(seed)
 
 
     # Calculate accumulation steps based on global and micro batch sizes
@@ -474,6 +493,7 @@ def vqe_train(
                 "world_size": accelerator.num_processes, # Changed from 'world_size'
                 "mixed_precision": mixed_precision,
                 "global_batch_size": global_batch_size,
+                "seed": seed
         },
         # init_kwargs={"wandb": {"entity": "jiaoshuaihit-hit","name":wandb_name}}
         init_kwargs={"wandb": {"entity": "zhoukek-zhejiang-university","name":wandb_name}}
@@ -1329,6 +1349,8 @@ def main():
         codebook_decay=config.get("codebook_decay", 0.99),  # 注意：这个参数在之前的配置中没有
         codebook_emadc=config.get("codebook_emadc", 2),
         checkpoint_path=config.get("checkpoint_path"),
+
+        seed=config.get("seed", 42),
     )
 
 if __name__ == "__main__":

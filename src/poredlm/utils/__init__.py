@@ -1,7 +1,7 @@
 """Shared utilities."""
 
-from poredlm.utils.config import load_yaml
-from poredlm.utils.distributed import (
+from utils.config import load_yaml
+from utils.distributed import (
     DistributedConfig,
     DistributedContext,
     barrier,
@@ -10,7 +10,7 @@ from poredlm.utils.distributed import (
     setup_distributed,
     wrap_ddp,
 )
-from poredlm.utils.reproducibility import (
+from utils.reproducibility import (
     ReproducibilityConfig,
     build_reproducibility_config,
     configure_determinism,
