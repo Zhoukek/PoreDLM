@@ -1,0 +1,213 @@
+run_name: OLMo2-1B-Stage1-Qwen
+seed: 6198
+dry_run: false
+
+wandb:
+   entity: jiaoshuaihit-hit
+   name: ${run_name}
+   project: olmo-pt
+   group: ${run_name}
+
+model:
+  d_model: 2048
+  n_heads: 16
+  n_layers: 16
+  mlp_ratio: 8
+  weight_tying: true
+  alibi: false
+  rope: true
+  rope_theta: 500000
+  flash_attention: true
+  attention_dropout: 0.0
+  include_bias: false
+  block_type: sequential
+  layer_norm_type: rms
+  layer_norm_with_affine: true
+  layer_norm_eps: 1e-6
+  bias_for_layer_norm: false
+  attention_layer_norm: true
+  attention_layer_norm_with_affine: true
+  norm_after: true
+  activation_type: swiglu
+  residual_dropout: 0.0
+  embedding_dropout: 0.0
+  max_sequence_length: 4096
+  vocab_size: 151665
+  embedding_size: 151665
+  eos_token_id: 151643
+  pad_token_id: 151643
+  init_device: meta
+  init_fn: normal
+  init_std: 0.02
+  init_cutoff_factor: 3
+
+# softmax_auxiliary_loss: true
+# auxiliary_loss_multiplier: 1e-5
+# fused_loss: true
+
+compile: null
+
+optimizer:
+  name: adamw
+  learning_rate: 4.0e-4
+  weight_decay: 0.1
+  eps: 1e-8
+  decay_norm_and_bias: true
+  decay_embeddings: false
+  betas:
+  - 0.9
+  - 0.95
+  metrics_log_interval: 1
+
+scheduler:
+  name: cosine_with_warmup
+  units: tokens
+  t_warmup: 8388608000
+  t_max: 5e12
+  alpha_f: 0.1
+  warmup_min_lr: 0.0
+
+tokenizer:
+  # identifier: tokenizers/allenai_dolma2.json
+  identifier: olmo_data/tokenizers/tokenizer_qwen2.5-7B/tokenizer.json
+  truncate_direction: right
+
+save_folder: save/${run_name}
+save_overwrite: false
+
+save_interval: 1000
+save_interval_ephemeral: 1000
+save_num_checkpoints_to_keep: 2
+sharded_checkpointer: olmo_core
+
+save_interval_unsharded: null
+save_num_unsharded_checkpoints_to_keep: -1
+
+load_path: null
+
+max_duration: 1ep
+global_train_batch_size: 8
+device_train_microbatch_size: 2
+
+precision: amp_bf16
+
+fsdp:
+  wrapping_strategy: null
+  sharding_strategy: SHARD_GRAD_OP
+  precision: mixed
+
+max_grad_norm: 1.0
+max_grad_norm_ratio: null
+
+speed_monitor:
+  window_size: 1
+
+gen1_gc_interval: 10
+
+eval_interval: 1000
+eval_subset_num_batches: -1
+device_eval_batch_size: ${device_train_microbatch_size}
+evaluators:
+  - label: all-small-ppl-validation
+    data:
+      num_workers: 0
+      drop_last: true
+      # generate_doc_lengths: true
+      memmap_dtype: uint32
+      datasets:
+        mmlu_cais:
+          - /mnt/nju/dataset/qwen2.5_tokenizer/mmlu_cais/part-0-00000.npy
+
+
+  ##########################
+  # Downstream evaluations #
+  ##########################
+  - label: piqa
+    type: downstream
+
+
+data:
+  pad_direction: right
+  # generate_doc_lengths: true
+  num_workers: 32
+  drop_last: true
+  pin_memory: true
+  prefetch_factor: 8
+  persistent_workers: true
+  memmap_dtype: uint32
+  timeout: 0
+  instance_filter:
+    repetition_max_period: 13
+    repetition_min_period: 1
+    repetition_max_count: 32
+  paths:
+    #==========================================================================
+    # 📊 GLOBAL DATASET SUMMARY (after selection)
+    #--------------------------------------------------------------------------
+    # Total Token Count (selected): 16.29 Gt
+    # Total Document Count (selected): 11.63 Md
+    # Total Original Token Count:   16.29 Gt
+    # Total Original Document Count: 11.63 Md
+    # Total Datasets Processed:     11
+    # Total Selected Datasets:      2
+    # Selection Mode:               Proportional by selection_ratio
+    # Generated on:                 2025-08-16
+    #==========================================================================
+
+    # Dataset: fineweb_en_q990
+    # Description: The FineWeb subset achieves a quality score within the range of (0.990,0.991].
+    # Token Count (orig): 3.090 Gt
+    # Token Count (sel):  3.090 Gt
+    # Document Count (orig): 5.310 Md
+    # Document Count (sel):  5.310 Md
+    # Selection Ratio: 1.000
+    # Original .npy Files: 32
+    # Selected .npy Files: 32
+    # Path: /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990
+    #
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-00-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-01-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-02-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-03-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-04-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-05-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-06-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-07-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-08-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-09-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-10-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-11-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-12-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-13-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-14-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-15-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-16-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-17-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-18-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-19-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-20-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-21-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-22-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-23-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-24-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-25-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-26-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-27-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-28-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-29-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-30-00000.npy
+    - /mnt/nju/dataset/qwen2.5_tokenizer/fineweb_en_q990/part-31-00000.npy
+
+    # Dataset: mmlu_cais
+    # Description: The MMLU(Massive Multitask Language Understanding)dataset is a comprehensive benchmark designed to evaluate a model's ability to understand and reason across a wide range of subjects.It consists of multiple-choice questions spanning various domains such as mathematics,science,humanities,and more,providing a thorough assessment of a model's general knowledge and reasoning capabilities.
+    # Token Count (orig): 13.200 Gt
+    # Token Count (sel):  13.200 Gt
+    # Document Count (orig): 6.320 Md
+    # Document Count (sel):  6.320 Md
+    # Selection Ratio: 1.000
+    # Original .npy Files: 1
+    # Selected .npy Files: 1
+    # Path: /mnt/nju/dataset/qwen2.5_tokenizer/mmlu_cais
+    #
+    - /mnt/nju/dataset/qwen2.5_tokenizer/mmlu_cais/part-0-00000.npy
+

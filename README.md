@@ -29,6 +29,12 @@ bash PoreDLM/src/poredlm/training/stage1_tokenizer/runs/test_zhou/run.sh
 
 ## Stage 3: Diffusion Language Model Training
 
+~~~
+数据准备：
+1. conda activate /mnt/zzbnew/rnamodel/zhoukexuan/miniconda3/envs/dolma
+bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage3_OLMo_DLM/step01_dolma.sh
+~~~
+
 ## Stage 4: Downstream_Task Fine-tuning
 
 ## Project Structure

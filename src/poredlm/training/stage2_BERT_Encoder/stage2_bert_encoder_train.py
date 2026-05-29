@@ -19,7 +19,7 @@ from tqdm import tqdm
 from transformers import get_scheduler
 
 from bert_encoder_model import build_bert_mlm
-from dataset import Stage2Collator, Stage2TokenShardDataset
+from dataset import Stage2Collator, Stage2TokenJsonlDataset
 
 
 def seed_everything(seed: int) -> None:
@@ -78,11 +78,15 @@ def mask_token_ids(
 def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     data_cfg = config["data"]
     path_key = f"{split}_dir"
-    dataset = Stage2TokenShardDataset(
-        shards_dir=data_cfg[path_key],
-        max_cache_size=int(data_cfg.get("max_cache_size", 32)),
+    dataset = Stage2TokenJsonlDataset(
+        data_dir=data_cfg[path_key],
+        pattern=str(data_cfg.get(f"{split}_pattern", data_cfg.get("file_pattern", "*.jsonl.gz"))),
+        max_cache_files=int(data_cfg.get("max_cache_files", 2)),
     )
-    collator = Stage2Collator(pad_token_id=int(config.get("model", {}).get("pad_token_id", 0)))
+    collator = Stage2Collator(
+        pad_token_id=int(config.get("model", {}).get("pad_token_id", 0)),
+        max_length=int(config.get("model", {}).get("max_position_embeddings", 4096)),
+    )
     return DataLoader(
         dataset,
         batch_size=int(config["training"].get("device_micro_batch_size", 8)),

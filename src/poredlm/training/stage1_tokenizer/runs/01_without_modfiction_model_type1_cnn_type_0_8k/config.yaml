@@ -78,7 +78,7 @@ loss:
   codebook_diversity_loss_weight: 0.0  # 码本多样性损失
   orthogonal_reg_weight: 0.0  # 正交正则化损失
 
-  distill_loss_weight: 0.1 # 蒸馏损失权重（仅当 codebook_type 是 "VQ_distill" 时使用）
+  distill_loss_weight: 1 # 蒸馏损失权重（仅当 codebook_type 是 "VQ_distill" 时使用）
 
 
 # ============================================================

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import gzip
 import json
-import os
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+
+BWAV_TOKEN_PATTERN = re.compile(r"<\|bwav:(\d+)\|>")
 
 
 @dataclass(frozen=True)
@@ -20,80 +24,104 @@ class Stage2Batch:
     attention_mask: torch.Tensor | None = None
 
 
-class Stage2TokenShardDataset(Dataset):
-    """Memmap shard dataset for VQ token ids.
+def parse_bwav_token_text(text: str) -> torch.Tensor:
+    """Parse ``<|bwav:123|>`` token text into integer token ids."""
 
-    Expected layout:
+    ids = BWAV_TOKEN_PATTERN.findall(text)
+    if not ids:
+        raise ValueError("No <|bwav:id|> tokens found in jsonl text field.")
+    return torch.tensor([int(token_id) for token_id in ids], dtype=torch.long)
 
-    ```text
-    stage2_dir/
-      shards.json
-      shard_000.npy
-      shard_001.npy
-    ```
 
-    `shards.json` should contain `{"shards": [{"path": "...", "num_samples": N}, ...]}`.
-    Each npy shard should have shape `[num_samples, seq_len]` and integer dtype.
+class Stage2TokenJsonlDataset(Dataset):
+    """JSONL/JSONL.GZ dataset for VQ token ids.
+
+    Each line should be a JSON object with a `text` field containing tokens like
+    `<|bwav:3073|><|bwav:32601|>...`.
     """
 
-    def __init__(self, shards_dir: str, max_cache_size: int = 32) -> None:
-        self.shards_dir = shards_dir
-        self.max_cache_size = max_cache_size
-        meta_path = os.path.join(shards_dir, "shards.json")
-        with open(meta_path, "r", encoding="utf-8") as handle:
-            meta = json.load(handle)
+    def __init__(
+        self,
+        data_dir: str,
+        pattern: str = "*.jsonl.gz",
+        max_cache_files: int = 2,
+    ) -> None:
+        self.data_dir = data_dir
+        self.pattern = pattern
+        self.max_cache_files = max_cache_files
+        self.files = sorted(Path(data_dir).glob(pattern))
+        if not self.files:
+            raise FileNotFoundError(f"No files matching {pattern!r} under {data_dir!r}.")
 
-        self.shard_info = meta["shards"]
+        self.file_line_counts: list[int] = []
         self.offsets = [0]
-        for info in self.shard_info:
-            self.offsets.append(self.offsets[-1] + int(info["num_samples"]))
+        for path in self.files:
+            line_count = self._count_lines(path)
+            self.file_line_counts.append(line_count)
+            self.offsets.append(self.offsets[-1] + line_count)
 
-        self._cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._cache: OrderedDict[Path, list[torch.Tensor]] = OrderedDict()
 
     def __len__(self) -> int:
         return self.offsets[-1]
 
-    def _get_memmap(self, shard_path: str) -> np.ndarray:
-        if shard_path in self._cache:
-            self._cache.move_to_end(shard_path)
-            return self._cache[shard_path]
+    @staticmethod
+    def _open_text(path: Path):
+        if path.suffix == ".gz":
+            return gzip.open(path, "rt", encoding="utf-8")
+        return path.open("r", encoding="utf-8")
 
-        arr = np.load(shard_path, mmap_mode="r")
-        if len(self._cache) >= self.max_cache_size:
+    def _count_lines(self, path: Path) -> int:
+        with self._open_text(path) as handle:
+            return sum(1 for line in handle if line.strip())
+
+    def _load_file(self, path: Path) -> list[torch.Tensor]:
+        if path in self._cache:
+            self._cache.move_to_end(path)
+            return self._cache[path]
+
+        samples: list[torch.Tensor] = []
+        with self._open_text(path) as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                if "text" not in item:
+                    raise KeyError(f"Missing 'text' field in {path} line {line_number}.")
+                samples.append(parse_bwav_token_text(item["text"]))
+
+        if len(self._cache) >= self.max_cache_files:
             self._cache.popitem(last=False)
-        self._cache[shard_path] = arr
-        return arr
+        self._cache[path] = samples
+        return samples
 
     def _locate(self, index: int) -> tuple[int, int]:
         if index < 0 or index >= len(self):
             raise IndexError(f"Index {index} out of range [0, {len(self)})")
 
-        for shard_id in range(len(self.offsets) - 1):
-            if self.offsets[shard_id] <= index < self.offsets[shard_id + 1]:
-                return shard_id, index - self.offsets[shard_id]
+        for file_id in range(len(self.offsets) - 1):
+            if self.offsets[file_id] <= index < self.offsets[file_id + 1]:
+                return file_id, index - self.offsets[file_id]
 
-        raise IndexError(f"Index {index} was not found in any shard.")
+        raise IndexError(f"Index {index} was not found in any jsonl file.")
 
     def __getitem__(self, index: int) -> torch.Tensor:
-        shard_id, local_index = self._locate(index)
-        shard_path = os.path.join(self.shards_dir, self.shard_info[shard_id]["path"])
-        sample = self._get_memmap(shard_path)[local_index]
-
-        if not np.issubdtype(sample.dtype, np.integer):
-            raise TypeError(
-                "Stage 2 BERT encoder currently expects integer VQ token ids. "
-                f"Got dtype {sample.dtype} from {shard_path}."
-            )
-        return torch.from_numpy(np.asarray(sample, dtype=np.int64))
+        file_id, local_index = self._locate(index)
+        samples = self._load_file(self.files[file_id])
+        return samples[local_index]
 
 
 class Stage2Collator:
     """Pad token-id samples into one batch."""
 
-    def __init__(self, pad_token_id: int = 0) -> None:
+    def __init__(self, pad_token_id: int = 0, max_length: int | None = None) -> None:
         self.pad_token_id = pad_token_id
+        self.max_length = max_length
 
     def __call__(self, samples: list[torch.Tensor]) -> Stage2Batch:
+        if self.max_length is not None:
+            samples = [sample[: self.max_length] for sample in samples]
+
         max_len = max(sample.shape[0] for sample in samples)
         input_ids = torch.full(
             (len(samples), max_len),

@@ -1,0 +1,364 @@
+run_name: ThisIsARunName
+seed: 6198
+dry_run: false
+
+wandb:
+   entity: YourWandbEntity
+   name: ${run_name}
+   project: olmo-project
+
+model:
+  # 模型的隐藏层维度（也叫 d_model 或 hidden_size）
+  # 所有注意力、前馈网络和嵌入层都基于这个维度
+  # 常见值：768, 1024, 2048, 4096 等
+  # 示例中为 256，属于非常小的实验性模型（如 OLMo-20M）
+  d_model: 768
+
+  # 多头注意力机制中的“头”数量
+  # 总注意力维度 = d_model / n_heads，每个头处理一部分信息
+  # 必须能整除 d_model
+  # 示例：256 / 8 = 32，每个头处理 32 维
+  n_heads: 12
+
+  # Transformer 的层数（即堆叠的 encoder 层数量）
+  # 更深的模型通常更强，但也更难训练
+  # 示例中为 8 层，适合小型模型
+  n_layers: 12
+
+  # MLP（前馈网络）的扩展比例
+  # 实际 MLP 中间层宽度 = d_model * mlp_ratio
+  # 示例：256 * 8 = 2048
+  # 常见值：4（GPT-2）、8（PaLM）、3.5（Llama）
+  mlp_ratio: 8
+
+  # 是否启用权重共享（weight tying）
+  # 若为 true，则输出层（解码器）的权重与输入嵌入层共享
+  # 可减少参数量、提升泛化能力，常见于语言模型
+  # weight_tying 表示是否让 输出层权重（LM Head）和 输入嵌入层（token embedding）共享参数。
+  # 启用可减少参数量 ~10%，但可能限制表达能力。
+  # OLMo-20M官方建议不共享，以获得更大灵活性。
+  weight_tying: false
+
+  # 是否使用 ALiBi（Attention with Linear Biases）位置编码
+  # ALiBi 是一种无需学习的位置偏置，能外推更长序列
+  # 当前设置为 false，表示不使用 ALiBi
+  alibi: false
+
+  # 是否使用 RoPE（Rotary Position Embedding）
+  # RoPE 是当前主流的位置编码方式（如 Llama 系列使用）
+  # 它通过旋转矩阵将位置信息注入注意力计算
+  # 设置为 true 表示启用 RoPE
+  rope: true
+
+  # 是否使用 Flash Attention（优化版注意力实现）
+  # Flash Attention 能显著提升训练速度并降低显存占用
+  # 需要硬件和 CUDA 版本支持（如 A100、H100）
+  flash_attention: true
+
+  # 注意力权重的 dropout 概率
+  # 在 softmax 后应用 dropout，防止注意力过度关注某些 token
+  # 0.0 表示不使用 dropout
+  attention_dropout: 0.0
+
+  # 是否在所有线性层（如 QKV、MLP）中包含 bias 偏置项
+  # false 表示不加 bias，可减少参数和计算
+  # 注意：如果使用 RMSNorm 或 LayerNorm 且后面接 Norm，bias 可省略
+  include_bias: false
+
+
+  # OLMo-20M：clip_qkv: null
+  # lip_qkv 是一个可选功能，用于裁剪 QKV 权重的初始值，防止梯度爆炸。
+  # null 表示不启用。
+  clip_qkv: null
+
+
+  # Transformer 块的结构类型
+  # "sequential" 表示标准的：Norm → Attention → Dropout → Add → Norm → MLP → Dropout → Add
+  # 其他可能值：parallel（如 Pre-LN）、reversed 等
+  block_type: sequential
+
+  # 使用哪种归一化（Normalization）层
+  # "rms" 表示 RMSNorm（Root Mean Square Layer Normalization）
+  # 比标准 LayerNorm 更轻量，Llama 系列使用
+  # 其他选项可能包括 "layer"（标准 LayerNorm）
+  layer_norm_type: rms
+
+  # 是否在归一化层中使用可学习的缩放参数（affine transformation）
+  # true 表示有可学习的 gamma（scale）参数
+  # RMSNorm 通常使用 scale 参数
+  layer_norm_with_affine: true
+
+  # RMSNorm / LayerNorm 的 epsilon，用于数值稳定性
+  # 防止除以 0，通常设为 1e-5 ~ 1e-6
+  layer_norm_eps: 1e-6
+
+  # 是否在归一化层中使用 bias（偏置项）
+  # RMSNorm 通常无 bias，设为 false
+  bias_for_layer_norm: false
+
+  # 是否对注意力输入进行归一化（即 Pre-LN 结构）
+  # true 表示在 QKV 计算前对输入做一次归一化
+  # 有助于稳定深层训练
+  # 你的配置：attention_layer_norm: true
+  # OLMo-20M：false
+  # 表示是否在 注意力模块内部 对 QKV 输入做一次归一化。
+  # 启用可提升稳定性，尤其深层模型。
+  # 焦帅: 因为OLMo-20M 是浅层模型（8 层），所以默认关闭。  
+  attention_layer_norm: true
+
+  # 是否在 attention_layer_norm 中使用可学习的缩放参数
+  # 如果 attention_layer_norm 为 false，则此项无效
+  # 但如果你启用了它，还加了 affine（可学习缩放），说明你希望更精细控制注意力输入分布。
+  # OLMo-20M：false
+  attention_layer_norm_with_affine: true
+
+  # 是否在残差连接之后进行归一化（Post-LN）
+  # false 表示 Pre-LN（归一化在残差前），true 表示 Post-LN
+  # 当前设置为 true，表示 Norm 在残差之后（标准 Post-LN）
+  # 但注意：结合 attention_layer_norm=true，可能是混合结构
+  # OLMo-20M：未设置 → 默认为 false（Pre-LN
+  # OLMo 系列通常使用 Pre-LN（norm_after=false）
+  norm_after: true
+
+  # 激活函数类型
+  # "swiglu" 表示 SwiGLU 激活函数：x * sigmoid(x) * W
+  # 需要 MLP 实际宽度为 d_model * mlp_ratio * 2/3（因 SwiGLU 有门控分支）
+  # 比 ReLU、GELU 更高效，PaLM、Llama2 使用
+  activation_type: swiglu
+
+  # 残差连接后的 dropout 概率（应用于 Attention 和 MLP 输出）
+  # 0.0 表示不使用
+  residual_dropout: 0.0
+
+  # 嵌入层（词向量）的 dropout 概率
+  # 0.0 表示不使用
+  embedding_dropout: 0.0
+
+  # 模型支持的最大序列长度
+  # 影响 RoPE 缓存、KV Cache 大小等
+  # 示例中为 4096，常见值有 2048、8192、32768
+  # 焦帅: 因为崖州湾模型班训练olmo20m是为了学习模型训练过程，所以焦帅名下的组,都会把max_seqence_length设置为512, 同时
+  # 焦帅在之前已经将预训练数据最大化对齐到500个token。PAD填充率已经降到最低。
+  # 这么做是为了让20M训练能尽快结束，不要走的时间太长。
+  max_sequence_length: 8192
+
+  # 词表大小（vocabulary size）
+  # 表示模型能识别的不同 token 数量
+  # OLMo 使用的是 SentencePiece 或 BPE 分词，这里为 151643
+  # 焦帅: qwen2.5直接以tokenizer.vocab_size为准没有问题,但qwen3 使用了added_token机制，所以你要把vocab_size+26个added_tokens才能算作最终vocab_size, olmo2已经兼容了这个机制。
+  # 焦帅: 下面打印的是焦帅对qwen3-0.6B的tokenizer的归纳
+  # 🔍 正在加载模型: Qwen/Qwen3-0.6B
+  # ------------------------------------------------------------
+  # ✅ Tokenizer 信息:
+  #  Vocab Size (原始词表大小): 151,643
+  #  Added/Special Tokens 数量: 26
+  #  总 Token ID 数量 (len(tokenizer)): 151,669
+  #  vocab_size + added_tokens = 151,643 + 26 = 151,669
+  #  ✅ 实际 len(tokenizer): 151,669
+  #  🟢 相加结果正确！
+  #  EOS Token: '<|im_end|>' (ID: 151645)
+  #  PAD Token: '<|endoftext|>' (ID: 151643)
+  #  Unknown Token: None (ID: None)
+  #  Model Max Length: 131072
+  # EOS Token ID: 151645
+  # PAD Token ID: 151643
+  # ------------------------------------------------------------
+  # ✅ 模型结构信息:
+  #  Hidden Size (d_model / embedding dim): 1,024
+  #  Number of Layers: 28
+  #  Number of Attention Heads: 16
+  #  Number of KV Heads: 8
+  #  Intermediate Size (FFN): 3,072
+  #  Maximum Position Embeddings: 40,960
+  # ------------------------------------------------------------
+  # ✅ Embedding 层信息:
+  #  Embedding Matrix Shape: torch.Size([151936, 1024])
+  #  → Number of Embeddings (embedding_size): 151,936
+  #  → Dimension of Each Embedding (hidden_size): 1,024
+  #  ⚠️  不匹配！可能是分词器与模型不一致
+  vocab_size: 8196
+
+  # 嵌入层的大小（通常等于 vocab_size）
+  # 有些模型会做 factorized embedding，此时 embedding_size ≠ vocab_size
+  # 焦帅:Qwen3 这个地方vocab_size小于embedding_size
+  # qwen3的 nn.Embedding(vocab_size=151936, hidden_size=1024) 是用 151,936 初始化的
+  # 多出来的 151936 - 151643 = 293 个 slot 是 padding IDs（填充到 64 的倍数）
+  # 原因是: 现代 GPU（尤其是 NVIDIA 的 Tensor Core）在处理维度为 64 或 128 倍数 的矩阵时效率最高。
+  # 所以 Hugging Face Transformers 和多数大模型框架会：
+  # 将 vocab_size 向上对齐到最近的 64 的倍数，作为 embedding 层的实际大小。
+  # 焦帅：那么多出来的293个空间，“多余的 token”会被使用吗？不会的，因为ID ≥ 151,643 的 token 不会被 tokenizer 正常生成。
+  # 这些“额外”的 embedding 向量在训练中通常 不会被梯度更新，除非你显式使用了这些 ID。
+  #
+  embedding_size: 8320
+
+  # 结束符 token 的 ID（End-of-Sequence）
+  # 用于标记句子结束，在生成时作为停止信号
+  eos_token_id: 8193
+
+  # 填充符 token 的 ID（Padding）
+  # 用于 batch 内 padding 到相同长度
+  # 注意：这里 eos_token_id == pad_token_id，表示用 EOS 做 padding
+  # 这是常见做法，避免引入额外 token
+  pad_token_id: 8194
+
+  # 参数初始化时使用的设备
+  # "meta" 表示在 meta 设备上初始化（延迟分配内存）
+  # 用于支持 FSDP（Fully Sharded Data Parallel）等分布式训练
+  # 其他可能值："cpu", "cuda"
+  # 配置：meta（延迟初始化）
+  # OLMo-20M：cuda（立即在 GPU 上初始化）
+  # meta：用于 FSDP / DDP 分布式训练，避免内存爆炸。
+  # cuda：单卡或小规模训练可用，简单直接。
+  # 如果你用单卡训练小模型，cuda 没问题；如果上多卡，建议用 meta。
+  init_device: cuda
+
+  # 参数初始化方法
+  # "normal" 表示从正态分布 N(0, std) 中采样
+  # 其他可能值："uniform", "xavier", "kaiming" 等
+  init_fn: normal
+
+  # 正态初始化的标准差（std）
+  # 控制初始权重的幅度，影响训练稳定性
+  # 通常设为较小值，如 0.02、0.01
+  init_std: 0.02
+
+  # 初始化的裁剪因子（cutoff factor）
+  # 可能用于裁剪初始化值（如 trunc_normal），防止极端值
+  # 例如：截断在 mean ± cutoff_factor * std 范围内
+  # 具体实现取决于代码
+  init_cutoff_factor: 3
+
+
+compile: null
+
+optimizer:
+  name: adamw
+  learning_rate: 1.0e-4
+  weight_decay: 0.1
+  eps: 1e-8
+  decay_norm_and_bias: true
+  decay_embeddings: true
+  betas:
+  - 0.9
+  - 0.95
+  metrics_log_interval: 10
+
+scheduler:
+  name: cosine_with_warmup
+  units: steps
+  t_warmup: 200
+  alpha_f: 0.01
+  warmup_min_lr: 0
+
+tokenizer:
+  # identifier: tokenizers/allenai_dolma2.json
+  identifier: olmo_data/tokenizers/tokenizer_bwav/tokenizer.json
+  truncate_direction: right
+
+save_folder: save/olmo_output
+save_overwrite: true
+
+save_interval: 100
+save_interval_ephemeral: 100
+save_num_checkpoints_to_keep: 2
+sharded_checkpointer: olmo_core
+
+save_interval_unsharded: 100
+save_num_unsharded_checkpoints_to_keep: 10
+
+load_path: null
+
+max_duration: 3ep
+#stop_at: 406_934
+global_train_batch_size: 256
+device_train_microbatch_size: 4
+
+precision: amp_bf16
+
+fsdp:
+  wrapping_strategy: null
+  sharding_strategy: SHARD_GRAD_OP
+  precision: mixed
+
+max_grad_norm: 1.0
+max_grad_norm_ratio: null
+
+speed_monitor:
+  window_size: 1
+
+gen1_gc_interval: 10
+
+eval_interval: 1000
+eval_subset_num_batches: -1
+device_eval_batch_size: ${device_train_microbatch_size}
+# evaluators:
+  #- label: all-small-ppl-validation
+  #  data:
+  #    num_workers: 0
+  #    drop_last: true
+  #    # generate_doc_lengths: true
+  #    memmap_dtype: uint16
+  #    datasets:
+  #      small_eval:
+  #        - olmo_data/dataset/pretrain/sft_mini_512_simple_eval.npy
+
+
+  ##########################
+  # Downstream evaluations #
+  ##########################
+
+
+data:
+  pad_direction: right
+  # generate_doc_lengths: true
+  num_workers: 32
+  drop_last: true
+  pin_memory: true
+  prefetch_factor: 8
+  persistent_workers: true
+  memmap_dtype: uint16
+  timeout: 0
+  instance_filter:
+    repetition_max_period: 13
+    repetition_min_period: 1
+    repetition_max_count: 32
+  paths:
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-00-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-01-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-02-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-03-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-04-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-05-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-06-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-07-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-08-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-09-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-10-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-11-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-12-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-13-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-14-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-15-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-16-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-17-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-18-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-19-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-20-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-21-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-22-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-23-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-24-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-25-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-26-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-27-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-28-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-29-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-30-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-31-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-32-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-33-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-34-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-35-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-36-00000.npy
+    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-37-00000.npy
+
