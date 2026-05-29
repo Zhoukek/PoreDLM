@@ -11,16 +11,18 @@ bash PoreDLM/src/poredlm/training/stage1_tokenizer/runs/test_zhou/run.sh
 
 ~~~
 数据准备：
-1. 
+1. （数据预处理，如果已经经过处理了就直接进入下面的步骤，从其他的格式变为npy文件）
+
+2. 
 ~~~
 
 ## Stage 2: BERT_Encoder Traing
 
 ~~~
 数据准备：
-1. 
+1. bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_token_jsol.gz.sh (从npy文件到jsol.gz文件)
 
-
+2. bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step02_split_jsol.gz.sh (jsol.gz文件划分，从不同数量，划分为特定长度，比如1280个token)
 
 ~~~
 

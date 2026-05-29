@@ -26,10 +26,9 @@ from accelerate import Accelerator, DistributedType
 # Relative imports from the same package
 # Note: The relative imports might need adjustment depending on your package structure.
 # If this script is run directly, you might need to add the parent directory to sys.path.
-from dataset import NanoporeSignalDataset
-from tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
-from tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
-from tokenizer_model_v2 import Nanopore_Tokenizer_Model_V2
+from training.stage1_tokenizer.dataset import NanoporeSignalDataset
+from training.stage1_tokenizer.tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
+from training.stage1_tokenizer.tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
 
 from accelerate import InitProcessGroupKwargs
 from datetime import timedelta
@@ -365,6 +364,7 @@ def vqe_train(
     dataset_logic_chunk_size: int = 6000,
     teacher_model_path: str = None,
     seed: int = 42,
+    distill_loss_weight: float = 1.0
 ):
     """
     Training of Nanopore VQ tokenizer using Hugging Face Accelerate.
@@ -438,7 +438,8 @@ def vqe_train(
         dataset_logic_chunk_size=dataset_logic_chunk_size,
         codebook_type=codebook_type,
         teacher_model_path=teacher_model_path,
-        seed=seed
+        seed=seed,
+        distill_loss_weight=distill_loss_weight
     )
 
     seed_all(seed)
@@ -493,7 +494,8 @@ def vqe_train(
                 "world_size": accelerator.num_processes, # Changed from 'world_size'
                 "mixed_precision": mixed_precision,
                 "global_batch_size": global_batch_size,
-                "seed": seed
+                "seed": seed,
+                "distill_loss_weight": distill_loss_weight,
         },
         # init_kwargs={"wandb": {"entity": "jiaoshuaihit-hit","name":wandb_name}}
         init_kwargs={"wandb": {"entity": "zhoukek-zhejiang-university","name":wandb_name}}
@@ -576,7 +578,7 @@ def vqe_train(
 
         # --- 根据模型类型初始化分布式计数器 ---
         # 将token计数张量分配到加速器设备（GPU）上，以便在推理时直接操作
-        if codebook_type == "VQ":
+        if codebook_type[:2] == "VQ":
             token_counts_gpu_0 = torch.zeros(codebook_size, device=accelerator.device)
             token_counts_gpu_1 = None # 该模型类型无第二层
             token_counts_gpu_2 = None # <-- 新增
@@ -625,8 +627,6 @@ def vqe_train(
                     flat_indices = indices.flatten()
                     # 使用scatter_add_原地更新计数张量，高效且内存友好
                     token_counts_gpu_0.scatter_add_(0, flat_indices, torch.ones_like(flat_indices, dtype=torch.float))
-                elif codebook_type == "VQ_distill_BERT" and model_type == 2:
-                    pass
                 elif codebook_type == "RVQ": # 处理 Residual Vector Quantization (RVQ) 模型
                     pass
 
@@ -634,17 +634,10 @@ def vqe_train(
 
         # --- 分布式聚合 (All-Reduce) ---
         # 将所有GPU上计算的计数结果汇总到一起
-        if codebook_type == "VQ" and model_type == 0:
+        if codebook_type[:2] == "VQ":
             global_counts_tensor_0 = accelerator.reduce(token_counts_gpu_0, reduction="sum")
             global_counts_0 = global_counts_tensor_0.cpu().numpy() # 转换回CPU numpy数组以便计算
             global_counts_1 = None
-            global_counts_2 = None
-            global_counts_3 = None
-        elif codebook_type == "RVQ":
-            global_counts_tensor_0 = accelerator.reduce(token_counts_gpu_0, reduction="sum")
-            global_counts_tensor_1 = accelerator.reduce(token_counts_gpu_1, reduction="sum")
-            global_counts_0 = global_counts_tensor_0.cpu().numpy()
-            global_counts_1 = global_counts_tensor_1.cpu().numpy()
             global_counts_2 = None
             global_counts_3 = None
         else:
@@ -749,21 +742,6 @@ def vqe_train(
         )
     elif codebook_type == "VQ_distill" and model_type == 1:
         model = Nanopore_Tokenizer_Model_V1(
-            codebook_size=codebook_size,
-            codebook_decay=codebook_decay,
-            codebook_emadc=codebook_emadc,
-            commitment_weight=commitment_weight,
-            codebook_diversity_loss_weight=codebook_diversity_loss_weight,
-            orthogonal_reg_weight=orthogonal_reg_weight,
-            cnn_type=cnn_type,
-            init_codebook_path=init_codebook_path,
-            cnn_checkpoint_path = cnn_checkpoint_path,
-            freeze_cnn = freeze_cnn,
-            learnable_codebook=learnable_codebook,
-            teacher_model_path=teacher_model_path,
-        )
-    elif codebook_type == "VQ_distill_BERT" and model_type == 2:
-        model = Nanopore_Tokenizer_Model_V2(
             codebook_size=codebook_size,
             codebook_decay=codebook_decay,
             codebook_emadc=codebook_emadc,
@@ -1031,14 +1009,7 @@ def vqe_train(
                     comit_loss = loss_breakdown.commitment
                     diver_loss = loss_breakdown.codebook_diversity
                     ortho_loss = loss_breakdown.orthogonal_reg
-                    total_loss = recon_loss + comit_loss * dynamic_commitment_weight + distill_loss * 1.0
-                elif codebook_type == "VQ_distill_BERT" and model_type == 2:
-                    recon, indices, break_loss, loss_breakdown, distill_loss = model(x)
-                    recon_loss = F.mse_loss(recon, x)
-                    comit_loss = loss_breakdown.commitment
-                    diver_loss = loss_breakdown.codebook_diversity
-                    ortho_loss = loss_breakdown.orthogonal_reg
-                    total_loss = recon_loss + comit_loss * dynamic_commitment_weight + distill_loss * 1.0
+                    total_loss = recon_loss + comit_loss * dynamic_commitment_weight + distill_loss * distill_loss_weight
                 elif codebook_type == "RVQ":
                     recon, indices, all_loss, all_codes = model(x)
                     recon_loss = F.mse_loss(recon, x)
@@ -1351,6 +1322,7 @@ def main():
         checkpoint_path=config.get("checkpoint_path"),
 
         seed=config.get("seed", 42),
+        distill_loss_weight=config.get("loss", {}).get("distill_loss_weight", 1.0)
     )
 
 if __name__ == "__main__":

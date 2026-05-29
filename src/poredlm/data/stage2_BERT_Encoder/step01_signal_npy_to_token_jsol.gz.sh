@@ -8,9 +8,9 @@ export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:/mnt/zzbnew/rnamod
 
 # Input directory containing .npy files
 # INPUT_DIR="/mnt/si003067jezr/default/poregpt/dataset/human_dna_595g/memap_mongoq30/trank"
-INPUT_DIR="/mnt/si003067jezr/default/poregpt/dataset/human_dna_032g/memap_lemonq0"
+INPUT_DIR="/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/poregpt/dataset/human_dna_032g_baseline"
+OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
 
 #!/bin/bash
@@ -21,20 +21,20 @@ OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/poregpt/dataset/human_dna_032g_basel
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13-baseline_model-lemon/encoder"
+MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/encoder"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 
-MODEL_TYPE=25
+MODEL_TYPE=0
 
 # Number of GPUs to use
-NUM_GPUS=8 # <--- CHANGE THIS to the number of GPUs you want to use
+NUM_GPUS=2 # <--- CHANGE THIS to the number of GPUs you want to use
 
 # Batch size for tokenization (adjust based on your GPU memory)
 BATCH_SIZE=8 # Adjust as needed
 
 # Maximum number of concurrent tasks (recommended to match NUM_GPUS)
-MAX_CONCURRENT=8 # Usually best to keep this equal to NUM_GPUS
+MAX_CONCURRENT=2 # Usually best to keep this equal to NUM_GPUS
 
 # --- End of Configuration ---
 
@@ -132,10 +132,10 @@ for npy_file in "${all_files[@]}"; do
     # Construct the device string and pass it via --device
     DEVICE_ARG="cuda:$gpu_id" # Fixed: Removed space after :
     echo "Executing: poredlm-vqe-tokenize-trank -i '$npy_file' -o '$output_file' --model-ckpt '$MODEL_CHECKPOINT' --device '$DEVICE_ARG' --batch-size $BATCH_SIZE"
-    poregpt-vqe-tokenize-trank \
+    python /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_jsol.gz.py \
          -i "$npy_file" \
          -o "$output_file" \
-	 --model-type $MODEL_TYPE \
+	     --model-type $MODEL_TYPE \
          --model-ckpt "$MODEL_CHECKPOINT" \
          --device "$DEVICE_ARG" \
          --batch-size $BATCH_SIZE &

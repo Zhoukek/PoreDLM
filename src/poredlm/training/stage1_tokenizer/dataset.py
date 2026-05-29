@@ -178,6 +178,9 @@ class NanoporeSignalDataset(Dataset):
 
         result = torch.from_numpy(logic_chunk.copy()).unsqueeze(0)  # shape: (1, logic_chunk_size)
         
+        # 添加这一行：确保返回 FP32
+        result = result.float()  # 强制转换为 FP32
+        
         if debug:
             print(f"  Final result shape: {result.shape}")
             print(f"  Result stats - min: {result.min():.4f}, max: {result.max():.4f}, mean: {result.mean():.4f}")

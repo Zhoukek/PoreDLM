@@ -62,6 +62,7 @@ class Nanopore_Tokenizer_Model_V1(nn.Module):
         self.codebook_size = codebook_size
         self.cnn_stride = self.cnn_model.stride
         self.RF = self.cnn_model.RF
+        self.teacher_model_path = teacher_model_path
 
 
         print(f"codebook_dim:{codebook_dim}")
@@ -103,8 +104,6 @@ class Nanopore_Tokenizer_Model_V1(nn.Module):
 
             for name, param in self.teacher_model.named_parameters():
                 param.requires_grad = False
-        else:
-            raise ValueError("当 codebook_type 是 'VQ_distill' 时，必须提供 teacher_model_path")
         
 
         # 如果有初始codebook路径，加载它
@@ -282,34 +281,35 @@ class Nanopore_Tokenizer_Model_V1(nn.Module):
         distill_loss = torch.tensor(0.0, device=x.device)
         teacher_features = None
 
-        # 确保 teacher 和输入在同一个 device
-        self.teacher_model.float()
-        if next(self.teacher_model.parameters()).device != x.device:
-            self.teacher_model = self.teacher_model.to(x.device)
+        if self.teacher_model_path is not None:
+            # 确保 teacher 和输入在同一个 device
+            self.teacher_model.float()
+            if next(self.teacher_model.parameters()).device != x.device:
+                self.teacher_model = self.teacher_model.to(x.device)
 
 
-        # 严格使用 no_grad，防止 PyTorch 为 Teacher 构建计算图
-        with torch.no_grad():
-            teacher_features = self.teacher_model.encoder[0](x)
-            teacher_features = self.teacher_model.encoder[1](teacher_features)
-            teacher_features = self.teacher_model.encoder[2](teacher_features)
+            # 严格使用 no_grad，防止 PyTorch 为 Teacher 构建计算图
+            with torch.no_grad():
+                teacher_features = self.teacher_model.encoder[0](x)
+                teacher_features = self.teacher_model.encoder[1](teacher_features)
+                teacher_features = self.teacher_model.encoder[2](teacher_features)
 
-            # teacher_features = self.teacher_model.encoder.transformer_encoder(temp)
+                # teacher_features = self.teacher_model.encoder.transformer_encoder(temp)
 
-        # print(f"Teacher features shape: {teacher_features.shape}") # 输出的是[28,200,512]
-        # print(f"Z permuted for VQ shape: {z_permuted_for_vq.shape}")# 输出的是[28,200,512]
-    
-        # CosineEmbeddingLoss 需要一个 target 标签 (1 表示我们希望两者方向一致)
-        target = torch.ones(
-                z_permuted.shape[0] * z_permuted.shape[1], 
-                device=x.device
-            )
-        # 将 [B, N, 512] 展平为 [B*N, 512] 进行点对点 Loss 计算
-        distill_loss = F.cosine_embedding_loss(
-                z_permuted.reshape(-1, 768),
-                teacher_features.reshape(-1, 768),
-                target
-            )
+            # print(f"Teacher features shape: {teacher_features.shape}") # 输出的是[28,200,512]
+            # print(f"Z permuted for VQ shape: {z_permuted_for_vq.shape}")# 输出的是[28,200,512]
+        
+            # CosineEmbeddingLoss 需要一个 target 标签 (1 表示我们希望两者方向一致)
+            target = torch.ones(
+                    z_permuted.shape[0] * z_permuted.shape[1], 
+                    device=x.device
+                )
+            # 将 [B, N, 512] 展平为 [B*N, 512] 进行点对点 Loss 计算
+            distill_loss = F.cosine_embedding_loss(
+                    z_permuted.reshape(-1, 768),
+                    teacher_features.reshape(-1, 768),
+                    target
+                )
     
         z_quantized_permuted, indices, loss, loss_breakdown = self.vq(
             z_permuted, # 输入连续特征

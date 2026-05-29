@@ -1,0 +1,11 @@
+{
+  "total_samples": 29021,
+  "chunk_size": 5000,
+  "dtype": "float16",
+  "shards": [
+    {
+      "path": "chunks_validation.npy",
+      "num_samples": 29021
+    }
+  ]
+}

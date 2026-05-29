@@ -1,0 +1,11 @@
+{
+  "total_samples": 193471,
+  "chunk_size": 5000,
+  "dtype": "float32",
+  "shards": [
+    {
+      "path": "chunks.npy",
+      "num_samples": 193471
+    }
+  ]
+}

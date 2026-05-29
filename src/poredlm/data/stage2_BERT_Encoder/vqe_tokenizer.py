@@ -29,9 +29,8 @@ import pyccf5 as slow5
 
 from accelerate import Accelerator
 # Import your model definition (must define NanoporeVQModel)
-from training.tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
-from training.tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
-from training.tokenizer_model_v2 import Nanopore_Tokenizer_Model_V2
+from training.stage1_tokenizer.tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
+from training.stage1_tokenizer.tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
 
 import torch.nn.functional as F
 
@@ -189,8 +188,7 @@ class VQETokenizer:
             codebook_nqtz = 0
             raise RuntimeError(f"Unexpected codebook nqtz: {codebook_nqtz}")
         else:
-            codebook_nqtz = ckpt_data['codebook_nqtz']
-
+            pass
 
 
         if codebook_size == 0:
@@ -218,38 +216,10 @@ class VQETokenizer:
         self.codebook_size = codebook_size
 
         # --- Instantiate model ---
-        if model_type == 1:
-            self.model = NanoporeVQEModel_V1(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 2:
-            self.model = NanoporeVQEModel_V2(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 3:
-            self.model = NanoporeVQEModel_V3(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 4:
-            self.model = NanoporeVQEModel_V4(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 5:
-            self.model = NanoporeVQEModel_V5(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 6:
-            self.model = NanoporeVQEModel_V6(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 7:
-            self.model = NanoporeVQEModel_V7(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 8:
-            self.model = NanoporeVQEModel_V8(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 9:
-            self.model = NanoporeVQEModel_V9(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 10:
-            self.model = NanoporeVQEModel_V10(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 11:
-            self.model = NanoporeVQEModel_V11(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 12:
-            codebook_fsqd = ckpt_data["codebook_fsqd"]
-            codebook_fsqn = ckpt_data["codebook_fsqn"]
-            self.model = NanoporeVQEModel_V12(codebook_size=codebook_size,codebook_nqtz=codebook_nqtz,fsq_level_d=codebook_fsqd,fsq_level_n=codebook_fsqn,cnn_type=cnn_type)
-        elif model_type == 13:
-            self.model = NanoporeVQEModel_V13(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 25:
-            self.model = NanoporeVQEModel_V25(codebook_size=codebook_size,cnn_type=cnn_type)
-        elif model_type == 26:
-            self.model = NanoporeVQEModel_V26(codebook_size=codebook_size,cnn_type=cnn_type)
+        if model_type == 0:
+            self.model = Nanopore_Tokenizer_Model_V0(codebook_size=codebook_size, cnn_type=cnn_type)
+        elif model_type == 1:
+            self.model = Nanopore_Tokenizer_Model_V1(codebook_size=codebook_size, cnn_type=cnn_type, )
         else:
             raise RuntimeError(f"Unexpected model type: {model_type}")
         

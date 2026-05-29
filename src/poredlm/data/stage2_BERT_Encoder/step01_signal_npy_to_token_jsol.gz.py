@@ -12,7 +12,7 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import argparse
-from .vqe_tokenizer import VQETokenizer
+from vqe_tokenizer import VQETokenizer
 import torch
 
 
