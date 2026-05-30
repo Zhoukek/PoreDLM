@@ -13,9 +13,13 @@ data:
 
 model:
   # Stage 1 codebook ids are 0..8195. 加上129个token，再加一个Reserve 65536 as the BERT [MASK] id.
+  tokenizer_path: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json"
   vocab_size: 8325
   mask_token_id: 4
   pad_token_id: 1
+  unk_token_id: 0
+  random_token_min_id: 129
+  random_token_max_id: 8325
   hidden_size: 768
   num_hidden_layers: 4
   num_attention_heads: 8
@@ -26,7 +30,7 @@ model:
   mask_probability: 0.15
 
 training:
-  max_steps: 50000
+  max_steps: 200000
   learning_rate: 5.0e-5
   weight_decay: 0.01
   warmup_steps: 1000
@@ -38,7 +42,9 @@ training:
   output_dir: "models/stage2_BERT_Encoder"
   log_dir: "log"
   log_every_steps: 10
-  save_every_steps: 10000
+  eval_every_steps: 1000
+  max_eval_batches: 100
+  save_every_steps: 50000
 
 wandb:
   use_wandb: True

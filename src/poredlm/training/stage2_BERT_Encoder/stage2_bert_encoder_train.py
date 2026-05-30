@@ -108,8 +108,12 @@ def print_startup_summary(
                 "model": {
                     "type": model.__class__.__name__,
                     "vocab_size": model_cfg.get("vocab_size"),
+                    "tokenizer_path": model_cfg.get("tokenizer_path"),
                     "mask_token_id": model_cfg.get("mask_token_id"),
                     "pad_token_id": model_cfg.get("pad_token_id"),
+                    "unk_token_id": model_cfg.get("unk_token_id"),
+                    "random_token_min_id": model_cfg.get("random_token_min_id"),
+                    "random_token_max_id": model_cfg.get("random_token_max_id"),
                     "hidden_size": model_cfg.get("hidden_size"),
                     "num_hidden_layers": model_cfg.get("num_hidden_layers"),
                     "num_attention_heads": model_cfg.get("num_attention_heads"),
@@ -131,6 +135,8 @@ def print_startup_summary(
                     "gradient_clipping": training_cfg.get("gradient_clipping"),
                     "output_dir": training_cfg.get("output_dir"),
                     "log_every_steps": training_cfg.get("log_every_steps"),
+                    "eval_every_steps": training_cfg.get("eval_every_steps"),
+                    "max_eval_batches": training_cfg.get("max_eval_batches"),
                     "save_every_steps": training_cfg.get("save_every_steps"),
                 },
             },
@@ -150,6 +156,8 @@ def mask_token_ids(
     vocab_size: int,
     mask_token_id: int,
     mask_probability: float,
+    random_token_min_id: int = 0,
+    random_token_max_id: int | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Apply BERT MLM masking to VQ token ids."""
 
@@ -175,8 +183,9 @@ def mask_token_ids(
         & masked_indices
         & ~replace_with_mask
     )
-    random_token_upper_bound = min(mask_token_id, vocab_size)
+    random_token_upper_bound = min(random_token_max_id or vocab_size, vocab_size)
     random_tokens = torch.randint(
+        random_token_min_id,
         random_token_upper_bound,
         labels.shape,
         dtype=torch.long,
@@ -189,11 +198,15 @@ def mask_token_ids(
 
 def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     data_cfg = config["data"]
+    model_cfg = config.get("model", {})
     path_key = f"{split}_dir"
     dataset = Stage2TokenJsonlDataset(
         data_dir=data_cfg[path_key],
         pattern=str(data_cfg.get(f"{split}_pattern", data_cfg.get("file_pattern", "*.jsonl.gz"))),
         max_cache_files=int(data_cfg.get("max_cache_files", 2)),
+        tokenizer_path=model_cfg.get("tokenizer_path"),
+        unk_token_id=int(model_cfg.get("unk_token_id", 0)),
+        vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
     )
     collator = Stage2Collator(
         pad_token_id=int(config.get("model", {}).get("pad_token_id", 0)),
@@ -210,7 +223,12 @@ def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
         drop_last=(split == "train"),
     )
 
-def save_checkpoint(accelerator: Accelerator, model: torch.nn.Module, output_dir: str, step: int) -> None:
+def save_checkpoint(
+    accelerator: Accelerator,
+    model: torch.nn.Module,
+    output_dir: str,
+    step: int | str,
+) -> None:
     accelerator.wait_for_everyone()
     if not accelerator.is_main_process:
         return
@@ -222,6 +240,104 @@ def save_checkpoint(accelerator: Accelerator, model: torch.nn.Module, output_dir
         unwrapped.save_pretrained(save_dir)
     else:
         torch.save(unwrapped.state_dict(), save_dir / "pytorch_model.bin")
+
+
+def evaluate(
+    accelerator: Accelerator,
+    model: torch.nn.Module,
+    valid_loader: DataLoader,
+    vocab_size: int,
+    mask_token_id: int,
+    mask_probability: float,
+    random_token_min_id: int = 0,
+    random_token_max_id: int | None = None,
+    max_eval_batches: int | None = None,
+) -> dict[str, float]:
+    """Run MLM evaluation on the validation split."""
+
+    model.eval()
+    losses = []
+    top1_correct = []
+    top5_correct = []
+    top10_correct = []
+    top50_correct = []
+    masked_counts = []
+
+    with torch.no_grad():
+        for batch_index, batch in enumerate(valid_loader):
+            if max_eval_batches is not None and batch_index >= max_eval_batches:
+                break
+
+            input_ids = batch.input_ids.to(accelerator.device)
+            attention_mask = batch.attention_mask.to(accelerator.device)
+            corrupted, labels = mask_token_ids(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                vocab_size=vocab_size,
+                mask_token_id=mask_token_id,
+                mask_probability=mask_probability,
+                random_token_min_id=random_token_min_id,
+                random_token_max_id=random_token_max_id,
+            )
+            outputs = model(
+                input_ids=corrupted,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
+            losses.append(accelerator.gather_for_metrics(outputs.loss.detach()))
+
+            masked_positions = labels != -100
+            masked_count = masked_positions.sum()
+            masked_counts.append(accelerator.gather_for_metrics(masked_count.detach().reshape(1)))
+
+            if masked_count.item() > 0:
+                masked_logits = outputs.logits[masked_positions]
+                masked_labels = labels[masked_positions]
+                topk = torch.topk(masked_logits, k=min(50, masked_logits.shape[-1]), dim=-1).indices
+                top1 = (topk[:, :1] == masked_labels[:, None]).any(dim=-1).sum()
+                top5 = (topk[:, : min(5, topk.shape[-1])] == masked_labels[:, None]).any(dim=-1).sum()
+                top10 = (topk[:, : min(10, topk.shape[-1])] == masked_labels[:, None]).any(dim=-1).sum()
+                top50 = (topk == masked_labels[:, None]).any(dim=-1).sum()
+            else:
+                top1 = torch.zeros((), dtype=torch.long, device=labels.device)
+                top5 = torch.zeros((), dtype=torch.long, device=labels.device)
+                top10 = torch.zeros((), dtype=torch.long, device=labels.device)
+                top50 = torch.zeros((), dtype=torch.long, device=labels.device)
+
+            top1_correct.append(accelerator.gather_for_metrics(top1.detach().reshape(1)))
+            top5_correct.append(accelerator.gather_for_metrics(top5.detach().reshape(1)))
+            top10_correct.append(accelerator.gather_for_metrics(top10.detach().reshape(1)))
+            top50_correct.append(accelerator.gather_for_metrics(top50.detach().reshape(1)))
+
+    model.train()
+
+    if not losses:
+        return {
+            "eval/loss": float("nan"),
+            "eval/perplexity": float("nan"),
+            "eval/top1_accuracy": float("nan"),
+            "eval/top5_accuracy": float("nan"),
+            "eval/top10_accuracy": float("nan"),
+            "eval/top50_accuracy": float("nan"),
+        }
+
+    loss = torch.cat([loss.reshape(-1) for loss in losses]).mean().item()
+    perplexity = math.exp(loss) if loss < 50 else float("inf")
+    total_masked = torch.cat(masked_counts).sum().item()
+    top1 = torch.cat(top1_correct).sum().item()
+    top5 = torch.cat(top5_correct).sum().item()
+    top10 = torch.cat(top10_correct).sum().item()
+    top50 = torch.cat(top50_correct).sum().item()
+
+    return {
+        "eval/loss": loss,
+        "eval/perplexity": perplexity,
+        "eval/top1_accuracy": top1 / total_masked if total_masked else float("nan"),
+        "eval/top5_accuracy": top5 / total_masked if total_masked else float("nan"),
+        "eval/top10_accuracy": top10 / total_masked if total_masked else float("nan"),
+        "eval/top50_accuracy": top50 / total_masked if total_masked else float("nan"),
+        "eval/masked_tokens": total_masked,
+    }
 
 
 def train(config: dict[str, Any]) -> None:
@@ -293,8 +409,14 @@ def train(config: dict[str, Any]) -> None:
     output_dir = str(training_cfg.get("output_dir", "outputs/stage2_BERT_Encoder"))
     save_every = int(training_cfg.get("save_every_steps", 1000))
     log_every = int(training_cfg.get("log_every_steps", 10))
+    eval_every = int(training_cfg.get("eval_every_steps", 0))
+    max_eval_batches = training_cfg.get("max_eval_batches")
+    max_eval_batches = int(max_eval_batches) if max_eval_batches is not None else None
     vocab_size = int(model_cfg.get("vocab_size", 65537))
     mask_token_id = int(model_cfg.get("mask_token_id", vocab_size - 1))
+    random_token_min_id = int(model_cfg.get("random_token_min_id", 0))
+    random_token_max_id = int(model_cfg.get("random_token_max_id", vocab_size))
+    best_eval_loss = float("inf")
 
     progress = tqdm(total=max_steps, disable=not accelerator.is_local_main_process)
     model.train()
@@ -310,6 +432,8 @@ def train(config: dict[str, Any]) -> None:
                     vocab_size=vocab_size,
                     mask_token_id=mask_token_id,
                     mask_probability=mask_probability,
+                    random_token_min_id=random_token_min_id,
+                    random_token_max_id=random_token_max_id,
                 )
                 outputs = model(
                     input_ids=corrupted,
@@ -346,6 +470,28 @@ def train(config: dict[str, Any]) -> None:
 
                 if global_step % save_every == 0:
                     save_checkpoint(accelerator, model, output_dir, global_step)
+
+                if valid_loader is not None and eval_every > 0 and global_step % eval_every == 0:
+                    eval_logs = evaluate(
+                        accelerator=accelerator,
+                        model=model,
+                        valid_loader=valid_loader,
+                        vocab_size=vocab_size,
+                        mask_token_id=mask_token_id,
+                        mask_probability=mask_probability,
+                        random_token_min_id=random_token_min_id,
+                        random_token_max_id=random_token_max_id,
+                        max_eval_batches=max_eval_batches,
+                    )
+                    eval_logs["step"] = global_step
+                    accelerator.log(eval_logs, step=global_step)
+                    if accelerator.is_main_process:
+                        print(eval_logs)
+
+                    eval_loss = eval_logs["eval/loss"]
+                    if eval_loss == eval_loss and eval_loss < best_eval_loss:
+                        best_eval_loss = eval_loss
+                        save_checkpoint(accelerator, model, output_dir, "best")
 
                 if global_step >= max_steps:
                     break

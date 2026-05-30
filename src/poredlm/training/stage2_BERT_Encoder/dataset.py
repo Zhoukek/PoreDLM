@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import Dataset
 
 
-BWAV_TOKEN_PATTERN = re.compile(r"<\|bwav:(\d+)\|>")
+BWAV_TOKEN_PATTERN = re.compile(r"<\|bwav:\d+\|>")
 
 
 @dataclass(frozen=True)
@@ -24,13 +24,33 @@ class Stage2Batch:
     attention_mask: torch.Tensor | None = None
 
 
-def parse_bwav_token_text(text: str) -> torch.Tensor:
-    """Parse ``<|bwav:123|>`` token text into integer token ids."""
+def load_tokenizer_vocab(tokenizer_path: str | None) -> dict[str, int] | None:
+    """Load the WordLevel vocab from a tokenizer.json file."""
 
-    ids = BWAV_TOKEN_PATTERN.findall(text)
-    if not ids:
+    if not tokenizer_path:
+        return None
+
+    with Path(tokenizer_path).open("r", encoding="utf-8") as handle:
+        tokenizer = json.load(handle)
+    return tokenizer["model"]["vocab"]
+
+
+def parse_bwav_token_text(
+    text: str,
+    vocab: dict[str, int] | None = None,
+    unk_token_id: int = 0,
+) -> torch.Tensor:
+    """Parse ``<|bwav:123|>`` text into BERT vocab ids."""
+
+    tokens = BWAV_TOKEN_PATTERN.findall(text)
+    if not tokens:
         raise ValueError("No <|bwav:id|> tokens found in jsonl text field.")
-    return torch.tensor([int(token_id) for token_id in ids], dtype=torch.long)
+
+    if vocab is None:
+        ids = [int(token.removeprefix("<|bwav:").removesuffix("|>")) for token in tokens]
+    else:
+        ids = [vocab.get(token, unk_token_id) for token in tokens]
+    return torch.tensor(ids, dtype=torch.long)
 
 
 class Stage2TokenJsonlDataset(Dataset):
@@ -45,10 +65,17 @@ class Stage2TokenJsonlDataset(Dataset):
         data_dir: str,
         pattern: str = "*.jsonl.gz",
         max_cache_files: int = 2,
+        tokenizer_path: str | None = None,
+        unk_token_id: int = 0,
+        vocab_size: int | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.pattern = pattern
         self.max_cache_files = max_cache_files
+        self.tokenizer_path = tokenizer_path
+        self.unk_token_id = unk_token_id
+        self.vocab_size = vocab_size
+        self.vocab = load_tokenizer_vocab(tokenizer_path)
         self.files = sorted(Path(data_dir).glob(pattern))
         if not self.files:
             raise FileNotFoundError(f"No files matching {pattern!r} under {data_dir!r}.")
@@ -88,7 +115,17 @@ class Stage2TokenJsonlDataset(Dataset):
                 item = json.loads(line)
                 if "text" not in item:
                     raise KeyError(f"Missing 'text' field in {path} line {line_number}.")
-                samples.append(parse_bwav_token_text(item["text"]))
+                sample = parse_bwav_token_text(
+                    item["text"],
+                    vocab=self.vocab,
+                    unk_token_id=self.unk_token_id,
+                )
+                if self.vocab_size is not None and int(sample.max()) >= self.vocab_size:
+                    raise ValueError(
+                        f"Token id out of range in {path} line {line_number}: "
+                        f"max={int(sample.max())}, vocab_size={self.vocab_size}."
+                    )
+                samples.append(sample)
 
         if len(self._cache) >= self.max_cache_files:
             self._cache.popitem(last=False)
