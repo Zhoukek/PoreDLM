@@ -4,8 +4,8 @@ reproducibility:
   seed: 42
 
 data:
-  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/processed/stage2_BERT_Encoder/train"
-  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/processed/stage2_BERT_Encoder/validation"
+  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train"
+  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train"
   num_workers: 8
   prefetch_factor: 2
   pin_memory: true
@@ -15,7 +15,7 @@ model:
   # Stage 1 codebook ids are 0..8195. 加上129个token，再加一个Reserve 65536 as the BERT [MASK] id.
   vocab_size: 8325
   mask_token_id: 4
-  pad_token_id: 0
+  pad_token_id: 1
   hidden_size: 768
   num_hidden_layers: 12
   num_attention_heads: 12
@@ -42,5 +42,5 @@ training:
 
 wandb:
   use_wandb: false
-  project: "poredlm-stage2-bert"
+  project: "stage2_BERT_Encoder_experiments"
   name: "test-zhou-stage2-bert"

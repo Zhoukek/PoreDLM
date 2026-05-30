@@ -7,10 +7,13 @@ export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:/mnt/zzbnew/rnamod
 # Modify these variables according to your setup
 
 # Input directory containing .npy files
-# INPUT_DIR="/mnt/si003067jezr/default/poregpt/dataset/human_dna_595g/memap_mongoq30/trank"
 INPUT_DIR="/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
 # Output directory for .jsonl.gz files
 OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
+
+INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/train"
+# Output directory for .jsonl.gz files
+OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/train"
 
 
 #!/bin/bash
@@ -21,11 +24,11 @@ OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/encoder"
+MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/01_without_modfiction_model_type1_cnn_type_0_8k/models/porepgt_vqe_tokenizer.step100.pth"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 
-MODEL_TYPE=0
+MODEL_TYPE=1
 
 # Number of GPUs to use
 NUM_GPUS=2 # <--- CHANGE THIS to the number of GPUs you want to use
@@ -132,7 +135,7 @@ for npy_file in "${all_files[@]}"; do
     # Construct the device string and pass it via --device
     DEVICE_ARG="cuda:$gpu_id" # Fixed: Removed space after :
     echo "Executing: poredlm-vqe-tokenize-trank -i '$npy_file' -o '$output_file' --model-ckpt '$MODEL_CHECKPOINT' --device '$DEVICE_ARG' --batch-size $BATCH_SIZE"
-    python /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_jsol.gz.py \
+    python /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_token_jsol.gz.py \
          -i "$npy_file" \
          -o "$output_file" \
 	     --model-type $MODEL_TYPE \

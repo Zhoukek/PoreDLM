@@ -93,28 +93,9 @@ def load_accelerate_checkpoint(model_ckpt_dir: str):
     model_type = metadata['model_type']
     codebook_size = metadata['codebook_size']
     codebook_dim = metadata['codebook_dim']
-    codebook_nqtz = metadata['codebook_nqtz']
 
-    # 5. 如果 model_type == 12，额外检查 FSQ 字段（逐个判断）
-    if model_type == 12:
-        if 'codebook_fsqd' not in metadata:
-            raise KeyError(
-                f"When model_type == 12, 'codebook_fsqd' is required but missing in metadata.json. "
-                f"Path: {metadata_path}"
-            )
-        if 'codebook_fsqn' not in metadata:
-            raise KeyError(
-                f"When model_type == 12, 'codebook_fsqn' is required but missing in metadata.json. "
-                f"Path: {metadata_path}"
-            )
-        codebook_fsqd = metadata['codebook_fsqd']
-        codebook_fsqn = metadata['codebook_fsqn']
-    else:
-        # 非 12 时，可选字段用默认值
-        codebook_fsqd = metadata.get('codebook_fsqd', 0)
-        codebook_fsqn = metadata.get('codebook_fsqn', 0)
 
-    return {'model_state_dict': state_dict, 'cnn_type': cnn_type,'model_type':model_type,"codebook_size":codebook_size,"codebook_dim":codebook_dim,"codebook_nqtz":codebook_nqtz,"codebook_fsqd":codebook_fsqd,"codebook_fsqn":codebook_fsqn}
+    return {'model_state_dict': state_dict, 'cnn_type': cnn_type,'model_type':model_type,"codebook_size":codebook_size,"codebook_dim":codebook_dim}
 
 
 
@@ -183,35 +164,12 @@ class VQETokenizer:
         else:
             codebook_dim = ckpt_data['codebook_dim']
 
-        if 'codebook_nqtz' not in ckpt_data:
-            print("Checkpoint does not contain 'codebook_nqtz'. forced to 0")
-            codebook_nqtz = 0
-            raise RuntimeError(f"Unexpected codebook nqtz: {codebook_nqtz}")
-        else:
-            pass
-
 
         if codebook_size == 0:
             raise RuntimeError(f"Unexpected codebook size: {codebook_size}")
 
         ## ✅ 正确：从 model_state_dict 中找 codebook
         state_dict = ckpt_data['model_state_dict']
-        #embed_keys = [k for k in state_dict.keys() if "_codebook.embed" in k]
-        #if not embed_keys:
-        #    raise RuntimeError("No codebook embedding found in checkpoint.")
-
-        ## Assume single quantizer: key like 'quantizer._codebook.embed'
-        #embed_key = embed_keys[0]
-        #embed_tensor = state_dict[embed_key]  # shape: [codebook_size, dim] or [1, codebook_size, dim]
-
-        #if len(embed_tensor.shape) == 3:
-        #    codebook_size = int(embed_tensor.shape[1])
-        #    dim = int(embed_tensor.shape[2])
-        #elif len(embed_tensor.shape) == 2:
-        #    codebook_size = int(embed_tensor.shape[0])
-        #    dim = int(embed_tensor.shape[1])
-        #else:
-        #    raise RuntimeError(f"Unexpected codebook shape: {embed_tensor.shape}")
 
         self.codebook_size = codebook_size
 

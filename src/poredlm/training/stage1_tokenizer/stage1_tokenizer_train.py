@@ -166,7 +166,9 @@ def save_full_checkpoint(
     cnn_type: int,
     model_type: int,
     dynamic_commitment_weight: float,
-    accelerator: Accelerator
+    accelerator: Accelerator,
+    codebook_size: int,
+    codebook_dim: int
 ):
     """
     Save a full training checkpoint (model, optimizer, RNG states) for resuming.
@@ -185,6 +187,8 @@ def save_full_checkpoint(
             'cnn_type': cnn_type,
             "model_type": model_type,
             'dynamic_commitment_weight': dynamic_commitment_weight,
+            'codebook_size': codebook_size,
+            'codebook_dim': codebook_dim,
         }
         meta_path = os.path.join(path, "metadata.json")
         with open(meta_path, 'w') as f:
@@ -324,6 +328,7 @@ def vqe_train(
     lr: float = 1e-4,
     num_epochs: int = 10,
     codebook_size: int = 8192,
+    codebook_dim: int = 64,
     codebook_decay: float = 0.99,
     codebook_emadc: int = 2,
     chunk_size: int = 12000,
@@ -496,6 +501,7 @@ def vqe_train(
                 "global_batch_size": global_batch_size,
                 "seed": seed,
                 "distill_loss_weight": distill_loss_weight,
+                "codebook_dim": codebook_dim
         },
         # init_kwargs={"wandb": {"entity": "jiaoshuaihit-hit","name":wandb_name}}
         init_kwargs={"wandb": {"entity": "zhoukek-zhejiang-university","name":wandb_name}}
@@ -1211,7 +1217,9 @@ def vqe_train(
                         cnn_type=cnn_type,
                         model_type=model_type,
                         dynamic_commitment_weight=dynamic_commitment_weight,
-                        accelerator=accelerator # Pass accelerator instance
+                        accelerator=accelerator, # Pass accelerator instance
+                        codebook_size=codebook_size,
+                        codebook_dim=codebook_dim,
                     )
                 # --- End of if accelerator.sync_gradients block ---
                 # --- End of with accelerator.accumulate(model) block ---
@@ -1233,7 +1241,9 @@ def vqe_train(
             cnn_type=cnn_type,
             model_type=model_type,
             dynamic_commitment_weight=dynamic_commitment_weight,
-            accelerator=accelerator
+            accelerator=accelerator,
+            codebook_size=codebook_size,
+            codebook_dim=codebook_dim
         )
     # Clean up Accelerator resources
     accelerator.end_training()
@@ -1268,6 +1278,7 @@ def main():
         # 模型配置
         model_type=config.get("model", {}).get("model_type", 1),
         codebook_size=config.get("model", {}).get("codebook_size", 8192),
+        codebook_dim=config.get("model", {}).get("codebook_dim", 64),
         cnn_type=config.get("model", {}).get("cnn_type", 1),
         learnable_codebook=config.get("model", {}).get("learnable_codebook", True),
         init_codebook_path=config.get("model", {}).get("init_codebook_path", ""),

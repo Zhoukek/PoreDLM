@@ -12,8 +12,8 @@ data:
   # train_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
   # evaluation_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/validation"
 
-  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/train"
-  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/validation"
+  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage1_tokenizer/train"
+  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage1_tokenizer/validation"
   
   # 数据加载
   num_workers: 64
@@ -35,6 +35,7 @@ model:
   
   # 码本配置
   codebook_size: 8196
+  codebook_dim: 768
   learnable_codebook: false
   init_codebook_path: ""  # 可选，预初始化码本路径
   
@@ -50,7 +51,7 @@ model:
 # ============================================================
 training:
   # 基础训练参数
-  num_epochs: 40
+  num_epochs: 100
   lr: 2.0e-05
   
   # 批次大小配置
@@ -101,7 +102,7 @@ checkpoint:
   loss_csv_path: "train_loss.csv"
   
   # 保存频率
-  save_checkpoint_every_spoch: 1000
+  save_checkpoint_every_spoch: 5000
   loss_log_interval: 10
   
   # 动态权重平均器（DWA）日志频率
@@ -122,4 +123,4 @@ evaluation:
 wandb:
   use_wandb: true
   project: "stage1_tokenizer_experiments"
-  name: "01_without_modfiction_model_type1_cnn_type_0_8k"
+  name: "01_without_modfiction_model_type1_cnn_type_0_distill_1_8k"

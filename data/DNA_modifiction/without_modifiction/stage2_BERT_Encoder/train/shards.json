@@ -1,0 +1,11 @@
+{
+  "total_samples": 135429,
+  "chunk_size": 5000,
+  "dtype": "float16",
+  "shards": [
+    {
+      "path": "chunks_train.npy",
+      "num_samples": 135429
+    }
+  ]
+}

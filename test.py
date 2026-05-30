@@ -4,8 +4,8 @@ import json
 
 # 文件路径
 # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.jsonl.gz"
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.split.jsonl.gz"
-# file_path = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall/validation_00001.jsonl.gz"
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.split.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train/chunks_train.split.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()

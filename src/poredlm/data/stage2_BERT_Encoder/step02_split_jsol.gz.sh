@@ -12,12 +12,12 @@ VQE_VERSION="vqe64k"
 # Split parameters
 WORKERS=32
 MIN_CHUNK_TOKEN_COUNT=512
-CHUNK_WINDOW_SIZE=1280
-CHUNK_OVERLAP_SIZE=256
+CHUNK_WINDOW_SIZE=1000
+CHUNK_OVERLAP_SIZE=100
 
 
-BASE_INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder"
-BASE_OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder"
+BASE_INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder"
+BASE_OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder"
 
 
 # --- End of Configuration ---
@@ -32,7 +32,8 @@ echo "Overlap Size: $CHUNK_OVERLAP_SIZE"
 echo "----------------------------------------"
 
 # Define subdirectories
-SUBDIRS=("test" "train" "validation")
+# SUBDIRS=("test" "train" "validation")
+SUBDIRS=("train")
 
 # Loop through each subdirectory
 for subdir in "${SUBDIRS[@]}"; do
