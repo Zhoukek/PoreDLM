@@ -2,6 +2,15 @@ run_name: ThisIsARunName
 seed: 6198
 dry_run: false
 
+# Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
+dlm:
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/test_zhou/models/step_best
+  freeze_context_encoder: true
+  t_min: 1.0e-5
+  t_max: 0.99999
+  prediction_type: velocity
+  loss_weight: 1.0
+
 wandb:
    entity: YourWandbEntity
    name: ${run_name}

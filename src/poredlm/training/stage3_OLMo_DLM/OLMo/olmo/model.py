@@ -56,7 +56,10 @@ elif sys.version_info.minor == 8:
 else:
     raise SystemExit("This script supports Python 3.8 or higher")
 
-from poregpt.tokenizers import VQETokenizer
+try:
+    from poregpt.tokenizers import VQETokenizer
+except ModuleNotFoundError:
+    VQETokenizer = None
 
 
 __all__ = [

@@ -26,7 +26,6 @@ from olmo.config import (
 from olmo.data import build_train_dataloader
 from olmo.eval import build_evaluators
 from olmo.exceptions import OLMoCliError, OLMoConfigurationError
-from olmo.model import OLMo
 from olmo.model_DLM import OLMoDLM
 from olmo.optim import BoltOnWarmupScheduler, build_optimizer, build_scheduler
 from olmo.torch_util import (
@@ -40,7 +39,7 @@ from olmo.torch_util import (
     peak_gpu_memory,
     seed_all,
 )
-from olmo.train import Trainer
+from olmo.train_DLM import DLMTrainer
 from olmo.util import (
     add_cached_path_clients,
     clean_opt,
@@ -51,8 +50,6 @@ from olmo.util import (
 import inspect
 
 # print(inspect.getfile(OLMo))
-
-# from poregpt.tokenizers import VQETokenizer
 
 log = logging.getLogger("train")
 
@@ -143,13 +140,19 @@ def main(cfg: TrainConfig) -> None:
 
     # Initialize the model.
     log.info("Building model...")
-    olmo_model = OLMo(cfg.model, codebook_path=cfg.codebook)
+    if cfg.dlm.context_encoder_path is None:
+        raise OLMoConfigurationError("Stage 3 DLM training requires `dlm.context_encoder_path` in the config.")
+    olmo_model = OLMoDLM(
+        cfg.model,
+        context_encoder_path=cfg.dlm.context_encoder_path,
+        freeze_context_encoder=cfg.dlm.freeze_context_encoder,
+    )
     log.info(f"Total number of parameters: {olmo_model.num_params():,d}")
     log.info(f"Number of non-embedding parameters: {olmo_model.num_params(include_embedding=False):,d}")
     log.info(f"Peak GPU Memory (MB) before {cfg.distributed_strategy}: {int(peak_gpu_memory() or 0)}")
 
-    log.info(f"Tokenizer codebook loaded from {cfg.codebook}")
-    log.info(f"Codebook shape: {olmo_model.codebook.shape}")
+    log.info(f"Context encoder loaded from {cfg.dlm.context_encoder_path}")
+    log.info(f"Context hidden size: {olmo_model.context_hidden_size}")
 
     # Compile one block at a time.
     if cfg.compile is not None:
@@ -258,7 +261,7 @@ def main(cfg: TrainConfig) -> None:
         indices_file = gzip.open(indices_file_path, "wt")
 
     # Consolidate components into `Trainer` object.
-    with Trainer(
+    with DLMTrainer(
         cfg=cfg,
         epoch=cfg.epoch,
         model=olmo_model,

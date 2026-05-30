@@ -30,6 +30,7 @@ import torch.backends.cuda
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import einsum
+from transformers import BertForMaskedLM
 
 from .aliases import PathOrStr
 from .beam_search import BeamSearch, Constraint, FinalSequenceScorer, Sampler
@@ -69,7 +70,9 @@ __all__ = [
     "OLMoBlock",
     "OLMoSequentialBlock",
     "OLMo",
+    "OLMoDLM",
     "OLMoOutput",
+    "OLMoDLMOutput",
     "OLMoGenerateOutput",
 ]
 
@@ -481,24 +484,6 @@ class OLMoBlock(nn.Module):
             except ModuleNotFoundError:
                 pass
 
-        # new for codebook-aware attention
-        self.code_q_proj = nn.Linear(
-            config.d_model,
-            config.d_model,
-            bias=False,
-            device=config.init_device,
-        )
-
-        self.code_k_proj = nn.Linear(
-            config.d_model,
-            config.d_model,
-            bias=False,
-            device=config.init_device,
-        )
-
-        # 控制 codebook attention 注入强度，建议初始值小一点
-        self.code_attn_alpha = 1.0
-
     def reset_parameters(self):
         if self.k_norm is not None:
             self.k_norm.reset_parameters()
@@ -693,58 +678,6 @@ class OLMoBlock(nn.Module):
         Computes scaled dot product attention on query, key and value tensors, using an optional
         attention mask if passed, and applying dropout if a probability greater than 0.0 is specified.
         """
-
-        # 如果传入 code_scores，就手写 attention，不能走 flash attention / SDPA
-        if code_scores is not None:
-            assert max_doc_len is None and cu_doc_lens is None, "code_scores 暂不支持 document masking"
-
-            # torch SDPA 原来这里会处理 GQA，这里也要手动处理
-            assert k.size(1) == v.size(1)
-            num_kv_heads = k.size(1)
-            num_q_heads = q.size(1)
-
-            if num_q_heads != num_kv_heads:
-                assert num_q_heads % num_kv_heads == 0
-                k = k.repeat_interleave(num_q_heads // num_kv_heads, dim=1, output_size=num_q_heads)
-                v = v.repeat_interleave(num_q_heads // num_kv_heads, dim=1, output_size=num_q_heads)
-
-            # 原始 attention scores: [B, H, T, T]
-            attn_scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(q.size(-1))
-
-            # causal mask
-            if is_causal:
-                query_len = q.size(-2)
-                key_len = k.size(-2)
-                causal_mask = torch.ones(
-                    query_len,
-                    key_len,
-                    dtype=torch.bool,
-                    device=q.device,
-                ).tril(diagonal=key_len - query_len)
-
-                attn_scores = attn_scores.masked_fill(
-                    ~causal_mask.view(1, 1, query_len, key_len),
-                    torch.finfo(attn_scores.dtype).min,
-                )
-
-            # padding mask / attention bias
-            if attn_mask is not None:
-                attn_scores = attn_scores + attn_mask
-
-            # 加入 codebook attention scores
-            attn_scores = attn_scores + self.code_attn_alpha * code_scores.to(dtype=attn_scores.dtype) # 形状是一样的
-
-            # print("attn_scores mean/std:", attn_scores.mean().item(), attn_scores.std().item())
-            # print("code_scores mean/std:", code_scores.mean().item(), code_scores.std().item())
-            # print("scaled code mean/std:", 
-            #       (self.code_attn_alpha * 100 * code_scores).mean().item(),
-            #       (self.code_attn_alpha * 100 * code_scores).std().item())
-
-            attn_probs = torch.softmax(attn_scores, dim=-1)
-            attn_probs = F.dropout(attn_probs, p=dropout_p, training=self.training)
-
-            return torch.matmul(attn_probs, v)
-        
         if max_doc_len is not None and cu_doc_lens is not None:
             assert self.flash_attn_varlen_func is not None, "flash-attn is required for document masking"
             assert attn_mask is None, "attn-mask is currently not supported with document masking"
@@ -795,7 +728,6 @@ class OLMoBlock(nn.Module):
         use_cache: bool = False,
         max_doc_len: Optional[int] = None,
         cu_doc_lens: Optional[torch.Tensor] = None,
-        codeembedding: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         B, T, C = q.size()  # batch size, sequence length, d_model
         dtype = k.dtype
@@ -835,25 +767,6 @@ class OLMoBlock(nn.Module):
                 attention_bias[:, :, key_len - query_len : key_len, :key_len], dtype
             )
 
-        code_scores = None
-
-        if codeembedding is not None and self.layer_id in [11]:
-            # codeembedding: [B, T, C]
-            code_q = self.code_q_proj(codeembedding)
-            code_k = self.code_k_proj(codeembedding)
-
-            # [B, T, C] -> [B, H, T, D]
-            code_q = code_q.view(B, T, self.config.n_heads, C // self.config.n_heads).transpose(1, 2)
-            code_k = code_k.view(B, T, self.config.n_heads, C // self.config.n_heads).transpose(1, 2)
-
-            # 如果有 KV cache，当前先不建议用于推理 cache 场景
-            if key_len != query_len:
-                raise NotImplementedError("codebook attention 暂不建议和 KV cache 一起用")
-
-            code_scores = torch.matmul(code_q, code_k.transpose(-1, -2)) / math.sqrt(C // self.config.n_heads)
-
-            # Get the attention scores.
-            # shape: (B, nh, T, hs)
         att = self._scaled_dot_product_attention(
             q,
             k,
@@ -863,8 +776,7 @@ class OLMoBlock(nn.Module):
             is_causal=attention_bias is None,
             max_doc_len=max_doc_len,
             cu_doc_lens=cu_doc_lens,
-            code_scores=code_scores,
-        )
+            )
 
         # Re-assemble all head outputs side-by-side.
         att = att.transpose(1, 2).contiguous().view(B, T, C)
@@ -952,7 +864,6 @@ class OLMoSequentialBlock(OLMoBlock):
         use_cache: bool = False,
         max_doc_len: Optional[int] = None,
         cu_doc_lens: Optional[torch.Tensor] = None,
-        codeembedding: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         # Get query, key, value projections.
         # shape:
@@ -1000,7 +911,6 @@ class OLMoSequentialBlock(OLMoBlock):
                 use_cache=use_cache,
                 max_doc_len=max_doc_len,
                 cu_doc_lens=cu_doc_lens,
-                codeembedding=codeembedding,
             )
 
         if self.config.norm_after:
@@ -1228,6 +1138,14 @@ class OLMoGenerateOutput(NamedTuple):
     """
 
 
+class OLMoDLMOutput(NamedTuple):
+    loss: torch.FloatTensor
+    pred: torch.FloatTensor
+    target: torch.FloatTensor
+    mask: torch.BoolTensor
+    t: torch.FloatTensor
+
+
 class OLMoBlockGroup(nn.ModuleList):
     def __init__(self, config: ModelConfig, layer_offset: int, modules: Optional[Iterable[nn.Module]] = None):
         super().__init__(modules)
@@ -1288,22 +1206,9 @@ class OLMoBlockGroup(nn.ModuleList):
 
 
 class OLMo(nn.Module):
-    def __init__(self, config: ModelConfig, init_params: bool = True, codebook_path: Optional[str] = None):
+    def __init__(self, config: ModelConfig, init_params: bool = True):
         super().__init__()
         self.config = config
-        if codebook_path is not None:
-            self.codebook_path = codebook_path
-            self.tokenizer = VQETokenizer(
-                model_ckpt=self.codebook_path,
-            )
-            self.codebook = nn.Parameter(
-                self.tokenizer._get_codebook_embed().clone(), 
-                requires_grad=False  # 可选
-            )
-        else:
-            self.codebook_path = None
-            self.tokenizer = None
-            self.codebook = None
         self.__cache = BufferCache()
 
         # Validate config.
@@ -1363,8 +1268,7 @@ class OLMo(nn.Module):
             self.transformer.update(
                 {
                     "ff_out": nn.Linear(
-                        # config.d_model, 
-                        config.d_model + self.codebook.shape[1] if self.codebook is not None else config.d_model, # 在这一块做了改动
+                        config.d_model,
                         config.embedding_size or config.vocab_size, 
                         bias=config.include_bias,
                         device=config.init_device,
@@ -1497,6 +1401,10 @@ class OLMo(nn.Module):
         output_hidden_states: Optional[bool] = None,
         doc_lens: Optional[torch.Tensor] = None,
         max_doc_lens: Optional[Sequence[int]] = None,
+        diffusion: bool = False,
+        dlm_t_min: float = 1.0e-5,
+        dlm_t_max: float = 1.0 - 1.0e-5,
+        dlm_reduction: str = "mean",
     ) -> OLMoOutput:
         """
         :param input_ids: A tensor of shape `(batch_size, seq_len)`.
@@ -1531,6 +1439,16 @@ class OLMo(nn.Module):
             Shape `(batch_size, max_docs)`.
         :param max_doc_lens: Maximum document length for each instance in the batch.
         """
+        if diffusion:
+            return self.diffusion_forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                attention_bias=attention_bias,
+                t_min=dlm_t_min,
+                t_max=dlm_t_max,
+                reduction=dlm_reduction,
+            )
+
         output_hidden_states = output_hidden_states if output_hidden_states is not None else False
 
         if past_key_values:
@@ -1551,27 +1469,6 @@ class OLMo(nn.Module):
         # Get embeddings of input.
         # shape: (batch_size, seq_len, d_model)
         x = self.transformer.wte(input_ids) if input_embeddings is None else input_embeddings  # type: ignore
-
-        # input_ids: [B, T]
-        # codebook: [65536, hidden_dim] 或 [65536, code_dim]
-
-        code_start_id = 128
-        codebook_size = self.codebook.shape[0]  # 65536
-        code_end_id = code_start_id + codebook_size  # 65664，左闭右开
-
-        # 判断哪些位置是真正的 bwav token
-        code_mask = (input_ids >= code_start_id) & (input_ids < code_end_id)
-
-        # 先默认使用原始 embedding
-        codeembedding = x.clone()
-
-        if code_mask.any():
-            code_indices = input_ids[code_mask] - code_start_id
-
-            code_values = self.codebook[code_indices]
-            code_values = code_values.to(dtype=codeembedding.dtype, device=codeembedding.device)
-
-            codeembedding[code_mask] = code_values
 
         # Apply embedding layer norm.
         if self.config.embedding_layer_norm:
@@ -1664,7 +1561,6 @@ class OLMo(nn.Module):
                         use_cache=use_cache,
                         max_doc_len=max_doc_len,
                         cu_doc_lens=cu_doc_lens,
-                        codeembedding=codeembedding,
                     )
 
 
@@ -1704,9 +1600,6 @@ class OLMo(nn.Module):
         # shape: (batch_size, seq_len or 1, d_model)
         x = self.transformer.ln_f(x)  # type: ignore
         
-        # 新增加的内容
-        x = torch.cat((x,codeembedding), dim=2) 
-
         if output_hidden_states:
             # add final hidden state post-final-layernorm, following HuggingFace's convention
             all_hidden_states.append(x)
@@ -2138,3 +2031,98 @@ class OLMo(nn.Module):
             og_keys_to_new[og_key].add(new_key)
 
         return state_dict, og_keys_to_new
+
+
+class OLMoDLM(OLMo):
+    """OLMo denoiser conditioned by the Stage 2 BERT encoder hidden states."""
+
+    def __init__(
+        self,
+        config: ModelConfig,
+        *,
+        context_encoder_path: str,
+        freeze_context_encoder: bool = True,
+        init_params: bool = True,
+    ):
+        super().__init__(config, init_params=init_params)
+        bert_mlm = BertForMaskedLM.from_pretrained(context_encoder_path)
+        self.context_encoder = bert_mlm.bert
+        self.freeze_context_encoder = freeze_context_encoder
+        self.context_hidden_size = self.context_encoder.config.hidden_size
+        if freeze_context_encoder:
+            self.context_encoder.eval()
+            for param in self.context_encoder.parameters():
+                param.requires_grad = False
+        if self.context_hidden_size == config.d_model:
+            self.context_in = nn.Identity()
+        else:
+            self.context_in = nn.Linear(self.context_hidden_size, config.d_model, bias=False)
+        self.dlm_out = nn.Linear(config.d_model, self.context_hidden_size, bias=config.include_bias)
+        if isinstance(self.context_in, nn.Linear):
+            init_normal(self.context_in, config.init_std, config.init_cutoff_factor)
+        init_normal(self.dlm_out, config.init_std, config.init_cutoff_factor)
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        if hasattr(self, "context_in") and isinstance(self.context_in, nn.Linear):
+            init_normal(self.context_in, self.config.init_std, self.config.init_cutoff_factor)
+        if hasattr(self, "dlm_out"):
+            init_normal(self.dlm_out, self.config.init_std, self.config.init_cutoff_factor)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if getattr(self, "freeze_context_encoder", False):
+            self.context_encoder.eval()
+        return self
+
+    def diffusion_forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
+        t_min: float = 1.0e-5,
+        t_max: float = 1.0 - 1.0e-5,
+        reduction: str = "mean",
+    ) -> OLMoDLMOutput:
+        context_dtype = self.transformer.wte.weight.dtype
+        bert_attention_mask = attention_mask
+        if bert_attention_mask is None:
+            bert_attention_mask = input_ids.new_ones(input_ids.shape)
+
+        context_grad = torch.enable_grad() if any(p.requires_grad for p in self.context_encoder.parameters()) else torch.no_grad()
+        with context_grad:
+            x0 = self.context_encoder(
+                input_ids=input_ids,
+                attention_mask=bert_attention_mask,
+                return_dict=True,
+            ).last_hidden_state
+        x0 = x0.to(dtype=context_dtype)
+
+        mask = bert_attention_mask.to(dtype=torch.bool, device=input_ids.device)
+        t = torch.empty((input_ids.shape[0], 1, 1), device=x0.device, dtype=x0.dtype).uniform_(t_min, t_max)
+        noise = torch.randn_like(x0)
+        noisy = (1.0 - t) * x0 + t * noise
+        target = noise - x0
+
+        noisy_hidden = self.context_in(noisy)
+        output = self(
+            input_ids=input_ids,
+            input_embeddings=noisy_hidden,
+            attention_mask=attention_mask,
+            attention_bias=attention_bias,
+            output_hidden_states=True,
+        )
+        assert output.hidden_states is not None
+        hidden = output.hidden_states[-1][..., : self.config.d_model]
+        pred = self.dlm_out(hidden)
+
+        per_token_loss = F.mse_loss(pred.float(), target.float(), reduction="none").mean(dim=-1)
+        per_token_loss = per_token_loss * mask.float()
+        if reduction == "sum":
+            loss = per_token_loss.sum()
+        elif reduction == "mean":
+            denom = mask.sum().clamp_min(1).to(per_token_loss.dtype)
+            loss = per_token_loss.sum() / denom
+        else:
+            raise ValueError(f"Unknown DLM reduction: {reduction}")
+        return OLMoDLMOutput(loss=loss, pred=pred, target=target, mask=mask, t=t)

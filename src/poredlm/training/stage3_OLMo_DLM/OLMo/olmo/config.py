@@ -43,6 +43,7 @@ __all__ = [
     "InstanceFilterConfig",
     "EvaluatorConfig",
     "TokenizerConfig",
+    "DLMConfig",
     "TrainConfig",
     "PaddingDirection",
     "TruncationDirection",
@@ -945,6 +946,24 @@ class ActivationCheckpointingStrategy(StrEnum):
 
 
 @dataclass
+class DLMConfig(BaseConfig):
+    """
+    Continuous diffusion / flow matching configuration for PoreDLM stage 3.
+    """
+
+    context_encoder_path: Optional[str] = None
+    """
+    Path to the Stage 2 BERT checkpoint saved with HuggingFace `save_pretrained()`.
+    """
+
+    freeze_context_encoder: bool = True
+    t_min: float = 1.0e-5
+    t_max: float = 1.0 - 1.0e-5
+    prediction_type: str = "velocity"
+    loss_weight: float = 1.0
+
+
+@dataclass
 class TrainConfig(BaseConfig):
     """
     OLMo training configuration.
@@ -973,6 +992,11 @@ class TrainConfig(BaseConfig):
     model: ModelConfig = field(default_factory=ModelConfig)
     """
     OLMo Model configuration.
+    """
+
+    dlm: DLMConfig = field(default_factory=DLMConfig)
+    """
+    Continuous diffusion / flow matching training settings.
     """
 
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
