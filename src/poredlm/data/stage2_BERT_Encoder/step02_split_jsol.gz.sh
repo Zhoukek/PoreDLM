@@ -17,7 +17,7 @@ CHUNK_OVERLAP_SIZE=100
 
 
 BASE_INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder"
-BASE_OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder"
+BASE_OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation"
 
 
 # --- End of Configuration ---
@@ -33,7 +33,7 @@ echo "----------------------------------------"
 
 # Define subdirectories
 # SUBDIRS=("test" "train" "validation")
-SUBDIRS=("train")
+SUBDIRS=("validation")
 
 # Loop through each subdirectory
 for subdir in "${SUBDIRS[@]}"; do

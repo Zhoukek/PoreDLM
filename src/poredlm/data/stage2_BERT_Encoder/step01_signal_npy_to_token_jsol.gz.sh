@@ -11,9 +11,9 @@ INPUT_DIR="/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/tr
 # Output directory for .jsonl.gz files
 OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
-INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/train"
+INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage1_tokenizer/validation"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/train"
+OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation"
 
 
 #!/bin/bash
@@ -24,7 +24,7 @@ OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/01_without_modfiction_model_type1_cnn_type_0_8k/models/porepgt_vqe_tokenizer.step100.pth"
+MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/01_without_modfiction_model_type1_cnn_type_0_distill_1.0_8k/models/porepgt_vqe_tokenizer.final.pth"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 

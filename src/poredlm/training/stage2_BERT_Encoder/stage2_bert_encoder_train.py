@@ -7,6 +7,7 @@ import math
 import os
 import random
 from pathlib import Path
+from pprint import pformat
 from typing import Any
 
 import numpy as np
@@ -30,6 +31,117 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def format_number(value: int) -> str:
+    """Format large integer counts for logs."""
+
+    return f"{value:,}"
+
+
+def count_parameters(model: torch.nn.Module) -> tuple[int, int]:
+    """Return total and trainable parameter counts."""
+
+    total = sum(param.numel() for param in model.parameters())
+    trainable = sum(param.numel() for param in model.parameters() if param.requires_grad)
+    return total, trainable
+
+
+def print_startup_summary(
+    accelerator: Accelerator,
+    config: dict[str, Any],
+    model: torch.nn.Module,
+    train_loader: DataLoader,
+    valid_loader: DataLoader | None,
+    seed: int,
+) -> None:
+    """Print model, data, and runtime information before training starts."""
+
+    if not accelerator.is_main_process:
+        return
+
+    training_cfg = config["training"]
+    model_cfg = config["model"]
+    data_cfg = config["data"]
+    train_dataset = train_loader.dataset
+    valid_dataset = valid_loader.dataset if valid_loader is not None else None
+    total_params, trainable_params = count_parameters(model)
+
+    gradient_accumulation_steps = int(training_cfg.get("gradient_accumulation_steps", 1))
+    device_micro_batch_size = int(training_cfg.get("device_micro_batch_size", 8))
+    effective_global_batch_size = (
+        device_micro_batch_size * accelerator.num_processes * gradient_accumulation_steps
+    )
+
+    train_files = getattr(train_dataset, "files", [])
+    valid_files = getattr(valid_dataset, "files", []) if valid_dataset is not None else []
+    train_line_counts = getattr(train_dataset, "file_line_counts", [])
+    valid_line_counts = getattr(valid_dataset, "file_line_counts", []) if valid_dataset is not None else []
+
+    print("\n" + "=" * 80)
+    print("Starting Stage 2 BERT Encoder Training")
+    print("=" * 80)
+    print(
+        pformat(
+            {
+                "seed": seed,
+                "distributed": {
+                    "num_processes": accelerator.num_processes,
+                    "process_index": accelerator.process_index,
+                    "local_process_index": accelerator.local_process_index,
+                    "device": str(accelerator.device),
+                    "mixed_precision": accelerator.mixed_precision,
+                },
+                "data": {
+                    "train_dir": data_cfg.get("train_dir"),
+                    "valid_dir": data_cfg.get("valid_dir") or None,
+                    "file_pattern": data_cfg.get("file_pattern", "*.jsonl.gz"),
+                    "train_files": len(train_files),
+                    "valid_files": len(valid_files),
+                    "train_samples": len(train_dataset),
+                    "valid_samples": len(valid_dataset) if valid_dataset is not None else 0,
+                    "train_lines_per_file_head": train_line_counts[:5],
+                    "valid_lines_per_file_head": valid_line_counts[:5],
+                    "num_workers": data_cfg.get("num_workers", 8),
+                    "prefetch_factor": data_cfg.get("prefetch_factor", 2),
+                },
+                "model": {
+                    "type": model.__class__.__name__,
+                    "vocab_size": model_cfg.get("vocab_size"),
+                    "mask_token_id": model_cfg.get("mask_token_id"),
+                    "pad_token_id": model_cfg.get("pad_token_id"),
+                    "hidden_size": model_cfg.get("hidden_size"),
+                    "num_hidden_layers": model_cfg.get("num_hidden_layers"),
+                    "num_attention_heads": model_cfg.get("num_attention_heads"),
+                    "intermediate_size": model_cfg.get("intermediate_size"),
+                    "max_position_embeddings": model_cfg.get("max_position_embeddings"),
+                    "mask_probability": model_cfg.get("mask_probability"),
+                    "total_parameters": format_number(total_params),
+                    "trainable_parameters": format_number(trainable_params),
+                },
+                "training": {
+                    "max_steps": training_cfg.get("max_steps"),
+                    "learning_rate": training_cfg.get("learning_rate"),
+                    "weight_decay": training_cfg.get("weight_decay"),
+                    "warmup_steps": training_cfg.get("warmup_steps"),
+                    "lr_scheduler_type": training_cfg.get("lr_scheduler_type"),
+                    "device_micro_batch_size": device_micro_batch_size,
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "effective_global_batch_size": effective_global_batch_size,
+                    "gradient_clipping": training_cfg.get("gradient_clipping"),
+                    "output_dir": training_cfg.get("output_dir"),
+                    "log_every_steps": training_cfg.get("log_every_steps"),
+                    "save_every_steps": training_cfg.get("save_every_steps"),
+                },
+            },
+            width=120,
+            sort_dicts=False,
+        )
+    )
+    print("-" * 80)
+    print("Model architecture:")
+    print(model)
+    print("=" * 80 + "\n")
 
 
 def mask_token_ids(
@@ -131,6 +243,14 @@ def train(config: dict[str, Any]) -> None:
     valid_loader = build_dataloader(config, "valid") if config["data"].get("valid_dir") else None
 
     model = build_bert_mlm(config)
+    print_startup_summary(
+        accelerator=accelerator,
+        config=config,
+        model=model,
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        seed=seed,
+    )
 
     optimizer = AdamW(
         model.parameters(),
