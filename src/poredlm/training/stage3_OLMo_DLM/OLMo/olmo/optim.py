@@ -826,6 +826,14 @@ class ConstantWithWarmupScheduler(Scheduler):
 PARAM_GROUP_FIELDS = ("sharded", "max_grad_norm", "max_grad_norm_ratio", "param_names")
 
 
+def _is_norm_module(module: nn.Module) -> bool:
+    return isinstance(module, (LayerNormBase, nn.LayerNorm)) or module.__class__.__name__ in {
+        "LayerNorm",
+        "LayerNormBase",
+        "RMSLayerNorm",
+    }
+
+
 def get_param_groups(cfg: TrainConfig, model: nn.Module) -> List[Dict[str, Any]]:
     """
     Separate parameters into weight decay and non weight decay groups.
@@ -859,7 +867,7 @@ def get_param_groups(cfg: TrainConfig, model: nn.Module) -> List[Dict[str, Any]]
                     no_decay.add(fpn)
             elif pn.endswith("weight") and isinstance(m, nn.Linear):
                 decay.add(fpn)
-            elif pn.endswith("weight") and isinstance(m, (LayerNormBase, nn.LayerNorm)):
+            elif pn.endswith("weight") and _is_norm_module(m):
                 if cfg.optimizer.decay_norm_and_bias:
                     decay.add(fpn)
                 else:
