@@ -149,7 +149,7 @@ model:
   # 焦帅: 因为崖州湾模型班训练olmo20m是为了学习模型训练过程，所以焦帅名下的组,都会把max_seqence_length设置为512, 同时
   # 焦帅在之前已经将预训练数据最大化对齐到500个token。PAD填充率已经降到最低。
   # 这么做是为了让20M训练能尽快结束，不要走的时间太长。
-  max_sequence_length: 8192
+  max_sequence_length: 1000
 
   # 词表大小（vocabulary size）
   # 表示模型能识别的不同 token 数量
@@ -185,7 +185,7 @@ model:
   #  → Number of Embeddings (embedding_size): 151,936
   #  → Dimension of Each Embedding (hidden_size): 1,024
   #  ⚠️  不匹配！可能是分词器与模型不一致
-  vocab_size: 8196
+  vocab_size: 8325
 
   # 嵌入层的大小（通常等于 vocab_size）
   # 有些模型会做 factorized embedding，此时 embedding_size ≠ vocab_size
@@ -198,17 +198,17 @@ model:
   # 焦帅：那么多出来的293个空间，“多余的 token”会被使用吗？不会的，因为ID ≥ 151,643 的 token 不会被 tokenizer 正常生成。
   # 这些“额外”的 embedding 向量在训练中通常 不会被梯度更新，除非你显式使用了这些 ID。
   #
-  embedding_size: 8320
+  embedding_size: 8325
 
   # 结束符 token 的 ID（End-of-Sequence）
   # 用于标记句子结束，在生成时作为停止信号
-  eos_token_id: 8193
+  eos_token_id: 3
 
   # 填充符 token 的 ID（Padding）
   # 用于 batch 内 padding 到相同长度
   # 注意：这里 eos_token_id == pad_token_id，表示用 EOS 做 padding
   # 这是常见做法，避免引入额外 token
-  pad_token_id: 8194
+  pad_token_id: 1
 
   # 参数初始化时使用的设备
   # "meta" 表示在 meta 设备上初始化（延迟分配内存）
@@ -261,7 +261,7 @@ scheduler:
 
 tokenizer:
   # identifier: tokenizers/allenai_dolma2.json
-  identifier: olmo_data/tokenizers/tokenizer_bwav/tokenizer.json
+  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json
   truncate_direction: right
 
 save_folder: save/olmo_output
@@ -332,42 +332,5 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-00-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-01-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-02-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-03-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-04-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-05-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-06-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-07-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-08-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-09-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-10-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-11-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-12-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-13-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-14-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-15-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-16-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-17-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-18-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-19-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-20-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-21-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-22-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-23-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-24-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-25-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-26-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-27-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-28-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-29-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-30-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-31-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-32-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-33-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-34-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-35-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-36-00000.npy
-    - /mnt/si003067jezr/dataset/huada_rna_80G/huada_rna_Q85_vqm_rf33s5/fast5_jsonlgz_split_tokens/part-37-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train/train/part-0-00000.npy
 
