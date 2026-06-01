@@ -957,6 +957,52 @@ class DLMConfig(BaseConfig):
     """
 
     freeze_context_encoder: bool = True
+
+    max_length: Optional[int] = None
+    max_input_length: Optional[int] = None
+
+    encoder_model_name: str = "t5-small"
+    encoder_checkpoint: Optional[str] = None
+    latent_mean: float = 0.0
+    latent_std: float = 0.2
+
+    model: str = "ELF-B"
+    bottleneck_dim: int = 128
+    num_time_tokens: int = 4
+    num_self_cond_cfg_tokens: int = 4
+    num_model_mode_tokens: int = 4
+    attn_dropout: float = 0.0
+    proj_dropout: float = 0.0
+
+    denoiser_p_mean: float = -1.5
+    denoiser_p_std: float = 0.8
+    denoiser_noise_scale: float = 2.0
+    t_eps: float = 0.05
+    time_schedule: str = "logit_normal"
+
+    decoder_prob: float = 0.2
+    decoder_noise_scale: float = 5.0
+    decoder_p_mean: float = 0.8
+    decoder_p_std: float = 0.8
+
+    self_cond_prob: float = 0.5
+    self_cond_cfg_min: float = 0.0
+    self_cond_cfg_max: float = 1.0
+    label_drop_prob: float = 0.0
+
+    epochs: int = 1
+    global_batch_size: Optional[int] = None
+    blr: float = 1.0e-3
+    weight_decay: float = 0.0
+    warmup_epochs: float = 0.5
+    warmup_steps: int = -1
+    optimizer: str = "adamw"
+
+    ema_decay1: float = 0.9999
+
+    sampling_configs_path: Optional[str] = None
+    num_samples: int = 1000
+
     t_min: float = 1.0e-5
     t_max: float = 1.0 - 1.0e-5
     prediction_type: str = "velocity"

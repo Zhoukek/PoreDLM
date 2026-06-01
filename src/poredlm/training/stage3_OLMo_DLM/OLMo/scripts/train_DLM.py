@@ -23,7 +23,7 @@ from olmo.config import (
     DistributedStrategy,
     TrainConfig,
 )
-from olmo.data import build_train_dataloader
+from olmo.data_DLM import build_train_dlm_dataloader
 from olmo.eval import build_evaluators
 from olmo.exceptions import OLMoCliError, OLMoConfigurationError
 from olmo.model_DLM import OLMoDLM
@@ -47,7 +47,6 @@ from olmo.util import (
     log_extra_field,
     prepare_cli_environment,
 )
-import inspect
 
 # print(inspect.getfile(OLMo))
 
@@ -132,7 +131,7 @@ def main(cfg: TrainConfig) -> None:
     seed_all(cfg.seed)
 
     # Construct data loader.
-    train_loader = build_train_dataloader(cfg)
+    train_loader = build_train_dlm_dataloader(cfg)
 
     # Construct evaluators.
     evaluators = build_evaluators(cfg, device)
@@ -146,6 +145,7 @@ def main(cfg: TrainConfig) -> None:
         cfg.model,
         context_encoder_path=cfg.dlm.context_encoder_path,
         freeze_context_encoder=cfg.dlm.freeze_context_encoder,
+        dlm_config=cfg.dlm,
     )
     log.info(f"Total number of parameters: {olmo_model.num_params():,d}")
     log.info(f"Number of non-embedding parameters: {olmo_model.num_params(include_embedding=False):,d}")
@@ -155,7 +155,7 @@ def main(cfg: TrainConfig) -> None:
     log.info(f"Context hidden size: {olmo_model.context_hidden_size}")
 
     # Compile one block at a time.
-    if cfg.compile is not None:
+    if cfg.compile is not None and hasattr(olmo_model, "transformer"):
         if cfg.model.block_group_size != 1:
             raise OLMoConfigurationError("Compile is only supported with block_group_size 1.")
         for block in olmo_model.transformer.blocks:
@@ -187,7 +187,7 @@ def main(cfg: TrainConfig) -> None:
         assert cfg.fsdp is not None, "DistributedStrategy fsdp needs cfg.fsdp to be set!"
         wrap_policy = olmo_model.get_fsdp_wrap_policy(cfg.fsdp.wrapping_strategy)
 
-        if version.parse(torch.__version__) >= version.parse("2.1.0"):
+        if version.parse(torch.__version__) >= version.parse("2.1.0") and hasattr(olmo_model, "transformer"):
             # This prevents any parameters from being initialized twice
             def dummy_init_fn(module: torch.nn.Module) -> None:
                 module.to_empty(device=get_default_device())

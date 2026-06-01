@@ -12,7 +12,9 @@ import sys
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
+from pathlib import Path
 from typing import (
+    Any,
     Callable,
     Dict,
     Iterable,
@@ -27,10 +29,16 @@ from typing import (
 
 import torch
 import torch.backends.cuda
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import einsum
 from transformers import BertForMaskedLM
+
+_ELF_SRC = Path(__file__).resolve().parents[2] / "ELF-pytorch-port" / "src"
+if _ELF_SRC.is_dir() and str(_ELF_SRC) not in sys.path:
+    sys.path.insert(0, str(_ELF_SRC))
+from torch_elf.model import ELF_models  # type: ignore
 
 from .aliases import PathOrStr
 from .beam_search import BeamSearch, Constraint, FinalSequenceScorer, Sampler
@@ -42,6 +50,7 @@ from .config import (
     FSDPWrapStrategy,
     InitFnType,
     LayerNormType,
+    DLMConfig,
     ModelConfig,
     ShardedCheckpointerType,
     TrainConfig,
@@ -73,6 +82,7 @@ __all__ = [
     "OLMoDLM",
     "OLMoOutput",
     "OLMoDLMOutput",
+    "OLMoELFDLMOutput",
     "OLMoGenerateOutput",
 ]
 
@@ -1146,6 +1156,17 @@ class OLMoDLMOutput(NamedTuple):
     t: torch.FloatTensor
 
 
+class OLMoELFDLMOutput(NamedTuple):
+    loss: torch.FloatTensor
+    l2_loss: torch.FloatTensor
+    ce_loss: torch.FloatTensor
+    decoder_step_active: torch.BoolTensor
+    pred: Optional[torch.FloatTensor]
+    target: Optional[torch.FloatTensor]
+    mask: torch.FloatTensor
+    t: torch.FloatTensor
+
+
 class OLMoBlockGroup(nn.ModuleList):
     def __init__(self, config: ModelConfig, layer_offset: int, modules: Optional[Iterable[nn.Module]] = None):
         super().__init__(modules)
@@ -1402,6 +1423,24 @@ class OLMo(nn.Module):
         doc_lens: Optional[torch.Tensor] = None,
         max_doc_lens: Optional[Sequence[int]] = None,
         diffusion: bool = False,
+        elf_diffusion: bool = False,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        cond_seq_mask: Optional[torch.Tensor] = None,
+        label_drop_mask: Optional[torch.Tensor] = None,
+        label_drop_prob: float = 0.0,
+        denoiser_p_mean: float = -1.5,
+        denoiser_p_std: float = 0.8,
+        denoiser_noise_scale: float = 2.0,
+        t_eps: float = 0.05,
+        time_schedule: str = "logit_normal",
+        decoder_prob: float = 0.2,
+        decoder_noise_scale: float = 5.0,
+        decoder_p_mean: float = 0.8,
+        decoder_p_std: float = 0.8,
+        self_cond_prob: float = 0.5,
+        self_cond_cfg_min: float = 0.0,
+        self_cond_cfg_max: float = 1.0,
+        num_self_cond_cfg_tokens: int = 0,
         dlm_t_min: float = 1.0e-5,
         dlm_t_max: float = 1.0 - 1.0e-5,
         dlm_reduction: str = "mean",
@@ -1447,6 +1486,30 @@ class OLMo(nn.Module):
                 t_min=dlm_t_min,
                 t_max=dlm_t_max,
                 reduction=dlm_reduction,
+            )
+
+        if elf_diffusion:
+            return self.elf_diffusion_forward(
+                input_ids=input_ids,
+                encoder_attention_mask=encoder_attention_mask,
+                attention_mask=attention_mask,
+                attention_bias=attention_bias,
+                cond_seq_mask=cond_seq_mask,
+                label_drop_mask=label_drop_mask,
+                label_drop_prob=label_drop_prob,
+                denoiser_p_mean=denoiser_p_mean,
+                denoiser_p_std=denoiser_p_std,
+                denoiser_noise_scale=denoiser_noise_scale,
+                t_eps=t_eps,
+                time_schedule=time_schedule,
+                decoder_prob=decoder_prob,
+                decoder_noise_scale=decoder_noise_scale,
+                decoder_p_mean=decoder_p_mean,
+                decoder_p_std=decoder_p_std,
+                self_cond_prob=self_cond_prob,
+                self_cond_cfg_min=self_cond_cfg_min,
+                self_cond_cfg_max=self_cond_cfg_max,
+                num_self_cond_cfg_tokens=num_self_cond_cfg_tokens,
             )
 
         output_hidden_states = output_hidden_states if output_hidden_states is not None else False
@@ -2033,8 +2096,8 @@ class OLMo(nn.Module):
         return state_dict, og_keys_to_new
 
 
-class OLMoDLM(OLMo):
-    """OLMo denoiser conditioned by the Stage 2 BERT encoder hidden states."""
+class OLMoDLM(nn.Module):
+    """Stage 3 DLM: BERT encodes tokens into latents, ELF denoises those latents."""
 
     def __init__(
         self,
@@ -2042,9 +2105,13 @@ class OLMoDLM(OLMo):
         *,
         context_encoder_path: str,
         freeze_context_encoder: bool = True,
+        dlm_config: Optional[DLMConfig] = None,
         init_params: bool = True,
     ):
-        super().__init__(config, init_params=init_params)
+        del init_params
+        super().__init__()
+        self.config = config
+        self.dlm_config = dlm_config
         bert_mlm = BertForMaskedLM.from_pretrained(context_encoder_path)
         self.context_encoder = bert_mlm.bert
         self.freeze_context_encoder = freeze_context_encoder
@@ -2053,27 +2120,328 @@ class OLMoDLM(OLMo):
             self.context_encoder.eval()
             for param in self.context_encoder.parameters():
                 param.requires_grad = False
-        if self.context_hidden_size == config.d_model:
-            self.context_in = nn.Identity()
-        else:
-            self.context_in = nn.Linear(self.context_hidden_size, config.d_model, bias=False)
-        self.dlm_out = nn.Linear(config.d_model, self.context_hidden_size, bias=config.include_bias)
-        if isinstance(self.context_in, nn.Linear):
-            init_normal(self.context_in, config.init_std, config.init_cutoff_factor)
-        init_normal(self.dlm_out, config.init_std, config.init_cutoff_factor)
+
+        dlm_model_name = getattr(dlm_config, "model", "ELF-B")
+        try:
+            elf_factory = ELF_models[dlm_model_name]
+        except KeyError as exc:
+            raise OLMoConfigurationError(
+                f"Unknown DLM ELF model {dlm_model_name!r}; expected one of {sorted(ELF_models.keys())}"
+            ) from exc
+        self.elf_denoiser = elf_factory(
+            text_encoder_dim=self.context_hidden_size,
+            max_length=int(getattr(dlm_config, "max_length", None) or config.max_sequence_length),
+            attn_drop=float(getattr(dlm_config, "attn_dropout", 0.0)),
+            proj_drop=float(getattr(dlm_config, "proj_dropout", 0.0)),
+            num_time_tokens=int(getattr(dlm_config, "num_time_tokens", 4)),
+            num_self_cond_cfg_tokens=int(getattr(dlm_config, "num_self_cond_cfg_tokens", 4)),
+            vocab_size=config.vocab_size,
+            num_model_mode_tokens=int(getattr(dlm_config, "num_model_mode_tokens", 0)),
+            bottleneck_dim=int(getattr(dlm_config, "bottleneck_dim", 128)),
+        )
 
     def reset_parameters(self):
-        super().reset_parameters()
-        if hasattr(self, "context_in") and isinstance(self.context_in, nn.Linear):
-            init_normal(self.context_in, self.config.init_std, self.config.init_cutoff_factor)
-        if hasattr(self, "dlm_out"):
-            init_normal(self.dlm_out, self.config.init_std, self.config.init_cutoff_factor)
+        # ELF and the HuggingFace BERT context encoder initialize themselves.
+        # Keep this hook for compatibility with the OLMo training script.
+        return None
+
+    def set_activation_checkpointing(self, strategy: Optional[ActivationCheckpointingStrategy]) -> None:
+        del strategy
+        return None
+
+    def get_fsdp_wrap_policy(self, wrap_strategy: Optional[FSDPWrapStrategy] = None):
+        del wrap_strategy
+        return None
+
+    def num_params(self, include_embedding: bool = True) -> int:
+        del include_embedding
+        return sum(p.numel() for p in self.parameters())
+
+    @property
+    def num_fwd_flops(self) -> int:
+        return 2 * self.num_params()
+
+    @property
+    def num_bck_flops(self) -> int:
+        return 4 * self.num_params()
 
     def train(self, mode: bool = True):
         super().train(mode)
         if getattr(self, "freeze_context_encoder", False):
             self.context_encoder.eval()
         return self
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
+        diffusion: bool = False,
+        elf_diffusion: bool = False,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        cond_seq_mask: Optional[torch.Tensor] = None,
+        label_drop_mask: Optional[torch.Tensor] = None,
+        label_drop_prob: float = 0.0,
+        denoiser_p_mean: float = -1.5,
+        denoiser_p_std: float = 0.8,
+        denoiser_noise_scale: float = 2.0,
+        t_eps: float = 0.05,
+        time_schedule: str = "logit_normal",
+        decoder_prob: float = 0.2,
+        decoder_noise_scale: float = 5.0,
+        decoder_p_mean: float = 0.8,
+        decoder_p_std: float = 0.8,
+        self_cond_prob: float = 0.5,
+        self_cond_cfg_min: float = 0.0,
+        self_cond_cfg_max: float = 1.0,
+        num_self_cond_cfg_tokens: int = 0,
+        dlm_t_min: float = 1.0e-5,
+        dlm_t_max: float = 1.0 - 1.0e-5,
+        dlm_reduction: str = "mean",
+        **kwargs: Any,
+    ) -> Any:
+        del kwargs
+        if elf_diffusion:
+            return self.elf_diffusion_forward(
+                input_ids=input_ids,
+                encoder_attention_mask=encoder_attention_mask,
+                attention_mask=attention_mask,
+                attention_bias=attention_bias,
+                cond_seq_mask=cond_seq_mask,
+                label_drop_mask=label_drop_mask,
+                label_drop_prob=label_drop_prob,
+                denoiser_p_mean=denoiser_p_mean,
+                denoiser_p_std=denoiser_p_std,
+                denoiser_noise_scale=denoiser_noise_scale,
+                t_eps=t_eps,
+                time_schedule=time_schedule,
+                decoder_prob=decoder_prob,
+                decoder_noise_scale=decoder_noise_scale,
+                decoder_p_mean=decoder_p_mean,
+                decoder_p_std=decoder_p_std,
+                self_cond_prob=self_cond_prob,
+                self_cond_cfg_min=self_cond_cfg_min,
+                self_cond_cfg_max=self_cond_cfg_max,
+                num_self_cond_cfg_tokens=num_self_cond_cfg_tokens,
+            )
+        if diffusion:
+            return self.diffusion_forward(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                attention_bias=attention_bias,
+                t_min=dlm_t_min,
+                t_max=dlm_t_max,
+                reduction=dlm_reduction,
+            )
+        raise OLMoConfigurationError("OLMoDLM.forward() expects `elf_diffusion=True` for stage 3 training")
+
+    def _sample_elf_timesteps(
+        self,
+        batch_size: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+        p_mean: float,
+        p_std: float,
+        time_schedule: str,
+    ) -> torch.Tensor:
+        if time_schedule == "logit_normal":
+            z = torch.randn(batch_size, device=device, dtype=dtype) * p_std + p_mean
+            return torch.sigmoid(z)
+        if time_schedule == "uniform":
+            return torch.rand(batch_size, device=device, dtype=dtype)
+        raise ValueError(f"Unknown time_schedule: {time_schedule}")
+
+    def _sample_elf_cfg_scale(
+        self,
+        batch_size: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+        cfg_min: float,
+        cfg_max: float,
+    ) -> torch.Tensor:
+        u = torch.rand(batch_size, device=device, dtype=dtype)
+        a = torch.tensor(1.0 + cfg_min, device=device, dtype=dtype)
+        b = torch.tensor(1.0 + cfg_max, device=device, dtype=dtype)
+        return a * torch.exp(u * torch.log(b / a)) - 1.0
+
+    def _elf_predict_from_latent(
+        self,
+        *,
+        latent: torch.Tensor,
+        t: torch.Tensor,
+        self_cond: Optional[torch.Tensor],
+        attention_mask: Optional[torch.Tensor],
+        self_cond_cfg_scale: Optional[torch.Tensor],
+        decoder_step_active: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        model_input = torch.cat([latent, self_cond], dim=-1) if self_cond is not None else latent
+        pred, decoder_logits = self.elf_denoiser(
+            model_input,
+            t,
+            attention_mask=attention_mask,
+            self_cond_cfg_scale=self_cond_cfg_scale,
+            decoder_step_active=decoder_step_active,
+        )
+        if decoder_logits is None:
+            decoder_logits = torch.empty((*pred.shape[:2], 0), device=pred.device, dtype=pred.dtype)
+        return pred, decoder_logits
+
+    def _zero_module_loss(self, module: nn.Module, *, device: torch.device) -> torch.Tensor:
+        zero = torch.tensor(0.0, device=device)
+        for param in module.parameters():
+            zero = zero + param.float().sum() * 0.0
+        return zero
+
+    def elf_diffusion_forward(
+        self,
+        input_ids: torch.LongTensor,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
+        cond_seq_mask: Optional[torch.Tensor] = None,
+        label_drop_mask: Optional[torch.Tensor] = None,
+        label_drop_prob: float = 0.0,
+        denoiser_p_mean: float = -1.5,
+        denoiser_p_std: float = 0.8,
+        denoiser_noise_scale: float = 2.0,
+        t_eps: float = 0.05,
+        time_schedule: str = "logit_normal",
+        decoder_prob: float = 0.2,
+        decoder_noise_scale: float = 5.0,
+        decoder_p_mean: float = 0.8,
+        decoder_p_std: float = 0.8,
+        self_cond_prob: float = 0.5,
+        self_cond_cfg_min: float = 0.0,
+        self_cond_cfg_max: float = 1.0,
+        num_self_cond_cfg_tokens: int = 0,
+    ) -> OLMoELFDLMOutput:
+        context_dtype = next(self.elf_denoiser.parameters()).dtype
+        if encoder_attention_mask is None:
+            encoder_attention_mask = attention_mask
+        if encoder_attention_mask is None:
+            encoder_attention_mask = input_ids.new_ones(input_ids.shape)
+        if attention_mask is None:
+            attention_mask = input_ids.new_ones(input_ids.shape)
+        if cond_seq_mask is None:
+            cond_seq_mask = torch.zeros_like(attention_mask, dtype=torch.float)
+
+        context_grad = torch.enable_grad() if any(p.requires_grad for p in self.context_encoder.parameters()) else torch.no_grad()
+        with context_grad:
+            x0 = self.context_encoder(
+                input_ids=input_ids,
+                attention_mask=encoder_attention_mask,
+                return_dict=True,
+            ).last_hidden_state
+        x0 = x0.to(dtype=context_dtype)
+
+        cond_seq_mask = cond_seq_mask.to(device=x0.device, dtype=x0.dtype)
+        cond_seq_mask_3d = cond_seq_mask.unsqueeze(-1)
+        if label_drop_prob > 0:
+            if label_drop_mask is None:
+                label_drop_mask = torch.rand(input_ids.shape[0], device=x0.device) < label_drop_prob
+            drop = label_drop_mask.to(device=x0.device, dtype=torch.bool)[:, None, None]
+            x0 = torch.where(drop & (cond_seq_mask_3d > 0), torch.zeros_like(x0), x0)
+
+        loss_mask = attention_mask.to(device=x0.device, dtype=x0.dtype) * (1.0 - cond_seq_mask)
+        batch_size, seq_length = x0.shape[:2]
+        t = self._sample_elf_timesteps(
+            batch_size,
+            device=x0.device,
+            dtype=x0.dtype,
+            p_mean=denoiser_p_mean,
+            p_std=denoiser_p_std,
+            time_schedule=time_schedule,
+        )
+        noise = torch.randn_like(x0)
+        t_expanded = t.view(-1, 1, 1)
+        denoiser_z = t_expanded * x0 + (1.0 - t_expanded) * noise * denoiser_noise_scale
+        denoiser_z = cond_seq_mask_3d * x0 + (1.0 - cond_seq_mask_3d) * denoiser_z
+        v_target = (x0 - denoiser_z) / torch.clamp(1.0 - t_expanded, min=t_eps)
+
+        decoder_step_active = torch.rand((), device=x0.device) < decoder_prob
+        if dist.is_available() and dist.is_initialized():
+            dist.broadcast(decoder_step_active, src=0)
+        zero_loss = torch.tensor(0.0, device=x0.device, dtype=torch.float32)
+        self_cond_cfg_scale = None
+        if num_self_cond_cfg_tokens > 0:
+            self_cond_cfg_scale = self._sample_elf_cfg_scale(
+                batch_size,
+                device=x0.device,
+                dtype=x0.dtype,
+                cfg_min=self_cond_cfg_min,
+                cfg_max=self_cond_cfg_max,
+            )
+
+        if bool(decoder_step_active.item()):
+            decoder_lambda = torch.sigmoid(
+                torch.randn(batch_size * seq_length, device=x0.device, dtype=x0.dtype) * decoder_p_std
+                + decoder_p_mean
+            ).view(batch_size, seq_length, 1)
+            decoder_noise = torch.randn_like(x0) * decoder_noise_scale
+            decoder_z = decoder_lambda * x0 + (1.0 - decoder_lambda) * decoder_noise
+            decoder_self_cond = torch.zeros_like(decoder_z) if self_cond_prob > 0 else None
+            decoder_pred, decoder_logits = self._elf_predict_from_latent(
+                latent=decoder_z,
+                t=torch.ones_like(t),
+                self_cond=decoder_self_cond,
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=decoder_step_active,
+            )
+            log_probs = F.log_softmax(decoder_logits.float(), dim=-1)
+            ce = -torch.gather(log_probs, dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)
+            ce_loss = (ce * loss_mask.float()).sum() / torch.clamp(loss_mask.float().sum(), min=1.0)
+            ce_loss = ce_loss + decoder_pred.float().sum() * 0.0
+            return OLMoELFDLMOutput(
+                loss=ce_loss,
+                l2_loss=zero_loss,
+                ce_loss=ce_loss.detach(),
+                decoder_step_active=decoder_step_active,
+                pred=decoder_logits,
+                target=None,
+                mask=loss_mask,
+                t=t,
+            )
+
+        self_cond = None
+        if self_cond_prob > 0:
+            with torch.no_grad():
+                init_pred, _ = self._elf_predict_from_latent(
+                    latent=denoiser_z,
+                    t=t,
+                    self_cond=torch.zeros_like(denoiser_z),
+                    attention_mask=attention_mask,
+                    self_cond_cfg_scale=self_cond_cfg_scale,
+                    decoder_step_active=torch.tensor(False, device=x0.device),
+                )
+            self_cond = init_pred
+        pred_x0, _ = self._elf_predict_from_latent(
+            latent=denoiser_z,
+            t=t,
+            self_cond=self_cond,
+            attention_mask=attention_mask,
+            self_cond_cfg_scale=self_cond_cfg_scale,
+            decoder_step_active=torch.tensor(False, device=x0.device),
+        )
+        v_pred = (pred_x0 - denoiser_z) / torch.clamp(1.0 - t_expanded, min=t_eps)
+        per_dim_loss = (v_pred - v_target) ** 2
+        per_token_loss = per_dim_loss.mean(dim=-1)
+        l2_loss = (per_token_loss * loss_mask.float()).sum() / torch.clamp(loss_mask.float().sum(), min=1.0)
+        l2_loss = l2_loss + self._zero_module_loss(self.elf_denoiser.unembed, device=x0.device)
+        if self_cond_prob <= 0:
+            l2_loss = l2_loss + self._zero_module_loss(self.elf_denoiser.self_cond_proj, device=x0.device)
+        return OLMoELFDLMOutput(
+            loss=l2_loss,
+            l2_loss=l2_loss.detach(),
+            ce_loss=zero_loss,
+            decoder_step_active=decoder_step_active,
+            pred=pred_x0,
+            target=x0,
+            mask=loss_mask,
+            t=t,
+        )
 
     def diffusion_forward(
         self,
@@ -2084,45 +2452,24 @@ class OLMoDLM(OLMo):
         t_max: float = 1.0 - 1.0e-5,
         reduction: str = "mean",
     ) -> OLMoDLMOutput:
-        context_dtype = self.transformer.wte.weight.dtype
-        bert_attention_mask = attention_mask
-        if bert_attention_mask is None:
-            bert_attention_mask = input_ids.new_ones(input_ids.shape)
-
-        context_grad = torch.enable_grad() if any(p.requires_grad for p in self.context_encoder.parameters()) else torch.no_grad()
-        with context_grad:
-            x0 = self.context_encoder(
-                input_ids=input_ids,
-                attention_mask=bert_attention_mask,
-                return_dict=True,
-            ).last_hidden_state
-        x0 = x0.to(dtype=context_dtype)
-
-        mask = bert_attention_mask.to(dtype=torch.bool, device=input_ids.device)
-        t = torch.empty((input_ids.shape[0], 1, 1), device=x0.device, dtype=x0.dtype).uniform_(t_min, t_max)
-        noise = torch.randn_like(x0)
-        noisy = (1.0 - t) * x0 + t * noise
-        target = noise - x0
-
-        noisy_hidden = self.context_in(noisy)
-        output = self(
+        del t_max, reduction
+        output = self.elf_diffusion_forward(
             input_ids=input_ids,
-            input_embeddings=noisy_hidden,
+            encoder_attention_mask=attention_mask,
             attention_mask=attention_mask,
             attention_bias=attention_bias,
-            output_hidden_states=True,
+            decoder_prob=0.0,
+            denoiser_p_mean=0.0,
+            denoiser_p_std=1.0,
+            denoiser_noise_scale=1.0,
+            time_schedule="uniform",
+            t_eps=max(t_min, 1.0e-5),
         )
-        assert output.hidden_states is not None
-        hidden = output.hidden_states[-1][..., : self.config.d_model]
-        pred = self.dlm_out(hidden)
-
-        per_token_loss = F.mse_loss(pred.float(), target.float(), reduction="none").mean(dim=-1)
-        per_token_loss = per_token_loss * mask.float()
-        if reduction == "sum":
-            loss = per_token_loss.sum()
-        elif reduction == "mean":
-            denom = mask.sum().clamp_min(1).to(per_token_loss.dtype)
-            loss = per_token_loss.sum() / denom
-        else:
-            raise ValueError(f"Unknown DLM reduction: {reduction}")
-        return OLMoDLMOutput(loss=loss, pred=pred, target=target, mask=mask, t=t)
+        assert output.pred is not None and output.target is not None
+        return OLMoDLMOutput(
+            loss=output.loss,
+            pred=output.pred,
+            target=output.target,
+            mask=output.mask.to(dtype=torch.bool),
+            t=output.t.view(-1, 1, 1),
+        )
