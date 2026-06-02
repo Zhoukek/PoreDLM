@@ -309,8 +309,8 @@ save_folder: save/olmo_output
 save_overwrite: true
 
 save_interval: 100
-save_interval_ephemeral: 100
-save_num_checkpoints_to_keep: 2
+save_interval_ephemeral: null
+save_num_checkpoints_to_keep: 0
 sharded_checkpointer: olmo_core
 
 save_interval_unsharded: 100
@@ -320,8 +320,8 @@ load_path: null
 
 max_duration: 3ep
 #stop_at: 406_934
-global_train_batch_size: 256
-device_train_microbatch_size: 4
+global_train_batch_size: 128
+device_train_microbatch_size: 32
 
 precision: amp_bf16
 
@@ -361,10 +361,10 @@ device_eval_batch_size: ${device_train_microbatch_size}
 data:
   pad_direction: right
   # generate_doc_lengths: true
-  num_workers: 32
+  num_workers: 16
   drop_last: true
   pin_memory: true
-  prefetch_factor: 8
+  prefetch_factor: 4
   persistent_workers: true
   memmap_dtype: uint16
   timeout: 0

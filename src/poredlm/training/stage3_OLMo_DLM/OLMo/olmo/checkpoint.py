@@ -695,48 +695,52 @@ class FullCheckpointer(Checkpointer):
                 optim_state_dict_config=FullOptimStateDictConfig(rank0_only=False, offload_to_cpu=True),
             ):
                 with torch.no_grad():
-                    # fill everything with NaN, so we can check afterwards that every parameter has been restored
-                    for module_name, module in dist_model.named_modules():
-                        if not isinstance(module, FSDP):
-                            continue
-                        for param in module.params:
-                            param.fill_(torch.nan)
-
                     # restore params from checkpoint
                     state_dict_to_load = load_state_dict(
                         load_path, "model.pt", local_cache=local_cache, map_location="cpu"
                     )
+                    wrapped_module = dist_model._fsdp_wrapped_module
                     (
                         state_dict_to_load,
                         og_keys_to_new,
-                    ) = dist_model._fsdp_wrapped_module._make_state_dict_compatible(state_dict_to_load)
+                    ) = wrapped_module._make_state_dict_compatible(state_dict_to_load)
 
-                    for module_name, module in dist_model.named_modules():
-                        if not isinstance(module, FSDP):
-                            continue
-                        for param in module.params:
-                            assert param._is_flat_param
-                            for fqn, spi in zip(param._fqns, param._shard_param_infos):
-                                if not spi.in_shard:
-                                    continue
-                                key = f"{module_name}.{fqn}"
-                                key = key.replace("_fsdp_wrapped_module.", "")
-                                key = key.lstrip(".")
-                                t = state_dict_to_load[key]
-                                t = t.flatten()
-                                param[spi.offset_in_shard : spi.offset_in_shard + spi.numel_in_shard].copy_(
-                                    t[spi.intra_param_start_idx : spi.intra_param_end_idx + 1]
-                                )
+                    if hasattr(wrapped_module, "context_encoder") and hasattr(wrapped_module, "elf_denoiser"):
+                        dist_model.load_state_dict(state_dict_to_load, strict=True)
+                    else:
+                        # fill everything with NaN, so we can check afterwards that every parameter has been restored
+                        for module_name, module in dist_model.named_modules():
+                            if not isinstance(module, FSDP):
+                                continue
+                            for param in module.params:
+                                param.fill_(torch.nan)
 
-                    # make sure that every parameter has been restored
-                    for module_name, module in dist_model.named_modules():
-                        if not isinstance(module, FSDP):
-                            continue
-                        for param in module.params:
-                            if torch.isnan(param).any():
-                                raise ValueError(
-                                    f"Module '{module_name}' contains NaNs, this is likely a bug restoring from full checkpoints"
-                                )
+                        for module_name, module in dist_model.named_modules():
+                            if not isinstance(module, FSDP):
+                                continue
+                            for param in module.params:
+                                assert param._is_flat_param
+                                for fqn, spi in zip(param._fqns, param._shard_param_infos):
+                                    if not spi.in_shard:
+                                        continue
+                                    key = f"{module_name}.{fqn}"
+                                    key = key.replace("_fsdp_wrapped_module.", "")
+                                    key = key.lstrip(".")
+                                    t = state_dict_to_load[key]
+                                    t = t.flatten()
+                                    param[spi.offset_in_shard : spi.offset_in_shard + spi.numel_in_shard].copy_(
+                                        t[spi.intra_param_start_idx : spi.intra_param_end_idx + 1]
+                                    )
+
+                        # make sure that every parameter has been restored
+                        for module_name, module in dist_model.named_modules():
+                            if not isinstance(module, FSDP):
+                                continue
+                            for param in module.params:
+                                if torch.isnan(param).any():
+                                    raise ValueError(
+                                        f"Module '{module_name}' contains NaNs, this is likely a bug restoring from full checkpoints"
+                                    )
 
                 # Load optimizer state.
                 if load_optimizer_state:
@@ -866,7 +870,7 @@ class FullCheckpointer(Checkpointer):
             og_names = group["params"]
             new_names = []
             for og_key in og_names:
-                for new_key in og_keys_to_new[og_key]:
+                for new_key in og_keys_to_new.get(og_key, {og_key}):
                     new_names.append(new_key)
             group["params"] = new_names
             group["param_names"] = new_names

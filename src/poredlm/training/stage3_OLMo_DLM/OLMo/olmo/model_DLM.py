@@ -2156,6 +2156,11 @@ class OLMoDLM(nn.Module):
     def num_params(self, include_embedding: bool = True) -> int:
         del include_embedding
         return sum(p.numel() for p in self.parameters())
+    
+    def _make_state_dict_compatible(
+        self, state_dict: Dict[str, torch.Tensor]
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, Set[str]]]:
+        return state_dict, {}
 
     @property
     def num_fwd_flops(self) -> int:

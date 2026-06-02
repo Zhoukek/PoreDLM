@@ -110,3 +110,4 @@ dorado_models/
 *.pkl
 *.safetensors
 *.csv.gz
+*.tsv.gz

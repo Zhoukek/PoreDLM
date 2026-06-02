@@ -83,7 +83,7 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
             start += num_instances
 
         self._length = start
-        log.info("Built DLM token dataset with %,d instances from %,d file(s)", self._length, len(self.paths))
+        log.info("Built DLM token dataset with %d instances from %d file(s)", self._length, len(self.paths))
 
     def _load_array(self, path: str) -> np.ndarray:
         try:

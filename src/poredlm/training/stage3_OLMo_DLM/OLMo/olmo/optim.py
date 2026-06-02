@@ -831,6 +831,7 @@ def _is_norm_module(module: nn.Module) -> bool:
         "LayerNorm",
         "LayerNormBase",
         "RMSLayerNorm",
+        "RMSNorm",
     }
 
 
@@ -877,6 +878,8 @@ def get_param_groups(cfg: TrainConfig, model: nn.Module) -> List[Dict[str, Any]]
                     decay.add(fpn)
                 else:
                     no_decay.add(fpn)
+            elif pn in {"t_emb_tokens", "self_cond_cfg_tokens", "mode_tokens"}:
+                no_decay.add(fpn)
 
     # Validate that we've considered every parameter
     inter_params = decay & no_decay
