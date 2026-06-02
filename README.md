@@ -83,3 +83,8 @@ distributed:
   backend: nccl
   find_unused_parameters: false
 ```
+
+
+## 环境
+
+A40卡上时：conda activate /mnt/zzbnew/rnamodel/zhoukexuan/miniconda3/envs/poregpt
