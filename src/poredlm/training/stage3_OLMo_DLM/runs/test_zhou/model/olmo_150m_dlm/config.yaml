@@ -161,11 +161,11 @@ new_style_checkpoints: null
 max_duration: 3ep
 global_train_batch_size: 128
 device_train_batch_size: 64
-device_train_microbatch_size: 16
-device_eval_batch_size: 16
+device_train_microbatch_size: 32
+device_eval_batch_size: 32
 eval_subset_num_batches: -1
 eval_on_load: false
-device_train_grad_accum: 4
+device_train_grad_accum: 2
 max_grad_norm: 1.0
 max_grad_norm_ratio: null
 precision: amp_bf16
