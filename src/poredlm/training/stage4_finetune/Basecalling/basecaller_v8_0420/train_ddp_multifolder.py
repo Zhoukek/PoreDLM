@@ -38,7 +38,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 
 from Basecalling.basecaller_v8_0420.utils import seed_everything, BLANK_IDX, ID2BASE, resolve_input_lengths
-from Basecalling.basecaller_v8_0420.model import BasecallModel
+from Basecalling.basecaller_v8_0420.model_dlm import BasecallModel
 from Basecalling.basecaller_v8_0420.metrics import (
     ctc_viterbi_decode,
     koi_beam_search_decode,
