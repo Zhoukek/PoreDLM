@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel, AutoConfig
-from transformers import CodeAwareOlmo2Model
 
 from .utils import NUM_CLASSES, ID2BASE
 
@@ -308,10 +307,6 @@ class BasecallModel(nn.Module):
                     model_path,
                     trust_remote_code=True,
                 )
-                # self.backbone = CodeAwareOlmo2Model.from_pretrained(
-                #     model_path,
-                #     trust_remote_code=True,
-                # )
 
             # 省显存：关闭 cache（很多 decoder-only 默认开）
             if hasattr(self.backbone.config, "use_cache"):

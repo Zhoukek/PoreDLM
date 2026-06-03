@@ -37,19 +37,19 @@ from accelerate.utils import DistributedDataParallelKwargs, InitProcessGroupKwar
 from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 
-from .utils import seed_everything, BLANK_IDX, ID2BASE, resolve_input_lengths
-from .model import BasecallModel
-from .metrics import (
+from Basecalling.basecaller_v8_0420.utils import seed_everything, BLANK_IDX, ID2BASE, resolve_input_lengths
+from Basecalling.basecaller_v8_0420.model import BasecallModel
+from Basecalling.basecaller_v8_0420.metrics import (
     ctc_viterbi_decode,
     koi_beam_search_decode,
     batch_bonito_accuracy,
     plot_curves,
     save_metrics_csv,
 )
-from .ctc_crf import decode as ctc_crf_decode
-from .ctc_crf import ctc_crf_loss
-from .ctc import ctc_label_smoothing_loss
-from .data_multifolder import (
+from Basecalling.basecaller_v8_0420.ctc_crf import decode as ctc_crf_decode
+from Basecalling.basecaller_v8_0420.ctc_crf import ctc_crf_loss
+from Basecalling.basecaller_v8_0420.ctc import ctc_label_smoothing_loss
+from Basecalling.basecaller_v8_0420.data_multifolder import (
     scan_jsonl_files,
     split_jsonl_files_by_group,
     MultiJsonlSignalRefDataset,
@@ -60,7 +60,7 @@ from .data_multifolder import (
     create_collate_fn,
     create_vq_collate_fn,
 )
-from .callback import plot_alignment_heatmap
+from Basecalling.basecaller_v8_0420.callback import plot_alignment_heatmap
 
 try:
     import wandb

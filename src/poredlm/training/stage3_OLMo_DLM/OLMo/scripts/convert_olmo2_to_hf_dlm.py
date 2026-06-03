@@ -78,7 +78,7 @@ class PoreDLMForDiffusion(PreTrainedModel):
                 "before loading this HF model."
             ) from exc
 
-        self.context_encoder = BertModel(BertConfig.from_dict(config.context_encoder_config))
+        self.context_encoder = BertModel(BertConfig.from_dict(config.context_encoder_config), add_pooling_layer=False)
         self.context_hidden_size = self.context_encoder.config.hidden_size
 
         dlm = config.dlm_config
