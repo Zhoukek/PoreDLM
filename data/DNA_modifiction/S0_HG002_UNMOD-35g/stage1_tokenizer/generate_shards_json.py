@@ -26,6 +26,7 @@
 
 import json
 import os
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +57,32 @@ EXPECTED_CHUNK_SIZE = 6000
 # =============================================================================
 # 主逻辑
 # =============================================================================
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+
+    v = str(v).lower()
+    if v in {"true", "1", "yes", "y"}:
+        return True
+    if v in {"false", "0", "no", "n"}:
+        return False
+
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {v}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate shards.json for a directory containing *_chunks.npy files."
+    )
+    parser.add_argument("--input_dir", default=INPUT_DIR)
+    parser.add_argument("--output_json", default=OUTPUT_JSON)
+    parser.add_argument("--file_pattern", default=FILE_PATTERN)
+    parser.add_argument("--overwrite", default=OVERWRITE, type=str2bool)
+    parser.add_argument("--check_expected_chunk_size", default=CHECK_EXPECTED_CHUNK_SIZE, type=str2bool)
+    parser.add_argument("--expected_chunk_size", default=EXPECTED_CHUNK_SIZE, type=int)
+    return parser.parse_args()
+
 
 def find_chunk_files(input_dir: str, pattern: str):
     input_path = Path(input_dir)
@@ -94,6 +121,17 @@ def inspect_chunk_file(path: Path):
 
 
 def main():
+    global INPUT_DIR, OUTPUT_JSON, FILE_PATTERN
+    global OVERWRITE, CHECK_EXPECTED_CHUNK_SIZE, EXPECTED_CHUNK_SIZE
+
+    args = parse_args()
+    INPUT_DIR = args.input_dir
+    OUTPUT_JSON = args.output_json
+    FILE_PATTERN = args.file_pattern
+    OVERWRITE = args.overwrite
+    CHECK_EXPECTED_CHUNK_SIZE = args.check_expected_chunk_size
+    EXPECTED_CHUNK_SIZE = args.expected_chunk_size
+
     input_dir = Path(INPUT_DIR)
     output_path = input_dir / OUTPUT_JSON
 
