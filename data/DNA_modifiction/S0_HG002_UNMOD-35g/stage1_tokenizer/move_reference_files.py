@@ -20,6 +20,7 @@
 """
 
 import os
+import argparse
 import shutil
 from pathlib import Path
 
@@ -43,6 +44,30 @@ OVERWRITE = False
 
 # 是否只是预览，不真正移动
 DRY_RUN = False
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+
+    v = str(v).lower()
+    if v in {"true", "1", "yes", "y"}:
+        return True
+    if v in {"false", "0", "no", "n"}:
+        return False
+
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {v}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Move *_references.npy and *_reference_lengths.npy into a reference folder."
+    )
+    parser.add_argument("--source_dir", default=SOURCE_DIR)
+    parser.add_argument("--target_dir", default=TARGET_DIR)
+    parser.add_argument("--overwrite", default=OVERWRITE, type=str2bool)
+    parser.add_argument("--dry_run", default=DRY_RUN, type=str2bool)
+    return parser.parse_args()
 
 
 def collect_reference_files(source_dir: Path):
@@ -87,6 +112,14 @@ def move_file(src_path: Path, target_dir: Path, overwrite: bool, dry_run: bool):
 
 
 def main():
+    global SOURCE_DIR, TARGET_DIR, OVERWRITE, DRY_RUN
+
+    args = parse_args()
+    SOURCE_DIR = args.source_dir
+    TARGET_DIR = args.target_dir
+    OVERWRITE = args.overwrite
+    DRY_RUN = args.dry_run
+
     source_dir = Path(SOURCE_DIR)
     target_dir = Path(TARGET_DIR)
 

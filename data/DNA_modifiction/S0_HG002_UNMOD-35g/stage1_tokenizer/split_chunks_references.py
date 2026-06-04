@@ -21,6 +21,7 @@ train / test / validation。
 """
 
 import os
+import argparse
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
@@ -70,6 +71,38 @@ EXPECTED_CHUNK_LEN = 6000
 # =============================================================================
 # 工具函数
 # =============================================================================
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+
+    v = str(v).lower()
+    if v in {"true", "1", "yes", "y"}:
+        return True
+    if v in {"false", "0", "no", "n"}:
+        return False
+
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {v}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Split merged chunks/references into train/test/validation."
+    )
+    parser.add_argument("--input_dir", default=INPUT_DIR)
+    parser.add_argument("--train_dir", default=TRAIN_DIR)
+    parser.add_argument("--test_dir", default=TEST_DIR)
+    parser.add_argument("--validation_dir", default=VALIDATION_DIR)
+    parser.add_argument("--train_ratio", default=TRAIN_RATIO, type=float)
+    parser.add_argument("--test_ratio", default=TEST_RATIO, type=float)
+    parser.add_argument("--val_ratio", default=VAL_RATIO, type=float)
+    parser.add_argument("--seed", default=SEED, type=int)
+    parser.add_argument("--batch_size", default=BATCH_SIZE, type=int)
+    parser.add_argument("--overwrite", default=OVERWRITE, type=str2bool)
+    parser.add_argument("--check_chunk_len", default=CHECK_CHUNK_LEN, type=str2bool)
+    parser.add_argument("--expected_chunk_len", default=EXPECTED_CHUNK_LEN, type=int)
+    return parser.parse_args()
+
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
@@ -292,6 +325,24 @@ def process_one_file(prefix, input_dir, output_dirs, seed):
 
 
 def main():
+    global INPUT_DIR, TRAIN_DIR, TEST_DIR, VALIDATION_DIR
+    global TRAIN_RATIO, TEST_RATIO, VAL_RATIO, SEED
+    global BATCH_SIZE, OVERWRITE, CHECK_CHUNK_LEN, EXPECTED_CHUNK_LEN
+
+    args = parse_args()
+    INPUT_DIR = args.input_dir
+    TRAIN_DIR = args.train_dir
+    TEST_DIR = args.test_dir
+    VALIDATION_DIR = args.validation_dir
+    TRAIN_RATIO = args.train_ratio
+    TEST_RATIO = args.test_ratio
+    VAL_RATIO = args.val_ratio
+    SEED = args.seed
+    BATCH_SIZE = args.batch_size
+    OVERWRITE = args.overwrite
+    CHECK_CHUNK_LEN = args.check_chunk_len
+    EXPECTED_CHUNK_LEN = args.expected_chunk_len
+
     check_ratios()
 
     ensure_dir(TRAIN_DIR)
