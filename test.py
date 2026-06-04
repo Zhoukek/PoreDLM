@@ -38,39 +38,43 @@
 #     first_data = json.loads(first_line.strip())
 #     print(json.dumps(first_data, indent=2, ensure_ascii=False))
 
-# # 读取npy文件
-# import numpy as np
+# ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-# # 读取 npy 文件
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
-# file_path = "/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/read_ids.npy"
+# 读取npy文件
+import numpy as np
 
-# data = np.load(file_path, allow_pickle=True)
+# 读取 npy 文件
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
+file_path = "/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/references.npy"
 
-# # 输出基本信息
-# print("=" * 50)
-# print("文件信息:")
-# print(f"文件路径: {file_path}")
-# print(f"数据类型: {data.dtype}")
-# print(f"数组形状: {data.shape}")
-# print(f"数组维度: {data.ndim}")
-# print(f"总元素数: {data.size}")
-# print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
-# print("=" * 50)
+data = np.load(file_path, allow_pickle=True)
 
-# # 输出内容
-# print("\n数组内容:")
-# print(data)
+# 输出基本信息
+print("=" * 50)
+print("文件信息:")
+print(f"文件路径: {file_path}")
+print(f"数据类型: {data.dtype}")
+print(f"数组形状: {data.shape}")
+print(f"数组维度: {data.ndim}")
+print(f"总元素数: {data.size}")
+print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
+print("=" * 50)
 
-# # 如果是高维数组，输出部分内容
-# if data.ndim >= 2:
-#     print(f"\n前5行（如果有）:")
-#     print(data[:5] if data.shape[0] > 5 else data)
+# 输出内容
+print("\n数组内容:")
+print(data)
+
+# 如果是高维数组，输出部分内容
+if data.ndim >= 2:
+    print(f"\n前5行（如果有）:")
+    print(data[:5] if data.shape[0] > 5 else data)
 
 
-import h5py
+# ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+# 读取
+# import h5py
 
-filename = '/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/fast5_split_one/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/250F601844011_0_0_0_0_part0001.fast5'  # 替换为你的文件名
+# filename = '/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/fast5_split_one/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/250F601844011_0_0_0_0_part0001.fast5'  # 替换为你的文件名
 
 # with h5py.File(filename, 'r') as f:
 #     # 获取前3个read的名称
@@ -105,44 +109,26 @@ filename = '/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844
 #                     val = val.decode('utf-8', errors='ignore')
 #                 print(f"  {attr}: {val}")
 
-import h5py
+# ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-filename = 'your_file.fast5'
-read_name = 'read_250F601844011_1_100_100_3471584_18195'
+import pysam
 
-with h5py.File(filename, 'r') as f:
-    read = f[read_name]
-    
-    # 尝试多种可能的信号路径
-    signal_paths = [
-        'Raw/Signal',
-        'Raw/Reads/Signal', 
-        'Raw/Electrophoresis/Signal',
-        'Analyses/RawGenomeCorrected_000/BaseCalled_template/Signal'
-    ]
-    
-    for path in signal_paths:
-        try:
-            # 按路径访问
-            parts = path.split('/')
-            current = read
-            for part in parts:
-                current = current[part]
-            
-            signal_data = current[()]
-            print(f"找到信号: {path}")
-            print(f"电信号长度: {len(signal_data)} 个采样点")
-            print(f"从属性duration看: {read.attrs.get('duration', 'N/A')}")
-            print(f"信号范围: {signal_data.min():.2f} ~ {signal_data.max():.2f}")
-            print(f"前20个信号值: {signal_data[:20]}")
-            break
-        except (KeyError, AttributeError):
-            continue
-    else:
-        print("未找到信号数据，显示Raw组的所有内容:")
-        if 'Raw' in read:
-            for key in read['Raw'].keys():
-                print(f"  - {key}")
-                if isinstance(read['Raw'][key], h5py.Dataset):
-                    print(f"    shape: {read['Raw'][key].shape}")
+# 打开BAM文件
+bam_file = pysam.AlignmentFile("/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/acc95.bam", "rb")
 
+# 方法1：统计所有reads
+total_reads = 0
+for read in bam_file:
+    total_reads += 1
+
+print(f"Total reads: {total_reads}")
+
+# 方法2：使用count方法（更快）
+total_reads = bam_file.count()
+print(f"Total reads: {total_reads}")
+
+# 统计比对上的reads
+mapped_reads = bam_file.count(until_eof=False)
+print(f"Mapped reads: {mapped_reads}")
+
+bam_file.close()

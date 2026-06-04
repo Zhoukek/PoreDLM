@@ -9,7 +9,7 @@ from tqdm import tqdm
 from time import perf_counter
 from functools import partial
 from datetime import timedelta
-from itertools import islice as take
+from itertools import islice as take, tee
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from bonito.nn import fuse_bn_
@@ -19,6 +19,25 @@ from bonito.io import CTCWriter, Writer, biofmt
 from bonito.cli.download import Downloader, models, __models_dir__
 from bonito.multiprocessing import process_cancel, process_itemmap
 from bonito.util import column_to_set, load_symbol, load_model, init, tqdm_environ
+
+
+def summarize_print_value(value):
+    if isinstance(value, np.ndarray):
+        preview = value[:5].tolist() if value.ndim == 1 else value.reshape(-1)[:5].tolist()
+        return f"ndarray(shape={value.shape}, dtype={value.dtype}, preview={preview})"
+    return repr(value)
+
+
+def print_reads(reads, n=3):
+    reads, peek_reads = tee(reads)
+    print(f"> reads: showing first {n} items", file=sys.stderr)
+    for i, read in enumerate(take(peek_reads, n), start=1):
+        attrs = getattr(read, "__dict__", {})
+        print(f"> read {i}: type={type(read).__name__}", file=sys.stderr)
+        print(f"> read {i} keys: {list(attrs.keys())}", file=sys.stderr)
+        for key, value in attrs.items():
+            print(f"> read {i} {key}: {summarize_print_value(value)}", file=sys.stderr)
+    return reads
 
 
 def main(args):
@@ -127,6 +146,8 @@ def main(args):
         ResultsWriter = CTCWriter
     else:
         ResultsWriter = Writer
+
+    reads = print_reads(reads)
 
     results = basecall(
         model, reads, reverse=args.revcomp, rna=args.rna,

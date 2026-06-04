@@ -17,6 +17,13 @@ from dateutil import parser
 from ont_fast5_api.fast5_interface import get_fast5_file
 
 
+def get_attr(attrs, key, default='unset', encoding='ascii'):
+    value = attrs.get(key, default)
+    if type(value) in (bytes, np.bytes_):
+        value = value.decode(encoding)
+    return value
+
+
 class Read(bonito.reader.Read):
 
     def __init__(self, read, filename, meta=False, do_trim=True, scaling_strategy=None, norm_params=None):
@@ -30,25 +37,16 @@ class Read(bonito.reader.Read):
 
         tracking_id = read.handle[read.global_key + 'tracking_id'].attrs
 
-        try:
-            self.sample_id = tracking_id['sample_id']
-        except KeyError:
-            self.sample_id = 'unset'
-        if type(self.sample_id) in (bytes, np.bytes_):
-            self.sample_id = self.sample_id.decode()
+        self.sample_id = get_attr(tracking_id, 'sample_id')
 
-        self.exp_start_time = tracking_id['exp_start_time']
-        if type(self.exp_start_time) in (bytes, np.bytes_):
-            self.exp_start_time = self.exp_start_time.decode('ascii')
+        self.exp_start_time = get_attr(
+            tracking_id, 'exp_start_time', default='1970-01-01T00:00:00'
+        )
         self.exp_start_time = self.exp_start_time.replace('Z', '')
 
-        self.flow_cell_id = tracking_id['flow_cell_id']
-        if type(self.flow_cell_id) in (bytes, np.bytes_):
-            self.flow_cell_id = self.flow_cell_id.decode('ascii')
+        self.flow_cell_id = get_attr(tracking_id, 'flow_cell_id')
 
-        self.device_id = tracking_id['device_id']
-        if type(self.device_id) in (bytes, np.bytes_):
-            self.device_id = self.device_id.decode('ascii')
+        self.device_id = get_attr(tracking_id, 'device_id')
 
         if self.meta:
             return
