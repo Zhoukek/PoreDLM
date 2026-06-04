@@ -129,8 +129,6 @@ def main(args):
         cancel=process_cancel()
     )
 
-    reads = print_reads(reads)
-
     if args.verbose:
         sys.stderr.write(f"> read scaling: {model.config.get('scaling')}\n")
     
@@ -154,41 +152,9 @@ def main(args):
 
     reads = print_reads(reads)
 
-    results = basecall(
-        model, reads, reverse=args.revcomp, rna=args.rna,
-        batchsize=model.config["basecaller"]["batchsize"],
-        chunksize=model.config["basecaller"]["chunksize"],
-        overlap=model.config["basecaller"]["overlap"]
-    )
+    
 
-    if aligner:
-        results = align_map(aligner, results, n_thread=args.alignment_threads)
 
-    writer_kwargs = {'aligner': aligner,
-                     'group_key': args.model_directory,
-                     'ref_fn': args.reference,
-                     'groups': groups,
-                     'min_qscore': args.min_qscore}
-    if args.save_ctc:
-        writer_kwargs['rna'] = args.rna
-        writer_kwargs['min_accuracy'] = args.min_accuracy_save_ctc
-        
-    writer = ResultsWriter(
-        fmt.mode, tqdm(results, desc="> calling", unit=" reads", leave=False,
-                       total=num_reads, smoothing=0, ascii=True, ncols=100,
-                       **tqdm_environ()),
-        **writer_kwargs)
-
-    t0 = perf_counter()
-    writer.start()
-    writer.join()
-    duration = perf_counter() - t0
-    num_samples = sum(num_samples for read_id, num_samples in writer.log)
-
-    sys.stderr.write("> completed reads: %s\n" % len(writer.log))
-    sys.stderr.write("> duration: %s\n" % timedelta(seconds=np.round(duration)))
-    sys.stderr.write("> samples per second %.1E\n" % (num_samples / duration))
-    sys.stderr.write("> done\n")
 
 
 def argparser():

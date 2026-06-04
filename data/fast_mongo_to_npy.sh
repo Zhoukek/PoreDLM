@@ -56,7 +56,7 @@ for batch_id in "${batch_list[@]}"; do
         echo "[INFO] Output: $outfile"
         echo "======================================"
 
-        python -m bonito basecaller "${model}" "${fast5_dir}" \
+        python -m bonito fast_mongo_to_npy "${model}" "${fast5_dir}" \
             --no-trim \
             --reference "${ref}" \
             --save-ctc \
