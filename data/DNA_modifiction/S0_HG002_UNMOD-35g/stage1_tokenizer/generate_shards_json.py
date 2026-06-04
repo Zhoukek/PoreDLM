@@ -38,7 +38,7 @@ from tqdm import tqdm
 
 INPUT_DIR = (
     "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/"
-    "/S0_HG002_UNMOD-35g/stage1_tokenizer/validation"
+    "/S0_HG002_UNMOD-35g/stage1_tokenizer/train"
 )
 
 OUTPUT_JSON = "shards.json"

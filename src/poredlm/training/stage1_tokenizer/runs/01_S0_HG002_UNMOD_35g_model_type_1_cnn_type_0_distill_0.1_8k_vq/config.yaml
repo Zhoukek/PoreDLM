@@ -12,8 +12,8 @@ data:
   # train_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
   # evaluation_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/validation"
 
-  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage1_tokenizer/train"
-  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage1_tokenizer/validation"
+  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer/train"
+  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer/validation"
   
   # 数据加载
   num_workers: 64
@@ -22,20 +22,19 @@ data:
   
   # 数据分块
   dataset_logic_chunk_size: 2400
-  chunk_size: 5000
+  chunk_size: 6000
 
 # ============================================================
 # 模型配置
 # ============================================================
 model:
   # 模型类型选择
-  model_type: 0
-  codebook_type: "VQ"
+  model_type: 1
+  codebook_type: "VQ_distill"
   cnn_type: 0
   
   # 码本配置
-  codebook_size: 8196
-  codebook_dim: 768
+  codebook_size: 8192
   learnable_codebook: false
   init_codebook_path: ""  # 可选，预初始化码本路径
   
@@ -51,11 +50,11 @@ model:
 # ============================================================
 training:
   # 基础训练参数
-  num_epochs: 100
+  num_epochs: 20
   lr: 2.0e-05
   
   # 批次大小配置
-  global_batch_size: 2048   # 全局批次大小
+  global_batch_size: 4096   # 全局批次大小
   device_micro_batch_size: 256  # 每个设备的微批次大小
   
   # 混合精度与梯度
@@ -79,7 +78,8 @@ loss:
   codebook_diversity_loss_weight: 0.0  # 码本多样性损失
   orthogonal_reg_weight: 0.0  # 正交正则化损失
 
-  distill_loss_weight: 1 # 蒸馏损失权重（仅当 codebook_type 是 "VQ_distill" 时使用）
+  distill_loss_weight: 0.1 # 蒸馏损失权重（仅当 codebook_type 是 "VQ_distill" 时使用）
+
 
 
 # ============================================================
@@ -87,7 +87,7 @@ loss:
 # ============================================================
 lr_scheduler:
   type: "cosine"  # 可选: "constant", "cosine", "linear"
-  warmup_steps: 100
+  warmup_steps: 1000
   warmup_start_factor: 0.01
   warmup_end_factor: 1.0
   main_scheduler_end_factor: 0.4
@@ -102,7 +102,7 @@ checkpoint:
   loss_csv_path: "train_loss.csv"
   
   # 保存频率
-  save_checkpoint_every_spoch: 5000
+  save_checkpoint_every_spoch: 10000
   loss_log_interval: 10
   
   # 动态权重平均器（DWA）日志频率
@@ -114,7 +114,7 @@ checkpoint:
 # ============================================================
 evaluation:
   do_evaluate: true
-  evaluate_every_spoch: 100
+  evaluate_every_spoch: 500
 
 
 # ============================================================
@@ -123,4 +123,4 @@ evaluation:
 wandb:
   use_wandb: true
   project: "stage1_tokenizer_experiments"
-  name: "02_without_modfiction_model_type0_cnn_type_0_8k"
+  name: "01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq"
