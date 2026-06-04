@@ -45,7 +45,7 @@ import numpy as np
 
 # 读取 npy 文件
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
-file_path = "/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/references.npy"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/references.npy"
 
 data = np.load(file_path, allow_pickle=True)
 
@@ -111,24 +111,14 @@ if data.ndim >= 2:
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-import pysam
+# import pysam
 
-# 打开BAM文件
-bam_file = pysam.AlignmentFile("/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/acc95.bam", "rb")
+# # 打开BAM文件
+# bam_file = pysam.AlignmentFile("/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/acc95.bam", "rb")
 
-# 方法1：统计所有reads
-total_reads = 0
-for read in bam_file:
-    total_reads += 1
+# # 方法1：统计所有reads
+# total_reads = 0
+# for read in bam_file:
+#     total_reads += 1
 
-print(f"Total reads: {total_reads}")
-
-# 方法2：使用count方法（更快）
-total_reads = bam_file.count()
-print(f"Total reads: {total_reads}")
-
-# 统计比对上的reads
-mapped_reads = bam_file.count(until_eof=False)
-print(f"Mapped reads: {mapped_reads}")
-
-bam_file.close()
+# print(f"Total reads: {total_reads}")

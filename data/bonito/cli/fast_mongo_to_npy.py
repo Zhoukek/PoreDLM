@@ -4,13 +4,15 @@ Bonito Basecaller
 
 import os
 import sys
+import csv
 import numpy as np
 from tqdm import tqdm
 from time import perf_counter
 from functools import partial
 from datetime import timedelta
-from itertools import islice as take, tee
+from itertools import islice as take
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from os.path import dirname, realpath
 
 from bonito.nn import fuse_bn_
 from bonito.aligner import align_map, Aligner
@@ -21,25 +23,82 @@ from bonito.multiprocessing import process_cancel, process_itemmap
 from bonito.util import column_to_set, load_symbol, load_model, init, tqdm_environ
 
 
-def summarize_print_value(value):
-    if isinstance(value, np.ndarray):
-        preview = value[:5].tolist() if value.ndim == 1 else value.reshape(-1)[:5].tolist()
-        return f"ndarray(shape={value.shape}, dtype={value.dtype}, preview={preview})"
-    return repr(value)
+def output_directory(path=None):
+    if path:
+        return path
+    return '.' if sys.stdout.isatty() else dirname(realpath('/dev/fd/1'))
 
 
-def print_reads(reads, n=3):
-    print(f"> reads: showing first {n} items", file=sys.stderr)
-    count = 0
-    for count, read in enumerate(reads, start=1):
-        if count <= n:
-            attrs = getattr(read, "__dict__", {})
-            print(f"> read {count}: type={type(read).__name__}", file=sys.stderr)
-            print(f"> read {count} keys: {list(attrs.keys())}", file=sys.stderr)
-            for key, value in attrs.items():
-                print(f"> read {count} {key}: {summarize_print_value(value)}", file=sys.stderr)
-        yield read
-    print(f"> reads total items: {count}", file=sys.stderr)
+def find_references_path(directory):
+    for filename in ("references.npy", "reference.npy"):
+        path = os.path.join(directory, filename)
+        if os.path.exists(path):
+            return path
+    return os.path.join(directory, "references.npy")
+
+
+def load_summary_read_ids(summary_path):
+    read_id_to_idx = {}
+    with open(summary_path, newline='') as fh:
+        reader = csv.DictReader(fh, delimiter='\t')
+        if reader.fieldnames is None or 'read_id' not in reader.fieldnames:
+            raise ValueError(f"{summary_path} does not contain a read_id column")
+        # DictReader consumes the header, so idx=0 maps to the first data row
+        # and therefore references.npy[0].
+        for idx, row in enumerate(reader):
+            read_id = row['read_id']
+            if read_id not in read_id_to_idx:
+                read_id_to_idx[read_id] = idx
+    return read_id_to_idx
+
+
+def save_filtered_chunks(reads, read_id_to_idx, reference_rows, out_dir):
+    chunks = []
+    references = []
+    seen = set()
+    total = 0
+    matched = 0
+
+    for read in reads:
+        total += 1
+        ref_idx = read_id_to_idx.get(read.read_id)
+        if ref_idx is None or read.read_id in seen:
+            continue
+        if ref_idx >= len(reference_rows):
+            raise IndexError(
+                f"read_id {read.read_id} maps to row {ref_idx}, but references.npy "
+                f"has only {len(reference_rows)} rows"
+            )
+        seen.add(read.read_id)
+        matched += 1
+        chunks.append(read.signal)
+        references.append(reference_rows[ref_idx])
+
+    if not chunks:
+        sys.stderr.write(
+            f"> no chunks matched acc95_summary.tsv read_id column "
+            f"(scanned {total} chunks)\n"
+        )
+        return
+
+    chunks = np.asarray(chunks, dtype=np.float16)
+    references = np.asarray(references, dtype=reference_rows.dtype)
+    reference_lengths = np.count_nonzero(references, axis=1).astype(np.uint16)
+
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(os.path.join(out_dir, "chunks.npy"), chunks)
+    np.save(os.path.join(out_dir, "references.npy"), references)
+    np.save(os.path.join(out_dir, "reference_lengths.npy"), reference_lengths)
+
+    sys.stderr.write(f"> scanned chunks: {total}\n")
+    sys.stderr.write(f"> matched chunks: {matched}\n")
+    sys.stderr.write(f"> written mongo training data to {out_dir}\n")
+    sys.stderr.write("  - chunks.npy with shape (%s)\n" % ','.join(map(str, chunks.shape)))
+    sys.stderr.write("  - references.npy with shape (%s)\n" % ','.join(map(str, references.shape)))
+    sys.stderr.write(
+        "  - reference_lengths.npy with shape (%s)\n"
+        % ','.join(map(str, reference_lengths.shape))
+    )
 
 
 def main(args):
@@ -150,9 +209,21 @@ def main(args):
     else:
         ResultsWriter = Writer
 
-    reads = print_reads(reads)
+    summary_dir = args.summary_dir or args.reads_directory
+    summary_path = os.path.join(summary_dir, "acc95_summary.tsv")
+    references_path = find_references_path(summary_dir)
+    if not os.path.exists(summary_path):
+        sys.stderr.write(f"> error: missing summary file: {summary_path}\n")
+        exit(1)
+    if not os.path.exists(references_path):
+        sys.stderr.write(f"> error: missing references file: {references_path}\n")
+        exit(1)
 
-    
+    read_id_to_idx = load_summary_read_ids(summary_path)
+    references = np.load(references_path, mmap_mode='r')
+    sys.stderr.write(f"> loaded {len(read_id_to_idx)} read_ids from {summary_path}\n")
+    sys.stderr.write(f"> loaded {references_path} with shape {references.shape}\n")
+    save_filtered_chunks(reads, read_id_to_idx, references, output_directory(args.output_dir))
 
 
 
@@ -187,5 +258,7 @@ def argparser():
     parser.add_argument("--min-accuracy-save-ctc", default=0.99, type=float)
     parser.add_argument("--alignment-threads", default=8, type=int)
     parser.add_argument("--mm2-preset", default='lr:hq', type=str)
+    parser.add_argument("--output-dir")
+    parser.add_argument("--summary-dir")
     parser.add_argument('-v', '--verbose', action='count', default=0)
     return parser

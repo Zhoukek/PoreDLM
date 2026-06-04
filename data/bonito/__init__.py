@@ -1,9 +1,10 @@
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
-from bonito.cli import basecaller, download, duplex, evaluate, export, train, view
+from bonito.cli import basecaller, download, duplex, evaluate, export, train, view, fast_mongo_to_npy
 
 modules = [
-    'basecaller', 'download', 'duplex', 'evaluate', 'export', 'train', 'view',
+    'basecaller', 'download', 'duplex', 'evaluate', 'export',
+    'fast_mongo_to_npy', 'train', 'view',
 ]
 
 __version__ = '0.9.0'

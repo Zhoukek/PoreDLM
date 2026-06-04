@@ -9,6 +9,7 @@ ref=/mnt/zzbnew/rnamodel/data/ref/HG002.fasta
 model=/mnt/zzbnew/rnamodel/model/bonito/dna_basic_0121
 
 fast5_root=/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/fast5_split_one
+summary_root=/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk
 
 out_root=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/basecall_chunk
 
@@ -40,7 +41,8 @@ for batch_id in "${batch_list[@]}"; do
         part_id=$(basename "$fast5_dir")
 
         outdir="$out_root/$batch_id/$part_id"
-        outfile="$outdir/acc95.bam"
+        summary_dir="$summary_root/$batch_id/$part_id"
+        outfile="$outdir/chunks.npy"
         logfile="$outdir/basecall.log"
 
         mkdir -p "$outdir"
@@ -65,7 +67,9 @@ for batch_id in "${batch_list[@]}"; do
             --device "${device}" \
             --chunksize 6000 \
             --overlap 3000 \
-            > "${outfile}" 2> "${logfile}"
+            --output-dir "${outdir}" \
+            --summary-dir "${summary_dir}" \
+            > /dev/null 2> "${logfile}"
             
         echo "[DONE] $batch_id/$part_id"
     done
