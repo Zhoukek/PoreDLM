@@ -11,7 +11,8 @@ bash PoreDLM/src/poredlm/training/stage1_tokenizer/runs/test_zhou/run.sh
 
 ~~~
 数据准备：
-1. （数据预处理，如果已经经过处理了就直接进入下面的步骤，从其他的格式变为npy文件）
+1. 从王雪老师那边的文件修改
+bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/fast_mongo_to_npy.sh
 
 2. 
 ~~~
