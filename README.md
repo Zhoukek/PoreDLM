@@ -14,7 +14,8 @@ bash PoreDLM/src/poredlm/training/stage1_tokenizer/runs/test_zhou/run.sh
 1. 从王雪老师那边的文件修改
 bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/fast_mongo_to_npy.sh
 
-2. 
+2. 将文件进行 train/test/validation 划分
+bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/run.sh
 ~~~
 
 ## Stage 2: BERT_Encoder Traing

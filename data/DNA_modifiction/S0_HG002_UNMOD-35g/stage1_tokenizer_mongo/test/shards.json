@@ -1,0 +1,39 @@
+{
+  "total_samples": 280680,
+  "chunk_size": 6000,
+  "dtype": "float16",
+  "shards": [
+    {
+      "path": "250F601844011_0_0_0_0_chunks.npy",
+      "num_samples": 28420
+    },
+    {
+      "path": "250F601844011_0_0_0_1_chunks.npy",
+      "num_samples": 36805
+    },
+    {
+      "path": "250F601844011_0_0_0_2_chunks.npy",
+      "num_samples": 38126
+    },
+    {
+      "path": "250F601844011_0_0_0_3_chunks.npy",
+      "num_samples": 19518
+    },
+    {
+      "path": "250F601844011_0_0_1_0_chunks.npy",
+      "num_samples": 41720
+    },
+    {
+      "path": "250F601844011_0_0_1_1_chunks.npy",
+      "num_samples": 42659
+    },
+    {
+      "path": "250F601844011_0_0_1_2_chunks.npy",
+      "num_samples": 40808
+    },
+    {
+      "path": "250F601844011_0_0_2_0_chunks.npy",
+      "num_samples": 32624
+    }
+  ]
+}

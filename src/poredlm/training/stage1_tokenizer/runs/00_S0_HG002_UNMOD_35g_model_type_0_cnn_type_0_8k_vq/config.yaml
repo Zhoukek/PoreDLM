@@ -12,9 +12,9 @@ data:
   # train_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
   # evaluation_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/validation"
 
-  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer/train"
-  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer/validation"
-  
+  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/train"
+  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation"
+   
   # 数据加载
   num_workers: 64
   val_ratio: 0.2  # 验证集比例（当 evaluation_npy_dir 未设置时使用）
@@ -55,7 +55,7 @@ training:
   
   # 批次大小配置
   global_batch_size: 2048   # 全局批次大小
-  device_micro_batch_size: 32  # 每个设备的微批次大小
+  device_micro_batch_size: 256  # 每个设备的微批次大小
   
   # 混合精度与梯度
   mixed_precision: "no"  # 可选: "no", "fp16", "bf16", "fp8"
@@ -114,7 +114,7 @@ checkpoint:
 # ============================================================
 evaluation:
   do_evaluate: true
-  evaluate_every_spoch: 500
+  evaluate_every_spoch: 1000
 
 
 # ============================================================
