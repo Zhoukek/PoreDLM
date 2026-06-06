@@ -12,8 +12,8 @@ data:
   # train_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
   # evaluation_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/validation"
 
-  train_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/train"
-  evaluation_npy_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation"
+  train_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_018g/memap_lemon5/train"
+  evaluation_npy_dir: "/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_018g/memap_lemon5/validation"
   
   # 数据加载
   num_workers: 64
@@ -22,7 +22,7 @@ data:
   
   # 数据分块
   dataset_logic_chunk_size: 2400
-  chunk_size: 6000
+  chunk_size: 12000
 
 # ============================================================
 # 模型配置
@@ -123,4 +123,4 @@ evaluation:
 wandb:
   use_wandb: true
   project: "stage1_tokenizer_experiments"
-  name: "01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq"
+  name: "XX_S0_HG002_Human_18g_model_type_1_cnn_type_0_distill_0.1_8k_vq_test"

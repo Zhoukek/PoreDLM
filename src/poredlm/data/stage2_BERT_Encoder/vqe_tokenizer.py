@@ -172,6 +172,7 @@ class VQETokenizer:
         state_dict = ckpt_data['model_state_dict']
 
         self.codebook_size = codebook_size
+        self.model_type = model_type
 
         # --- Instantiate model ---
         if model_type == 0:

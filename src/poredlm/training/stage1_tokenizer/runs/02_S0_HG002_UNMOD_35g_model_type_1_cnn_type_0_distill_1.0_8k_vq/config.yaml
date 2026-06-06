@@ -78,7 +78,7 @@ loss:
   codebook_diversity_loss_weight: 0.0  # 码本多样性损失
   orthogonal_reg_weight: 0.0  # 正交正则化损失
 
-  distill_loss_weight: 0.1 # 蒸馏损失权重（仅当 codebook_type 是 "VQ_distill" 时使用）
+  distill_loss_weight: 1.0 # 蒸馏损失权重（仅当 codebook_type 是 "VQ_distill" 时使用）
 
 
 
@@ -123,4 +123,4 @@ evaluation:
 wandb:
   use_wandb: true
   project: "stage1_tokenizer_experiments"
-  name: "01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq"
+  name: "02_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_1.0_8k_vq"

@@ -22,8 +22,8 @@ class SignalCNN(nn.Module):
             self._build_cnn_type0()
             self.out_channels = 768
             self.stride = 5
-            self.receptive_field = 33
-            self.RF = 33
+            self.receptive_field = 27
+            self.RF = 27
         elif cnn_type == 1:
             pass
     

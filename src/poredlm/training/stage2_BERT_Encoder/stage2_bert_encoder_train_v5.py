@@ -261,7 +261,7 @@ class BertMlmWithWaveformDecoder(torch.nn.Module):
                 f"so hidden_size must equal codebook_dim. Got hidden_size={self.hidden_size}, "
                 f"codebook_dim={self.codebook_dim}."
             )
-        self.register_buffer("codebook_vectors", codebook_vectors.float(), persistent=False)
+        self.register_buffer("codebook_vectors", codebook_vectors.float(), persistent=True)
 
     def forward(
         self,
@@ -299,16 +299,7 @@ class BertMlmWithWaveformDecoder(torch.nn.Module):
                 with torch.no_grad():
                     target_waveform = self.target_decoder(target_latents)
                 target_waveform = self._align_waveform_length(target_waveform, predicted_waveform.shape[-1])
-                if attention_mask is None:
-                    waveform_mse_loss = F.mse_loss(predicted_waveform, target_waveform)
-                else:
-                    waveform_mask = self._build_waveform_mask(
-                        attention_mask=attention_mask,
-                        waveform_len=predicted_waveform.shape[-1],
-                    )
-                    squared_error = (predicted_waveform - target_waveform).pow(2) * waveform_mask
-                    denom = waveform_mask.sum().clamp_min(1.0) * predicted_waveform.shape[1]
-                    waveform_mse_loss = squared_error.sum() / denom
+                waveform_mse_loss = F.mse_loss(predicted_waveform, target_waveform)
 
         if token_loss is None:
             token_loss = predicted_waveform.new_zeros(())
@@ -331,21 +322,22 @@ class BertMlmWithWaveformDecoder(torch.nn.Module):
             return F.pad(waveform, (0, target_len - current_len))
         return waveform
 
-    def _build_waveform_mask(self, attention_mask: torch.Tensor, waveform_len: int) -> torch.Tensor:
-        valid_tokens = attention_mask.long().sum(dim=1)
-        valid_waveform_len = valid_tokens * self.cnn_stride - 3
-        valid_waveform_len = valid_waveform_len.clamp(min=0, max=waveform_len)
-        positions = torch.arange(waveform_len, device=attention_mask.device).unsqueeze(0)
-        return (positions < valid_waveform_len.unsqueeze(1)).to(dtype=torch.float32).unsqueeze(1)
-
     def save_pretrained(self, save_directory: str | Path) -> None:
-        """Save the underlying MLM checkpoint plus the trainable waveform decoder."""
+        """Save a HF-compatible BERT checkpoint plus the V5 auxiliary state."""
 
         save_path = Path(save_directory)
         save_path.mkdir(parents=True, exist_ok=True)
         self.bert_mlm.save_pretrained(save_path)
-        torch.save(self.wave_decoder.state_dict(), save_path / "waveform_decoder.bin")
+        torch.save(
+            {
+                "wave_decoder": self.wave_decoder.state_dict(),
+                "target_decoder": self.target_decoder.state_dict(),
+                "codebook_vectors": self.codebook_vectors.detach().cpu(),
+            },
+            save_path / "poredlm_v5_auxiliary.bin",
+        )
         metadata = {
+            "model_type": self.__class__.__name__,
             "codebook_vocab_offset": self.codebook_vocab_offset,
             "codebook_size": self.codebook_size,
             "codebook_dim": self.codebook_dim,

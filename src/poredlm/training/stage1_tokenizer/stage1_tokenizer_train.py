@@ -328,7 +328,7 @@ def vqe_train(
     lr: float = 1e-4,
     num_epochs: int = 10,
     codebook_size: int = 8192,
-    codebook_dim: int = 64,
+    codebook_dim: int = 768,
     codebook_decay: float = 0.99,
     codebook_emadc: int = 2,
     chunk_size: int = 12000,
@@ -1278,7 +1278,7 @@ def main():
         # 模型配置
         model_type=config.get("model", {}).get("model_type", 1),
         codebook_size=config.get("model", {}).get("codebook_size", 8192),
-        codebook_dim=config.get("model", {}).get("codebook_dim", 64),
+        codebook_dim=config.get("model", {}).get("codebook_dim", 768),
         cnn_type=config.get("model", {}).get("cnn_type", 1),
         learnable_codebook=config.get("model", {}).get("learnable_codebook", True),
         init_codebook_path=config.get("model", {}).get("init_codebook_path", ""),

@@ -80,7 +80,10 @@ def process_npy_file(npy_file_path,  output_path, tokenizer,max_batch_size):
             # Perform batched inference
             with torch.no_grad():
                 # reconstructed_signals, level_tokens_tensor, loss, tokens_tensor = tokenizer.model(x) # tokens_tensor shape: (B, T_tokens) or (B, T_tokens, C)
-                reconstructed_signals, tokens_tensor, loss, loss_breakdown, distill_loss = tokenizer.model(x) # tokens_tensor shape: (B, T_tokens) or (B, T_tokens, C)
+                if tokenizer.model_type == 0:
+                    reconstructed_signals, tokens_tensor, loss, loss_breakdown = tokenizer.model(x)
+                elif tokenizer.model_type == 1: # 
+                    reconstructed_signals, tokens_tensor, loss, loss_breakdown, distill_loss = tokenizer.model(x) # tokens_tensor shape: (B, T_tokens) or (B, T_tokens, C)
 
 
             # Move tokens to CPU and convert to numpy

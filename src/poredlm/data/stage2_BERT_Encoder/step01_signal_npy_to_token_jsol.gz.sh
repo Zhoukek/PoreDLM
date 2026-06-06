@@ -11,9 +11,9 @@ INPUT_DIR="/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/tr
 # Output directory for .jsonl.gz files
 OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
-INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage1_tokenizer/validation"
+INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/test"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation"
+OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/test"
 
 
 #!/bin/bash
@@ -24,17 +24,17 @@ OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/01_without_modfiction_model_type1_cnn_type_0_distill_1.0_8k/models/porepgt_vqe_tokenizer.final.pth"
+MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/models/porepgt_vqe_tokenizer.final.pth"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 
-MODEL_TYPE=1
+MODEL_TYPE=0
 
 # Number of GPUs to use
 NUM_GPUS=2 # <--- CHANGE THIS to the number of GPUs you want to use
 
 # Batch size for tokenization (adjust based on your GPU memory)
-BATCH_SIZE=8 # Adjust as needed
+BATCH_SIZE=32 # Adjust as needed
 
 # Maximum number of concurrent tasks (recommended to match NUM_GPUS)
 MAX_CONCURRENT=2 # Usually best to keep this equal to NUM_GPUS
@@ -63,7 +63,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # Get all .npy files recursively using mapfile and find with null separator
 echo "🔍 Finding .npy files..."
-mapfile -d '' all_files < <(find "$INPUT_DIR" -name "*.npy" -type f -print0) # Fixed: Added spaces around -name and -type
+mapfile -d '' all_files < <(find "$INPUT_DIR" -name "*chunks.npy" -type f -print0) # Fixed: Added spaces around -name and -type
 
 if [ ${#all_files[@]} -eq 0 ]; then
     echo "❌ No .npy files found in $INPUT_DIR." >&2

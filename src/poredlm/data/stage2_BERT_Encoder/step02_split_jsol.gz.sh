@@ -10,14 +10,14 @@ VQE_VERSION="vqe64k"
 
 # Split parameters
 # Split parameters
-WORKERS=32
-MIN_CHUNK_TOKEN_COUNT=512
-CHUNK_WINDOW_SIZE=1000
-CHUNK_OVERLAP_SIZE=100
+WORKERS=64
+MIN_CHUNK_TOKEN_COUNT=300
+CHUNK_WINDOW_SIZE=600
+CHUNK_OVERLAP_SIZE=0
 
 
-BASE_INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder"
-BASE_OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation"
+BASE_INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq"
+BASE_OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600"
 
 
 # --- End of Configuration ---
@@ -32,8 +32,8 @@ echo "Overlap Size: $CHUNK_OVERLAP_SIZE"
 echo "----------------------------------------"
 
 # Define subdirectories
-# SUBDIRS=("test" "train" "validation")
-SUBDIRS=("validation")
+SUBDIRS=("test" "train" "validation")
+# SUBDIRS=("validation")
 
 # Loop through each subdirectory
 for subdir in "${SUBDIRS[@]}"; do

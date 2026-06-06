@@ -37,6 +37,14 @@ bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD
 bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage3_OLMo_DLM/step01_dolma.sh
 ~~~
 
+### 思考一件事情，要不要做有条件的生成？
+目前项目背景下，要求的就两个任务：basecalling、碱基修饰检测
+
+没有需要生成任务的要求，所以先按照无条件生成的情况来
+
+**后续看情况是否需要训练有条件的**
+
+
 ## Stage 4: Downstream_Task Fine-tuning
 
 ## Project Structure
