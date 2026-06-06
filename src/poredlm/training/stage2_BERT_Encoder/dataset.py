@@ -4,24 +4,39 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
+import random
 import re
 from collections import OrderedDict
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
 
-BWAV_TOKEN_PATTERN = re.compile(r"<\|bwav:\d+\|>")
+BWAV_TOKEN_PATTERN = re.compile(r"<\|bwav:(\d+)\|>")
 
 
-@dataclass(frozen=True)
-class Stage2Batch:
+class Stage2Batch(dict):
     """Token-id batch consumed by the Stage 2 BERT model."""
 
-    input_ids: torch.Tensor | None = None
-    attention_mask: torch.Tensor | None = None
+    def __init__(
+        self,
+        input_ids: torch.Tensor | dict[str, torch.Tensor | None] | None = None,
+        attention_mask: torch.Tensor | None = None,
+    ) -> None:
+        if isinstance(input_ids, dict):
+            attention_mask = input_ids.get("attention_mask")
+            input_ids = input_ids.get("input_ids")
+        super().__init__(input_ids=input_ids, attention_mask=attention_mask)
+
+    @property
+    def input_ids(self) -> torch.Tensor | None:
+        return self["input_ids"]
+
+    @property
+    def attention_mask(self) -> torch.Tensor | None:
+        return self["attention_mask"]
 
 
 def load_tokenizer_vocab(tokenizer_path: str | None) -> dict[str, int] | None:
@@ -35,9 +50,23 @@ def load_tokenizer_vocab(tokenizer_path: str | None) -> dict[str, int] | None:
     return tokenizer["model"]["vocab"]
 
 
+def build_bwav_vocab_lookup(vocab: dict[str, int] | None) -> dict[int, int] | None:
+    """Build an integer lookup for bwav tokens to avoid per-token string formatting."""
+
+    if vocab is None:
+        return None
+    lookup: dict[int, int] = {}
+    for token, token_id in vocab.items():
+        match = BWAV_TOKEN_PATTERN.fullmatch(token)
+        if match is not None:
+            lookup[int(match.group(1))] = int(token_id)
+    return lookup
+
+
 def parse_bwav_token_text(
     text: str,
     vocab: dict[str, int] | None = None,
+    bwav_vocab_lookup: dict[int, int] | None = None,
     unk_token_id: int = 0,
 ) -> torch.Tensor:
     """Parse ``<|bwav:123|>`` text into BERT vocab ids."""
@@ -46,11 +75,88 @@ def parse_bwav_token_text(
     if not tokens:
         raise ValueError("No <|bwav:id|> tokens found in jsonl text field.")
 
-    if vocab is None:
-        ids = [int(token.removeprefix("<|bwav:").removesuffix("|>")) for token in tokens]
+    if bwav_vocab_lookup is not None:
+        ids = [bwav_vocab_lookup.get(int(token), unk_token_id) for token in tokens]
+    elif vocab is None:
+        ids = [int(token) for token in tokens]
     else:
-        ids = [vocab.get(token, unk_token_id) for token in tokens]
+        ids = [vocab.get(f"<|bwav:{token}|>", unk_token_id) for token in tokens]
     return torch.tensor(ids, dtype=torch.long)
+
+
+class Stage2TokenJsonlIterableDataset(IterableDataset):
+    """Streaming JSONL/JSONL.GZ dataset that avoids startup line counting."""
+
+    def __init__(
+        self,
+        data_dir: str,
+        pattern: str = "*.jsonl.gz",
+        tokenizer_path: str | None = None,
+        unk_token_id: int = 0,
+        vocab_size: int | None = None,
+        shuffle_files: bool = True,
+        seed: int = 42,
+    ) -> None:
+        self.data_dir = data_dir
+        self.pattern = pattern
+        self.tokenizer_path = tokenizer_path
+        self.unk_token_id = unk_token_id
+        self.vocab_size = vocab_size
+        self.shuffle_files = shuffle_files
+        self.seed = seed
+        self.vocab = load_tokenizer_vocab(tokenizer_path)
+        self.bwav_vocab_lookup = build_bwav_vocab_lookup(self.vocab)
+        self.files = sorted(Path(data_dir).glob(pattern))
+        if not self.files:
+            raise FileNotFoundError(f"No files matching {pattern!r} under {data_dir!r}.")
+
+    @staticmethod
+    def _open_text(path: Path):
+        if path.suffix == ".gz":
+            return gzip.open(path, "rt", encoding="utf-8")
+        return path.open("r", encoding="utf-8")
+
+    def _iter_file(self, path: Path):
+        with self._open_text(path) as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                if "text" not in item:
+                    raise KeyError(f"Missing 'text' field in {path} line {line_number}.")
+                sample = parse_bwav_token_text(
+                    item["text"],
+                    vocab=self.vocab,
+                    bwav_vocab_lookup=self.bwav_vocab_lookup,
+                    unk_token_id=self.unk_token_id,
+                )
+                if self.vocab_size is not None and int(sample.max()) >= self.vocab_size:
+                    raise ValueError(
+                        f"Token id out of range in {path} line {line_number}: "
+                        f"max={int(sample.max())}, vocab_size={self.vocab_size}."
+                    )
+                yield sample
+
+    def __iter__(self):
+        files = list(self.files)
+        rank = int(os.environ.get("RANK", "0"))
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+        num_workers = worker_info.num_workers if worker_info is not None else 1
+        if self.shuffle_files:
+            rng = random.Random(self.seed)
+            rng.shuffle(files)
+
+        rank_files = [
+            path
+            for file_index, path in enumerate(files)
+            if file_index % max(1, world_size) == rank
+        ]
+        for file_index, path in enumerate(rank_files):
+            if file_index % max(1, num_workers) != worker_id:
+                continue
+            yield from self._iter_file(path)
 
 
 class Stage2TokenJsonlDataset(Dataset):
@@ -76,6 +182,7 @@ class Stage2TokenJsonlDataset(Dataset):
         self.unk_token_id = unk_token_id
         self.vocab_size = vocab_size
         self.vocab = load_tokenizer_vocab(tokenizer_path)
+        self.bwav_vocab_lookup = build_bwav_vocab_lookup(self.vocab)
         self.files = sorted(Path(data_dir).glob(pattern))
         if not self.files:
             raise FileNotFoundError(f"No files matching {pattern!r} under {data_dir!r}.")
@@ -118,6 +225,7 @@ class Stage2TokenJsonlDataset(Dataset):
                 sample = parse_bwav_token_text(
                     item["text"],
                     vocab=self.vocab,
+                    bwav_vocab_lookup=self.bwav_vocab_lookup,
                     unk_token_id=self.unk_token_id,
                 )
                 if self.vocab_size is not None and int(sample.max()) >= self.vocab_size:

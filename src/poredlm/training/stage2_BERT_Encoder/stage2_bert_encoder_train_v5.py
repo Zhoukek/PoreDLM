@@ -13,6 +13,7 @@ The replacement policy is still the standard BERT 80/10/10 rule.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import math
 import os
@@ -34,7 +35,7 @@ from tqdm import tqdm
 from transformers import get_scheduler
 
 from bert_encoder_model import build_bert_mlm
-from dataset import Stage2Collator, Stage2TokenJsonlDataset
+from dataset import Stage2Collator, Stage2TokenJsonlDataset, Stage2TokenJsonlIterableDataset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -69,6 +70,27 @@ def count_parameters(model: torch.nn.Module) -> tuple[int, int]:
     total = sum(param.numel() for param in model.parameters())
     trainable = sum(param.numel() for param in model.parameters() if param.requires_grad)
     return total, trainable
+
+
+def build_accelerator(config: dict[str, Any]) -> Accelerator:
+    """Build Accelerator with iterable datasets read independently on each rank."""
+
+    training_cfg = config["training"]
+    accelerator_kwargs: dict[str, Any] = {
+        "gradient_accumulation_steps": int(training_cfg.get("gradient_accumulation_steps", 1)),
+        "mixed_precision": str(training_cfg.get("mixed_precision", "no")),
+        "log_with": "wandb" if config.get("wandb", {}).get("use_wandb", False) else None,
+        "project_dir": str(training_cfg.get("log_dir", "log")),
+    }
+    if bool(config.get("data", {}).get("streaming", False)):
+        accelerator_params = inspect.signature(Accelerator).parameters
+        if "dataloader_config" in accelerator_params:
+            from accelerate import DataLoaderConfiguration
+
+            accelerator_kwargs["dataloader_config"] = DataLoaderConfiguration(dispatch_batches=False)
+        elif "dispatch_batches" in accelerator_params:
+            accelerator_kwargs["dispatch_batches"] = False
+    return Accelerator(**accelerator_kwargs)
 
 
 def load_checkpoint_state_dict(checkpoint_dir: str) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
@@ -412,6 +434,14 @@ def print_startup_summary(
     valid_files = getattr(valid_dataset, "files", []) if valid_dataset is not None else []
     train_line_counts = getattr(train_dataset, "file_line_counts", [])
     valid_line_counts = getattr(valid_dataset, "file_line_counts", []) if valid_dataset is not None else []
+    try:
+        train_samples: int | str = len(train_dataset)
+    except TypeError:
+        train_samples = "streaming"
+    try:
+        valid_samples: int | str = len(valid_dataset) if valid_dataset is not None else 0
+    except TypeError:
+        valid_samples = "streaming"
 
     print("\n" + "=" * 80)
     print("Starting Stage 2 BERT Encoder Training")
@@ -431,10 +461,11 @@ def print_startup_summary(
                     "train_dir": data_cfg.get("train_dir"),
                     "valid_dir": data_cfg.get("valid_dir") or None,
                     "file_pattern": data_cfg.get("file_pattern", "*.jsonl.gz"),
+                    "streaming": data_cfg.get("streaming", False),
                     "train_files": len(train_files),
                     "valid_files": len(valid_files),
-                    "train_samples": len(train_dataset),
-                    "valid_samples": len(valid_dataset) if valid_dataset is not None else 0,
+                    "train_samples": train_samples,
+                    "valid_samples": valid_samples,
                     "train_lines_per_file_head": train_line_counts[:5],
                     "valid_lines_per_file_head": valid_line_counts[:5],
                     "num_workers": data_cfg.get("num_workers", 8),
@@ -760,14 +791,27 @@ def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     data_cfg = config["data"]
     model_cfg = config.get("model", {})
     path_key = f"{split}_dir"
-    dataset = Stage2TokenJsonlDataset(
-        data_dir=data_cfg[path_key],
-        pattern=str(data_cfg.get(f"{split}_pattern", data_cfg.get("file_pattern", "*.jsonl.gz"))),
-        max_cache_files=int(data_cfg.get("max_cache_files", 2)),
-        tokenizer_path=model_cfg.get("tokenizer_path"),
-        unk_token_id=int(model_cfg.get("unk_token_id", 0)),
-        vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
-    )
+    pattern = str(data_cfg.get(f"{split}_pattern", data_cfg.get("file_pattern", "*.jsonl.gz")))
+    use_streaming = bool(data_cfg.get("streaming", False))
+    if use_streaming:
+        dataset = Stage2TokenJsonlIterableDataset(
+            data_dir=data_cfg[path_key],
+            pattern=pattern,
+            tokenizer_path=model_cfg.get("tokenizer_path"),
+            unk_token_id=int(model_cfg.get("unk_token_id", 0)),
+            vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
+            shuffle_files=(split == "train"),
+            seed=int(config.get("reproducibility", {}).get("seed", config.get("seed", 42))),
+        )
+    else:
+        dataset = Stage2TokenJsonlDataset(
+            data_dir=data_cfg[path_key],
+            pattern=pattern,
+            max_cache_files=int(data_cfg.get("max_cache_files", data_cfg.get("max_cache_size", 2))),
+            tokenizer_path=model_cfg.get("tokenizer_path"),
+            unk_token_id=int(model_cfg.get("unk_token_id", 0)),
+            vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
+        )
     collator = Stage2Collator(
         pad_token_id=int(config.get("model", {}).get("pad_token_id", 0)),
         max_length=int(config.get("model", {}).get("max_position_embeddings", 4096)),
@@ -775,13 +819,21 @@ def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     return DataLoader(
         dataset,
         batch_size=int(config["training"].get("device_micro_batch_size", 8)),
-        shuffle=(split == "train"),
+        shuffle=(split == "train" and not use_streaming),
         num_workers=int(data_cfg.get("num_workers", 8)),
         pin_memory=bool(data_cfg.get("pin_memory", True)),
         prefetch_factor=int(data_cfg.get("prefetch_factor", 2)),
         collate_fn=collator,
         drop_last=(split == "train"),
     )
+
+
+def get_batch_tensor(batch: Any, name: str) -> torch.Tensor:
+    """Read tensors from either the local Stage2Batch object or a plain mapping."""
+
+    if isinstance(batch, dict):
+        return batch[name]
+    return getattr(batch, name)
 
 def save_checkpoint(
     accelerator: Accelerator,
@@ -837,8 +889,8 @@ def evaluate(
             if max_eval_batches is not None and batch_index >= max_eval_batches:
                 break
 
-            input_ids = batch.input_ids.to(accelerator.device)
-            attention_mask = batch.attention_mask.to(accelerator.device)
+            input_ids = get_batch_tensor(batch, "input_ids").to(accelerator.device)
+            attention_mask = get_batch_tensor(batch, "attention_mask").to(accelerator.device)
             corrupted, labels = mask_token_ids(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -943,12 +995,7 @@ def train(config: dict[str, Any]) -> None:
         long_span_start_step=long_span_start_step,
     )
 
-    accelerator = Accelerator(
-        gradient_accumulation_steps=int(training_cfg.get("gradient_accumulation_steps", 1)),
-        mixed_precision=str(training_cfg.get("mixed_precision", "no")),
-        log_with="wandb" if config.get("wandb", {}).get("use_wandb", False) else None,
-        project_dir=str(training_cfg.get("log_dir", "log")),
-    )
+    accelerator = build_accelerator(config)
 
     train_loader = build_dataloader(config, "train")
     valid_loader = build_dataloader(config, "valid") if config["data"].get("valid_dir") else None
@@ -1019,8 +1066,8 @@ def train(config: dict[str, Any]) -> None:
     while global_step < max_steps:
         for batch in train_loader:
             with accelerator.accumulate(model):
-                input_ids = batch.input_ids.to(accelerator.device)
-                attention_mask = batch.attention_mask.to(accelerator.device)
+                input_ids = get_batch_tensor(batch, "input_ids").to(accelerator.device)
+                attention_mask = get_batch_tensor(batch, "attention_mask").to(accelerator.device)
                 (
                     mask_phase,
                     single_token_sample_probability,

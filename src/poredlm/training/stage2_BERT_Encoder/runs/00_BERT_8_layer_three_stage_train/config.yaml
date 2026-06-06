@@ -9,7 +9,8 @@ data:
   num_workers: 8
   prefetch_factor: 2
   pin_memory: true
-  max_cache_size: 32
+  streaming: true
+  max_cache_files: 32
 
 model:
   # Stage1 codebook ids are shifted by 129 in the Stage2 tokenizer vocabulary.
@@ -48,18 +49,18 @@ model:
   #   20% samples use contiguous short spans with length 2..5.
   #   10% samples use contiguous long spans with length 6..20.
   mask_probability: 0.20
-  short_span_start_step: 20000
-  long_span_start_step: 60000
+  short_span_start_step: 2000
+  long_span_start_step: 6000
   short_span_min_length: 2
   short_span_max_length: 5
   long_span_min_length: 6
   long_span_max_length: 20
 
 training:
-  max_steps: 200000
+  max_steps: 20000
   learning_rate: 5.0e-5
   weight_decay: 0.01
-  warmup_steps: 1000
+  warmup_steps: 100
   lr_scheduler_type: cosine
   device_micro_batch_size: 64
   gradient_accumulation_steps: 1
@@ -68,11 +69,11 @@ training:
   output_dir: "models/stage2_BERT_Encoder_v5"
   log_dir: "log"
   log_every_steps: 10
-  eval_every_steps: 1000
+  eval_every_steps: 100
   max_eval_batches: 100
-  save_every_steps: 50000
+  save_every_steps: 5000
 
 wandb:
   use_wandb: True
   project: "stage2_BERT_Encoder_experiments"
-  name: "test-zhou-stage2-bert-v5-waveform-decoder-loss"
+  name: "00_BERT_8_layer_three_stage_train"
