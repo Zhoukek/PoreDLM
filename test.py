@@ -11,7 +11,7 @@ file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/withou
 file_path = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall/validation_00001.jsonl.gz"
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/250F601844011_0_0_0_0_chunks.with_bases.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()
@@ -49,6 +49,7 @@ import numpy as np
 # 读取 npy 文件
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/250F601844011_0_0_0_0_chunks.npy"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/reference/250F601844011_0_0_0_0_references.npy"
 
 data = np.load(file_path, allow_pickle=True)
 
@@ -70,7 +71,7 @@ print(data)
 # 如果是高维数组，输出部分内容
 if data.ndim >= 2:
     print(f"\n前5行（如果有）:")
-    print(data[:5] if data.shape[0] > 5 else data)
+    print(data[:1] if data.shape[0] > 5 else data)
 
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————

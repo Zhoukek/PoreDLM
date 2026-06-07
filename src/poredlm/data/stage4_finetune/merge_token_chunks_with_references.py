@@ -1,59 +1,70 @@
 #!/usr/bin/env python3
-"""Merge Stage2 token chunks and reference arrays into Stage4 jsonl.gz files."""
+"""Add per-record reference base strings to chunks jsonl.gz files."""
 
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import gzip
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterator
 
 import numpy as np
-
-
-CHUNKS_SUFFIX = "_chunks.npy"
-REFERENCES_SUFFIX = "_references.npy"
-REFERENCE_LENGTHS_SUFFIX = "_reference_lengths.npy"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Merge *_chunks.npy with reference/*_references.npy and "
-            "reference/*_reference_lengths.npy into *.jsonl.gz files."
+            "Read *_chunks.jsonl.gz files and matching *_references.npy files, "
+            "then write new jsonl.gz files with each record's 'bases' field filled "
+            "from the corresponding reference row. Use either single-file mode or "
+            "directory batch mode."
         )
     )
     parser.add_argument(
-        "--input-dir",
-        required=True,
-        help="Directory containing *_chunks.npy files, for example /path/to/train.",
+        "--chunks-jsonl-gz",
+        default=None,
+        help="Input chunks jsonl.gz file, for example 250F..._chunks.jsonl.gz.",
     )
     parser.add_argument(
-        "--reference-dir",
+        "--references-npy",
         default=None,
-        help="Directory containing reference npy files. Defaults to <input-dir>/reference.",
+        help="Matching references npy file, for example 250F..._references.npy.",
+    )
+    parser.add_argument(
+        "--output-jsonl-gz",
+        default=None,
+        help="Output jsonl.gz file. Use a different path from the input unless --overwrite.",
+    )
+    parser.add_argument(
+        "--chunks-dir",
+        default=None,
+        help="Directory containing *_chunks.jsonl.gz files for batch mode.",
+    )
+    parser.add_argument(
+        "--references-dir",
+        default=None,
+        help="Directory containing matching *_references.npy files for batch mode.",
     )
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory for output *.jsonl.gz files. Defaults to <input-dir>.",
+        help="Directory for batch outputs. Output file names match the input chunks file names.",
     )
     parser.add_argument(
         "--pattern",
-        default=f"*{CHUNKS_SUFFIX}",
-        help=f"Chunks glob pattern. Defaults to *{CHUNKS_SUFFIX}.",
+        default="*_chunks.jsonl.gz",
+        help="Chunks glob pattern for batch mode. Defaults to *_chunks.jsonl.gz.",
+    )
+    parser.add_argument(
+        "--keep-padding-zeros",
+        action="store_true",
+        help="Keep trailing 0 values in the bases string. Defaults to trimming trailing padding zeros.",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Overwrite existing output files.",
-    )
-    parser.add_argument(
-        "--strict",
-        action="store_true",
-        help="Fail if a reference row has nonzero values after reference_length.",
+        help="Allow overwriting an existing output file.",
     )
     parser.add_argument(
         "--gzip-compresslevel",
@@ -61,234 +72,173 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Gzip compression level, 1 is fastest and 9 is smallest. Defaults to 1.",
     )
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=1,
-        help="Number of files to process in parallel. Defaults to 1.",
-    )
     return parser.parse_args()
 
 
-def load_npy(path: Path) -> np.ndarray:
-    if not path.exists():
-        raise FileNotFoundError(path)
-    return np.load(path, allow_pickle=True)
+def reference_row_to_bases(row: np.ndarray, *, trim_padding_zeros: bool) -> str:
+    values = np.asarray(row).reshape(-1)
+    if trim_padding_zeros:
+        nonzero = np.flatnonzero(values)
+        values = values[: int(nonzero[-1]) + 1] if nonzero.size else values[:0]
 
-
-def iter_chunk_records(chunks: np.ndarray) -> Iterable[Any]:
-    if chunks.ndim == 0:
-        yield chunks.item()
-        return
-    for item in chunks:
-        yield item
-
-
-def normalize_chunk_record(record: Any, *, fallback_id: str) -> dict[str, str]:
-    if isinstance(record, np.ndarray) and record.ndim == 0:
-        record = record.item()
-    elif isinstance(record, np.ndarray):
-        if record.dtype.kind in {"U", "S"}:
-            text = "".join(
-                item.decode("utf-8") if isinstance(item, bytes) else str(item)
-                for item in record.reshape(-1)
-            )
-            return normalize_chunk_record(text, fallback_id=fallback_id)
-        if record.dtype == object:
-            flat = record.reshape(-1)
-            if len(flat) == 1:
-                return normalize_chunk_record(flat[0], fallback_id=fallback_id)
-            if all(isinstance(item, (str, bytes)) for item in flat):
-                text = "".join(
-                    item.decode("utf-8") if isinstance(item, bytes) else item
-                    for item in flat
-                )
-                return normalize_chunk_record(text, fallback_id=fallback_id)
-        raise TypeError(
-            "chunks.npy records must already contain text strings or JSON/dict records with a 'text' key. "
-            f"Got ndarray dtype={record.dtype}, shape={record.shape} for {fallback_id}."
-        )
-
-    if isinstance(record, bytes):
-        record = record.decode("utf-8")
-
-    if isinstance(record, str):
-        stripped = record.strip()
-        if stripped.startswith("{"):
-            record = json.loads(stripped)
-        else:
-            return {"id": fallback_id, "text": stripped}
-
-    if isinstance(record, dict):
-        if "text" not in record:
-            raise KeyError(f"Chunk record is missing 'text': {record.keys()}")
-        return {
-            "id": str(record.get("id", fallback_id)),
-            "text": str(record["text"]),
-        }
-
-    if hasattr(record, "item"):
-        item = record.item()
-        if item is not record:
-            return normalize_chunk_record(item, fallback_id=fallback_id)
-
-    raise TypeError(f"Unsupported chunk record type: {type(record)}")
-
-
-def reference_to_bases(reference_row: np.ndarray, reference_length: int, *, strict: bool) -> str:
-    reference_length = int(reference_length)
-    if reference_length < 0:
-        raise ValueError(f"reference_length must be >= 0, got {reference_length}")
-    if reference_length > int(reference_row.shape[0]):
-        raise ValueError(
-            f"reference_length={reference_length} exceeds reference width={reference_row.shape[0]}"
-        )
-
-    if strict and reference_length < int(reference_row.shape[0]):
-        tail = reference_row[reference_length:]
-        if np.any(tail != 0):
-            raise ValueError("Found nonzero padded values after reference_length")
-
-    bases = reference_row[:reference_length].astype(np.int64, copy=False)
-    if bases.size == 0:
+    if values.size == 0:
         return ""
-    if bases.min(initial=0) >= 0 and bases.max(initial=0) <= 9:
-        return np.array2string(
-            bases,
-            separator="",
-            max_line_width=np.iinfo(np.int32).max,
-            threshold=np.iinfo(np.int32).max,
-        )[1:-1]
-    return "".join(str(int(base)) for base in bases)
+
+    return "".join(str(int(value)) for value in values)
+
+
+def iter_jsonl_gz(path: Path) -> Iterator[dict[str, Any]]:
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise TypeError(f"{path}:{line_number} is not a JSON object")
+            yield record
+
+
+def count_jsonl_gz_records(path: Path) -> int:
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())
+
+
+def merge_bases(
+    *,
+    chunks_path: Path,
+    references_path: Path,
+    output_path: Path,
+    trim_padding_zeros: bool,
+    overwrite: bool,
+    gzip_compresslevel: int,
+) -> int:
+    if not chunks_path.exists():
+        raise FileNotFoundError(f"Chunks file not found: {chunks_path}")
+    if not references_path.exists():
+        raise FileNotFoundError(f"References file not found: {references_path}")
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(f"Output exists; pass --overwrite to replace it: {output_path}")
+    if chunks_path.resolve() == output_path.resolve():
+        raise ValueError("Output path must be different from input chunks path")
+    if gzip_compresslevel < 0 or gzip_compresslevel > 9:
+        raise ValueError("--gzip-compresslevel must be in [0, 9]")
+
+    references = np.load(references_path, allow_pickle=False)
+    if references.ndim != 2:
+        raise ValueError(f"references npy must be a 2D array, got shape={references.shape}")
+
+    num_chunks = count_jsonl_gz_records(chunks_path)
+    num_references = int(references.shape[0])
+    if num_chunks != num_references:
+        raise ValueError(
+            f"Record count mismatch: chunks={num_chunks}, references={num_references}"
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(output_path, "wt", encoding="utf-8", compresslevel=gzip_compresslevel) as out:
+        for record, reference_row in zip(iter_jsonl_gz(chunks_path), references):
+            record["bases"] = reference_row_to_bases(
+                reference_row,
+                trim_padding_zeros=trim_padding_zeros,
+            )
+            out.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    return num_chunks
 
 
 def prefix_from_chunks_path(path: Path) -> str:
-    if not path.name.endswith(CHUNKS_SUFFIX):
-        raise ValueError(f"Expected file ending with {CHUNKS_SUFFIX}: {path}")
-    return path.name[: -len(CHUNKS_SUFFIX)]
+    suffix = "_chunks.jsonl.gz"
+    if not path.name.endswith(suffix):
+        raise ValueError(f"Expected chunks file ending with {suffix}: {path}")
+    return path.name[: -len(suffix)]
 
 
-def merge_one(
-    chunks_path: Path,
+def iter_batch_pairs(
     *,
-    reference_dir: Path,
+    chunks_dir: Path,
+    references_dir: Path,
     output_dir: Path,
-    overwrite: bool,
-    strict: bool,
-    gzip_compresslevel: int,
-) -> tuple[Path, int]:
-    prefix = prefix_from_chunks_path(chunks_path)
-    references_path = reference_dir / f"{prefix}{REFERENCES_SUFFIX}"
-    lengths_path = reference_dir / f"{prefix}{REFERENCE_LENGTHS_SUFFIX}"
-    output_path = output_dir / f"{prefix}.jsonl.gz"
+    pattern: str,
+) -> Iterator[tuple[Path, Path, Path]]:
+    chunks_files = sorted(chunks_dir.glob(pattern))
+    if not chunks_files:
+        raise FileNotFoundError(f"No chunks files matching {pattern!r} under {chunks_dir}")
 
-    if output_path.exists() and not overwrite:
-        raise FileExistsError(f"Output exists; pass --overwrite to replace it: {output_path}")
+    for chunks_path in chunks_files:
+        prefix = prefix_from_chunks_path(chunks_path)
+        references_path = references_dir / f"{prefix}_references.npy"
+        output_path = output_dir / chunks_path.name
+        yield chunks_path, references_path, output_path
 
-    chunks = load_npy(chunks_path)
-    references = load_npy(references_path)
-    reference_lengths = load_npy(lengths_path)
 
-    num_chunks = len(chunks)
-    num_references = int(references.shape[0])
-    num_lengths = len(reference_lengths)
-    if num_chunks != num_references or num_chunks != num_lengths:
-        raise ValueError(
-            f"Sample count mismatch for {prefix}: "
-            f"chunks={num_chunks}, references={num_references}, reference_lengths={num_lengths}"
+def run_batch(args: argparse.Namespace) -> None:
+    chunks_dir = Path(args.chunks_dir)
+    references_dir = Path(args.references_dir) if args.references_dir else chunks_dir
+    output_dir = Path(args.output_dir) if args.output_dir else chunks_dir / "with_bases"
+
+    if not chunks_dir.exists():
+        raise FileNotFoundError(f"Chunks directory not found: {chunks_dir}")
+    if not references_dir.exists():
+        raise FileNotFoundError(f"References directory not found: {references_dir}")
+
+    total_records = 0
+    total_files = 0
+    for chunks_path, references_path, output_path in iter_batch_pairs(
+        chunks_dir=chunks_dir,
+        references_dir=references_dir,
+        output_dir=output_dir,
+        pattern=str(args.pattern),
+    ):
+        count = merge_bases(
+            chunks_path=chunks_path,
+            references_path=references_path,
+            output_path=output_path,
+            trim_padding_zeros=not bool(args.keep_padding_zeros),
+            overwrite=bool(args.overwrite),
+            gzip_compresslevel=int(args.gzip_compresslevel),
         )
-    if references.ndim != 2:
-        raise ValueError(f"references must be a 2D array, got shape={references.shape}")
+        total_files += 1
+        total_records += count
+        print(f"[OK] {chunks_path.name} -> {output_path} ({count} records)")
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with gzip.open(output_path, "wt", encoding="utf-8", compresslevel=gzip_compresslevel) as handle:
-        for index, (chunk_record, reference_row, reference_length) in enumerate(
-            zip(iter_chunk_records(chunks), references, reference_lengths)
-        ):
-            fallback_id = f"{chunks_path.stem}_chunk_{index}"
-            chunk = normalize_chunk_record(chunk_record, fallback_id=fallback_id)
-            merged = {
-                "text": chunk["text"],
-                "bases": reference_to_bases(reference_row, int(reference_length), strict=strict),
-            }
-            handle.write(json.dumps(merged, ensure_ascii=False) + "\n")
-
-    return output_path, num_chunks
+    print(f"[Done] files={total_files}, records={total_records}, output_dir={output_dir}")
 
 
-def merge_one_from_paths(
-    chunks_path: str,
-    reference_dir: str,
-    output_dir: str,
-    overwrite: bool,
-    strict: bool,
-    gzip_compresslevel: int,
-) -> tuple[str, int]:
-    output_path, count = merge_one(
-        Path(chunks_path),
-        reference_dir=Path(reference_dir),
-        output_dir=Path(output_dir),
-        overwrite=overwrite,
-        strict=strict,
-        gzip_compresslevel=gzip_compresslevel,
+def run_single_file(args: argparse.Namespace) -> None:
+    missing = [
+        name
+        for name, value in (
+            ("--chunks-jsonl-gz", args.chunks_jsonl_gz),
+            ("--references-npy", args.references_npy),
+            ("--output-jsonl-gz", args.output_jsonl_gz),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            "Single-file mode requires "
+            + ", ".join(missing)
+            + ". For batch mode, pass --chunks-dir."
+        )
+
+    count = merge_bases(
+        chunks_path=Path(args.chunks_jsonl_gz),
+        references_path=Path(args.references_npy),
+        output_path=Path(args.output_jsonl_gz),
+        trim_padding_zeros=not bool(args.keep_padding_zeros),
+        overwrite=bool(args.overwrite),
+        gzip_compresslevel=int(args.gzip_compresslevel),
     )
-    return str(output_path), count
+    print(f"[OK] wrote {count} records to {args.output_jsonl_gz}")
 
 
 def main() -> None:
     args = parse_args()
-    input_dir = Path(args.input_dir)
-    reference_dir = Path(args.reference_dir) if args.reference_dir else input_dir / "reference"
-    output_dir = Path(args.output_dir) if args.output_dir else input_dir
-
-    if not input_dir.exists():
-        raise FileNotFoundError(f"Input directory not found: {input_dir}")
-    if not reference_dir.exists():
-        raise FileNotFoundError(f"Reference directory not found: {reference_dir}")
-
-    chunks_files = sorted(input_dir.glob(args.pattern))
-    if not chunks_files:
-        raise FileNotFoundError(f"No chunks files matching {args.pattern!r} under {input_dir}")
-
-    total_records = 0
-    workers = max(1, int(args.workers))
-    gzip_compresslevel = int(args.gzip_compresslevel)
-    if gzip_compresslevel < 0 or gzip_compresslevel > 9:
-        raise ValueError("--gzip-compresslevel must be in [0, 9]")
-
-    if workers == 1:
-        for chunks_path in chunks_files:
-            output_path, count = merge_one(
-                chunks_path,
-                reference_dir=reference_dir,
-                output_dir=output_dir,
-                overwrite=bool(args.overwrite),
-                strict=bool(args.strict),
-                gzip_compresslevel=gzip_compresslevel,
-            )
-            total_records += count
-            print(f"[OK] {chunks_path.name} -> {output_path} ({count} records)")
+    if args.chunks_dir:
+        run_batch(args)
     else:
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(
-                    merge_one_from_paths,
-                    str(chunks_path),
-                    str(reference_dir),
-                    str(output_dir),
-                    bool(args.overwrite),
-                    bool(args.strict),
-                    gzip_compresslevel,
-                ): chunks_path
-                for chunks_path in chunks_files
-            }
-            for future in as_completed(futures):
-                chunks_path = futures[future]
-                output_path, count = future.result()
-                total_records += count
-                print(f"[OK] {chunks_path.name} -> {output_path} ({count} records)")
-
-    print(f"[Done] files={len(chunks_files)}, records={total_records}, output_dir={output_dir}")
+        run_single_file(args)
 
 
 if __name__ == "__main__":
