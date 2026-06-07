@@ -27,16 +27,16 @@ def main():
     # 4: <mask>
     vocab["<|mask|>"] = 4
 
-    # 4–127: phonemes
-    for i in range(124):
-        vocab[f"<|ph_{i}|>"] = 5 + i
+    # # 4–127: phonemes
+    # for i in range(124):
+    #     vocab[f"<|ph_{i}|>"] = 5 + i
 
     # 128 onward: bwav tokens
     for i in range(K):
-        vocab[f"<|bwav:{i}|>"] = 129 + i
+        vocab[f"<|bwav:{i}|>"] = 5 + i
 
     total_vocab_size = len(vocab)
-    assert total_vocab_size == 129 + K, f"Vocab size mismatch: expected {129 + K}, got {total_vocab_size}"
+    assert total_vocab_size == 5 + K, f"Vocab size mismatch: expected {5 + K}, got {total_vocab_size}"
 
     # added_tokens: ONLY bos, eos, pad — exactly as in your original file
     # Note: unk is NOT in added_tokens in your example!

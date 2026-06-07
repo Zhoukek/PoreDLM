@@ -1,10 +1,10 @@
 # 定义公共参数
-TOKENIZER_PATH="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json"
-BASE_SRC="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train"
-BASE_DST="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train"
+TOKENIZER_PATH="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/tokenizer-8k.json"
+BASE_SRC="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600"
+BASE_DST="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq"
 
 # 对三个数据集分别运行
-for split in train; do
+for split in test validation; do
     dolma tokens \
         --documents "${BASE_SRC}/${split}/*.gz" \
         --tokenizer.name_or_path "$TOKENIZER_PATH" \

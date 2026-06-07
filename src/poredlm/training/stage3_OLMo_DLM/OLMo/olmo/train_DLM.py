@@ -18,20 +18,20 @@ class DLMTrainer(Trainer):
         self, micro_batch: Dict[str, Any], batch_size_in_tokens: int
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Dict[str, torch.Tensor]]]:
         del batch_size_in_tokens
-        # 打印 micro_batch 的所有内容
-        print("=" * 50)
-        print("micro_batch first sample contents:")
-        for key, value in micro_batch.items():
-            if isinstance(value, torch.Tensor):
-                # 取第一个样本
-                first_sample = value[0]
-                print(f"  {key}: shape={value.shape}, first_sample_shape={first_sample.shape}, dtype={first_sample.dtype}, device={first_sample.device}")
-                # 输出第一个样本的所有值（因为长度是1000）
-                print(f"    values: {first_sample.tolist()}")
-                print(f"    values length: {len(first_sample.tolist())}")
-            else:
-                print(f"  {key}: {value} (type: {type(value)})")
-        print("=" * 50)
+        # # 打印 micro_batch 的所有内容
+        # print("=" * 50)
+        # print("micro_batch first sample contents:")
+        # for key, value in micro_batch.items():
+        #     if isinstance(value, torch.Tensor):
+        #         # 取第一个样本
+        #         first_sample = value[0]
+        #         print(f"  {key}: shape={value.shape}, first_sample_shape={first_sample.shape}, dtype={first_sample.dtype}, device={first_sample.device}")
+        #         # 输出第一个样本的所有值（因为长度是1000）
+        #         print(f"    values: {first_sample.tolist()}")
+        #         print(f"    values length: {len(first_sample.tolist())}")
+        #     else:
+        #         print(f"  {key}: {value} (type: {type(value)})")
+        # print("=" * 50)
 
         output = self.dist_model(
             input_ids=micro_batch["input_ids"],

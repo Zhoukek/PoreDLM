@@ -37,12 +37,7 @@ bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD
 bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage3_OLMo_DLM/step01_dolma.sh
 ~~~
 
-### 思考一件事情，要不要做有条件的生成？
-目前项目背景下，要求的就两个任务：basecalling、碱基修饰检测
 
-没有需要生成任务的要求，所以先按照无条件生成的情况来
-
-**后续看情况是否需要训练有条件的**
 
 
 ## Stage 4: Downstream_Task Fine-tuning
@@ -98,3 +93,16 @@ distributed:
 ## 环境
 
 A40卡上时：conda activate /mnt/zzbnew/rnamodel/zhoukexuan/miniconda3/envs/poregpt
+
+## 疑问：
+
+### 1. 要不要做有条件的生成？
+目前项目背景下，要求的就两个任务：basecalling、碱基修饰检测
+
+没有需要生成任务的要求，所以先按照无条件生成的情况来
+
+**后续看情况是否需要训练有条件的**
+
+### 2. 为什么BERT训练的ce_loss一直很高，一直在8.0左右
+
+但是经过OLMo_DLM训练后ce_loss就变得挺低了，大概在1.0左右

@@ -4,7 +4,7 @@ dry_run: false
 
 # Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
 dlm:
-  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/test_zhou/models/stage2_BERT_Encoder/step_best
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/00_BERT_12_layer_three_stage_train/models/step_best
   freeze_context_encoder: true
   max_length: 1024
   # Encoder
@@ -226,7 +226,7 @@ model:
   #  → Number of Embeddings (embedding_size): 151,936
   #  → Dimension of Each Embedding (hidden_size): 1,024
   #  ⚠️  不匹配！可能是分词器与模型不一致
-  vocab_size: 8325
+  vocab_size: 8197
 
   # 嵌入层的大小（通常等于 vocab_size）
   # 有些模型会做 factorized embedding，此时 embedding_size ≠ vocab_size
@@ -239,7 +239,7 @@ model:
   # 焦帅：那么多出来的293个空间，“多余的 token”会被使用吗？不会的，因为ID ≥ 151,643 的 token 不会被 tokenizer 正常生成。
   # 这些“额外”的 embedding 向量在训练中通常 不会被梯度更新，除非你显式使用了这些 ID。
   #
-  embedding_size: 8325
+  embedding_size: 8197
 
   # 结束符 token 的 ID（End-of-Sequence）
   # 用于标记句子结束，在生成时作为停止信号
@@ -302,26 +302,26 @@ scheduler:
 
 tokenizer:
   # identifier: tokenizers/allenai_dolma2.json
-  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json
+  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/tokenizer-8k.json
   truncate_direction: right
 
 save_folder: save/olmo_output
 save_overwrite: true
 
-save_interval: 100
+save_interval: 1000
 save_interval_ephemeral: null
 save_num_checkpoints_to_keep: 0
 sharded_checkpointer: olmo_core
 
-save_interval_unsharded: 100
-save_num_unsharded_checkpoints_to_keep: 10
+save_interval_unsharded: 1000
+save_num_unsharded_checkpoints_to_keep: 5
 
 load_path: null
 
 max_duration: 3ep
 #stop_at: 406_934
 global_train_batch_size: 128
-device_train_microbatch_size: 32
+device_train_microbatch_size: 16
 
 precision: amp_bf16
 
@@ -361,7 +361,7 @@ device_eval_batch_size: ${device_train_microbatch_size}
 data:
   pad_direction: right
   # generate_doc_lengths: true
-  num_workers: 16
+  num_workers: 8
   drop_last: true
   pin_memory: true
   prefetch_factor: 4
@@ -373,5 +373,14 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/train/train/part-0-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-0-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-1-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-2-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-3-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-4-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-5-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-6-00000.npy
+    - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/train/part-7-00000.npy
+
+
 
