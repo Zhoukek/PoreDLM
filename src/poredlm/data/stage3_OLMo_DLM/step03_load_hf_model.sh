@@ -3,7 +3,6 @@ set -euo pipefail
 
 PROJECT_ROOT=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM
 OLMO_ROOT=${PROJECT_ROOT}/src/poredlm/training/stage3_OLMo_DLM/OLMo
-RUN_ROOT=${PROJECT_ROOT}/src/poredlm/training/stage3_OLMo_DLM/runs/test_zhou
 
 source ${PROJECT_ROOT}/src/poredlm/training/set_env.sh
 

@@ -27,4 +27,5 @@ nohup torchrun --nproc_per_node=4 --rdzv_endpoint=localhost:29509 \
     --wandb.entity="zhoukek-zhejiang-university" \
     --wandb.project="poredlm-stage3" \
     --load_path="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/00_150m_no_cond_8k_vq/model/olmo_150m_dlm/step3000-unsharded" \
-    --save_folder="${RUN_ROOT}/model/olmo_150m_dlm" 2>&1 | tee ${RUN_ROOT}/run.log
+    --save_folder="${RUN_ROOT}/model/olmo_150m_dlm" \
+    > "${outdir}/nohup.out" 2>&1 &

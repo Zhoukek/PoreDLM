@@ -697,6 +697,8 @@ def parse_args():
                    help="Alias of --pre_head_type for selecting module before CTC/CTC-CRF head.")
     p.add_argument("--pre_head_transformer_nhead", type=int, default=8,
                    help="Attention heads for --pre_head_type transformer.")
+    p.add_argument("--backbone_chunk_size", type=int, default=600,
+                   help="Encode long token sequences through the backbone in chunks of this length, then concatenate hidden states before the basecalling head. Use 0 to disable chunking.")
 
     p.add_argument("--acc_balanced", action="store_true",
                    help="Use Bonito balanced accuracy: (match - ins) / (match + mismatch + del).")
@@ -778,6 +780,7 @@ def main():
             f"[FeatureSource] source={args.feature_source} hidden_layer={args.hidden_layer} "
             f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers}"
         )
+        logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
         if args.quick:
             logger.info("[Quick] enabled: freeze_backbone=True, ctc_crf_state_len=5, ctc_crf_blank_score=0, head_output_scale=5, head_output_activation=tanh, head_type=ctc_crf, pre_ctc_module=none")
 
@@ -811,6 +814,7 @@ def main():
         pre_head_type=args.pre_head_type,
         pre_head_transformer_nhead=args.pre_head_transformer_nhead,
         head_type=args.head_type,
+        backbone_chunk_size=args.backbone_chunk_size,
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
         head_crf_state_len=int(args.ctc_crf_state_len),

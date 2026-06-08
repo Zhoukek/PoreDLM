@@ -45,6 +45,7 @@ class BasecallModel(nn.Module):
         pre_head_type: str = "none",
         pre_head_transformer_nhead: int = 8,
         head_type: str = "ctc_crf",
+        backbone_chunk_size: int = 600,
     ):
         del vq_device, vq_token_batch_size
         super().__init__()
@@ -55,6 +56,7 @@ class BasecallModel(nn.Module):
         self.unfreeze_last_n_layers = max(0, int(unfreeze_last_n_layers))
         self.unfreeze_layer_start = unfreeze_layer_start
         self.unfreeze_layer_end = unfreeze_layer_end
+        self.backbone_chunk_size = max(0, int(backbone_chunk_size))
         self.tokenizer = None
         self.backbone = None
         self.vq_embedding = None
@@ -221,6 +223,37 @@ class BasecallModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if self.backbone_chunk_size > 0 and input_ids.shape[1] > self.backbone_chunk_size:
+            hidden_parts = []
+            for start in range(0, input_ids.shape[1], self.backbone_chunk_size):
+                end = min(start + self.backbone_chunk_size, input_ids.shape[1])
+                chunk_attention_mask = (
+                    attention_mask[:, start:end]
+                    if attention_mask is not None
+                    else None
+                )
+                hidden_parts.append(
+                    self._forward_backbone_hidden(
+                        input_ids=input_ids[:, start:end],
+                        attention_mask=chunk_attention_mask,
+                    )
+                )
+            hidden = torch.cat(hidden_parts, dim=1)
+        else:
+            hidden = self._forward_backbone_hidden(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            )
+
+        hidden = self.pre_head(hidden)
+        logits_btc = self.base_head(hidden)
+        return logits_btc
+
+    def _forward_backbone_hidden(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -232,6 +265,4 @@ class BasecallModel(nn.Module):
             hidden = getattr(outputs, "last_hidden_state", None)
         if hidden is None:
             raise ValueError("PoreDLM backbone output does not contain last_hidden_state.")
-        hidden = self.pre_head(hidden)
-        logits_btc = self.base_head(hidden)
-        return logits_btc
+        return hidden

@@ -11,7 +11,7 @@ file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/withou
 file_path = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall/validation_00001.jsonl.gz"
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/250F601844011_0_0_0_0_chunks.with_bases.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/basecall_train/250F601844011_0_0_0_3_chunks.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()
@@ -26,6 +26,14 @@ with gzip.open(file_path, 'rt', encoding='utf-8') as f:
         except Exception as e:
             print(f"Line {line_num}: Error: {e}")
 
+def read_specific_line(file_path, line_number):
+    """读取指定行（从0开始计数）"""
+    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+        for idx, line in enumerate(f):
+            if idx == line_number:
+                return json.loads(line.strip())
+    return None
+
 # 输出结果
 print(f"文件: {file_path}")
 print(f"总行数: {line_num}")
@@ -35,11 +43,9 @@ for key in sorted(all_keys):
 
 # 可选：显示第一行数据的示例
 print("\n" + "="*50)
-print("第一行数据示例:")
-with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-    first_line = f.readline()
-    first_data = json.loads(first_line.strip())
-    print(json.dumps(first_data, indent=2, ensure_ascii=False))
+
+data = read_specific_line(file_path, 1)  # 索引1表示第二行
+print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
@@ -49,7 +55,7 @@ import numpy as np
 # 读取 npy 文件
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/250F601844011_0_0_0_0_chunks.npy"
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/reference/250F601844011_0_0_0_0_references.npy"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/train/reference/250F601844011_0_0_0_3_references.npy"
 
 data = np.load(file_path, allow_pickle=True)
 
@@ -71,7 +77,7 @@ print(data)
 # 如果是高维数组，输出部分内容
 if data.ndim >= 2:
     print(f"\n前5行（如果有）:")
-    print(data[:1] if data.shape[0] > 5 else data)
+    print(data[1] if data.shape[0] > 5 else data)
 
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
