@@ -298,7 +298,7 @@ class Nanopore_Tokenizer_Model_V1(nn.Module):
 
             # print(f"Teacher features shape: {teacher_features.shape}") # 输出的是[28,200,512]
             # print(f"Z permuted for VQ shape: {z_permuted_for_vq.shape}")# 输出的是[28,200,512]
-            z_permuted = z_permuted.permute(0, 2, 1)
+            teacher_features = teacher_features.permute(0, 2, 1)
         
             # CosineEmbeddingLoss 需要一个 target 标签 (1 表示我们希望两者方向一致)
             target = torch.ones(
@@ -318,8 +318,8 @@ class Nanopore_Tokenizer_Model_V1(nn.Module):
         )
 
         z_quantized = z_quantized_permuted.permute(0, 2, 1)
-
         recon = self.cnn_model.decode(z_quantized)
+
 
         target_len = x.shape[-1]  # 输入信号的原始长度 (2560)
         current_len = recon.shape[-1] # 重构信号的当前长度
