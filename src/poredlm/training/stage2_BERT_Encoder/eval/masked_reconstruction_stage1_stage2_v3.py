@@ -105,11 +105,11 @@ def install_optional_bonito_stub() -> None:
 
 install_optional_bonito_stub()
 
-from tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
-from tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
+from training.stage1_tokenizer.tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
+from training.stage1_tokenizer.tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
 
 
-BWAV_VOCAB_OFFSET = 129
+BWAV_VOCAB_OFFSET = 5
 
 
 def default_plot_path(output_npz: str) -> str:

@@ -102,6 +102,9 @@ class PoreDLMForDiffusion(PreTrainedModel):
         else:
             model_input = context
 
+        print(cond_seq_mask)
+        print(decoder_step_active)
+
         pred, decoder_logits = self.elf_denoiser(
             model_input,
             t.to(device=context.device, dtype=context.dtype),

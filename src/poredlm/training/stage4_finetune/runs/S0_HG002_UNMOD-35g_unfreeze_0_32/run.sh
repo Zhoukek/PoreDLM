@@ -5,18 +5,18 @@ set -euo pipefail
 source /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh
 
 export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune:/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:${PYTHONPATH:-}
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1
 export WANDB_API_KEY=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
 
-nproc_per_node=4
+nproc_per_node=2
 batch_size=32
 num_epochs=500
-lr="1e-3"
-weight_decay="1e-4"
+lr="1e-2"
+weight_decay="1e-3"
 warmup_ratio="0.4"
-min_lr="1e-5"
+min_lr="1e-4"
 hidden_layer=-1
-unfreeze_last_n_layers=4
+unfreeze_last_n_layers=0
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="tcn"
