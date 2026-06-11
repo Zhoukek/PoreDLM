@@ -1,0 +1,443 @@
+[rank1]:[W610 14:28:13.504317802 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 1]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank0]:[W610 14:28:13.520687094 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+
+================================================================================
+Starting Stage2 MaskedSignalLM Training: v6_jiaheng
+================================================================================
+{'distributed': {'num_processes': 2,
+                 'process_index': 0,
+                 'local_process_index': 0,
+                 'device': 'cuda:0',
+                 'mixed_precision': 'no'},
+ 'data': {'train_dir': '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/train',
+          'valid_dir': '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/validation',
+          'streaming': False,
+          'train_files': 8,
+          'valid_files': 8},
+ 'model': {'vocab_size': 8197,
+           'mask_token_id': 4,
+           'pad_token_id': 1,
+           'random_token_min_id': 5,
+           'random_token_max_id': 8197,
+           'd_model': 768,
+           'layers': 12,
+           'heads': 12,
+           'max_position_embeddings': 1024,
+           'mask_probability': 0.5,
+           'total_parameters': '98,441,221',
+           'trainable_parameters': '98,441,221'},
+ 'training': {'num_train_epochs': 1,
+              'learning_rate': 5e-05,
+              'weight_decay': 0.01,
+              'warmup_steps': 100,
+              'lr_scheduler_type': 'cosine',
+              'device_micro_batch_size': 64,
+              'gradient_accumulation_steps': 1,
+              'mixed_precision': 'no',
+              'gradient_clipping': 1.0,
+              'output_dir': 'models',
+              'log_dir': 'log',
+              'log_every_steps': 10,
+              'eval_every_steps': 0,
+              'eval_each_epoch': True,
+              'max_eval_batches': 100,
+              'save_every_steps': 0,
+              'save_each_epoch': True}}
+================================================================================
+
+wandb: Currently logged in as: zhoukek (zhoukek-zhejiang-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run r9itvhug
+wandb: Tracking run with wandb version 0.22.2
+wandb: Run data is saved locally in /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/02_BERT_12_layer_jiaheng_v7/wandb/run-20260610_143111-r9itvhug
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run 02_BERT_12_layer_jiaheng
+wandb: ⭐️ View project at https://wandb.ai/zhoukek-zhejiang-university/stage2_BERT_Encoder_experiments
+wandb: 🚀 View run at https://wandb.ai/zhoukek-zhejiang-university/stage2_BERT_Encoder_experiments/runs/r9itvhug
+  0%|          | 0/70170 [00:00<?, ?it/s][rank1]: Traceback (most recent call last):
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1251, in _try_get_data
+[rank1]:     data = self._data_queue.get(timeout=timeout)
+[rank1]:   File "/opt/conda/lib/python3.10/queue.py", line 180, in get
+[rank1]:     self.not_empty.wait(remaining)
+[rank1]:   File "/opt/conda/lib/python3.10/threading.py", line 324, in wait
+[rank1]:     gotit = waiter.acquire(True, timeout)
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/_utils/signal_handling.py", line 73, in handler
+[rank1]:     _error_if_any_worker_fails()
+[rank1]: RuntimeError: DataLoader worker (pid 192741) is killed by signal: Killed. 
+
+[rank1]: The above exception was the direct cause of the following exception:
+
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 549, in <module>
+[rank1]:     raise SystemExit(main())
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 544, in main
+[rank1]:     train(config)
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 455, in train
+[rank1]:     for batch in train_loader:
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/accelerate/data_loader.py", line 567, in __iter__
+[rank1]:     current_batch = next(dataloader_iter)
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 708, in __next__
+[rank1]:     data = self._next_data()
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1458, in _next_data
+[rank1]:     idx, data = self._get_data()
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1410, in _get_data
+[rank1]:     success, data = self._try_get_data()
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1264, in _try_get_data
+[rank1]:     raise RuntimeError(
+[rank1]: RuntimeError: DataLoader worker (pid(s) 192741) exited unexpectedly
+W0610 14:40:23.790000 191951 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 191953 closing signal SIGTERM
+E0610 14:40:24.256000 191951 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 1 (pid: 191954) of binary: /opt/conda/bin/python3.10
+Traceback (most recent call last):
+  File "/opt/conda/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/run.py", line 918, in main
+    run(args)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-06-10_14:40:23
+  host      : ji-jupyter-157708367951329600-master-0.ji-jupyter-157708367951329600.nhss-job.svc.cluster.local
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 191954)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+[rank1]:[W610 14:42:53.548398400 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 1]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank0]:[W610 14:42:53.560022274 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 549, in <module>
+[rank1]:     raise SystemExit(main())
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 544, in main
+[rank1]:     train(config)
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 384, in train
+[rank1]:     train_loader = build_dataloader(config, "train")
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 79, in build_dataloader
+[rank1]:     dataset = build_dataset(config, split)
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 62, in build_dataset
+[rank1]:     return Stage2TokenJsonlDataset(
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/dataset.py", line 188, in __init__
+[rank1]:     raise FileNotFoundError(f"No files matching {pattern!r} under {data_dir!r}.")
+[rank1]: FileNotFoundError: No files matching '*.jsonl.gz' under '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/train/temp'.
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 549, in <module>
+[rank0]:     raise SystemExit(main())
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 544, in main
+[rank0]:     train(config)
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 384, in train
+[rank0]:     train_loader = build_dataloader(config, "train")
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 79, in build_dataloader
+[rank0]:     dataset = build_dataset(config, split)
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 62, in build_dataset
+[rank0]:     return Stage2TokenJsonlDataset(
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/dataset.py", line 188, in __init__
+[rank0]:     raise FileNotFoundError(f"No files matching {pattern!r} under {data_dir!r}.")
+[rank0]: FileNotFoundError: No files matching '*.jsonl.gz' under '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/train/temp'.
+E0610 14:42:59.100000 195305 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 0 (pid: 195313) of binary: /opt/conda/bin/python3.10
+Traceback (most recent call last):
+  File "/opt/conda/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/run.py", line 918, in main
+    run(args)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-06-10_14:42:59
+  host      : ji-jupyter-157708367951329600-master-0.ji-jupyter-157708367951329600.nhss-job.svc.cluster.local
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 195314)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-06-10_14:42:59
+  host      : ji-jupyter-157708367951329600-master-0.ji-jupyter-157708367951329600.nhss-job.svc.cluster.local
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 195313)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+[rank1]:[W610 14:44:02.194357541 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 1]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank0]:[W610 14:44:02.205170470 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+
+================================================================================
+Starting Stage2 MaskedSignalLM Training: v6_jiaheng
+================================================================================
+{'distributed': {'num_processes': 2,
+                 'process_index': 0,
+                 'local_process_index': 0,
+                 'device': 'cuda:0',
+                 'mixed_precision': 'no'},
+ 'data': {'train_dir': '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_split_600/train/temp',
+          'valid_dir': '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_split_600/validation/temp',
+          'streaming': False,
+          'train_files': 1,
+          'valid_files': 1},
+ 'model': {'vocab_size': 8197,
+           'mask_token_id': 4,
+           'pad_token_id': 1,
+           'random_token_min_id': 5,
+           'random_token_max_id': 8197,
+           'd_model': 768,
+           'layers': 12,
+           'heads': 12,
+           'max_position_embeddings': 1024,
+           'mask_probability': 0.15,
+           'total_parameters': '98,441,221',
+           'trainable_parameters': '98,441,221'},
+ 'training': {'num_train_epochs': 10,
+              'learning_rate': 5e-05,
+              'weight_decay': 0.01,
+              'warmup_steps': 100,
+              'lr_scheduler_type': 'cosine',
+              'device_micro_batch_size': 64,
+              'gradient_accumulation_steps': 1,
+              'mixed_precision': 'no',
+              'gradient_clipping': 1.0,
+              'output_dir': 'models',
+              'log_dir': 'log',
+              'log_every_steps': 10,
+              'eval_every_steps': 0,
+              'eval_each_epoch': True,
+              'max_eval_batches': 100,
+              'save_every_steps': 0,
+              'save_each_epoch': True}}
+================================================================================
+
+wandb: Currently logged in as: zhoukek (zhoukek-zhejiang-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run amgrzwvw
+wandb: Tracking run with wandb version 0.22.2
+wandb: Run data is saved locally in /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/02_BERT_12_layer_jiaheng_v7/wandb/run-20260610_144423-amgrzwvw
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run 02_BERT_12_layer_jiaheng
+wandb: ⭐️ View project at https://wandb.ai/zhoukek-zhejiang-university/stage2_BERT_Encoder_experiments
+wandb: 🚀 View run at https://wandb.ai/zhoukek-zhejiang-university/stage2_BERT_Encoder_experiments/runs/amgrzwvw
+  0%|          | 0/71050 [00:00<?, ?it/s]/opt/conda/lib/python3.10/site-packages/torch/nn/functional.py:5912: UserWarning: 1Torch was not compiled with memory efficient attention. (Triggered internally at /workspace/framework/mcPytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:649.)
+  return _scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal, scale = scale, enable_gqa = enable_gqa)
+/opt/conda/lib/python3.10/site-packages/torch/nn/functional.py:5912: UserWarning: 1Torch was not compiled with memory efficient attention. (Triggered internally at /workspace/framework/mcPytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:649.)
+  return _scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal, scale = scale, enable_gqa = enable_gqa)
+Traceback (most recent call last):
+  File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 549, in <module>
+    raise SystemExit(main())
+  File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 544, in main
+    train(config)
+  File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 468, in train
+    logits = model(corrupted, attention_mask)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/parallel/distributed.py", line 1643, in forward
+    else self._run_ddp_forward(*inputs, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/parallel/distributed.py", line 1459, in _run_ddp_forward
+    return self.module(*inputs, **kwargs)  # type: ignore[index]
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 133, in forward
+    return self.lm_head(self.norm(x))
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/linear.py", line 125, in forward
+    return F.linear(input, self.weight, self.bias)
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.17 GiB. GPU 0 has a total capacity of 63.59 GiB of which 0 bytes is free. Of the allocated memory 54.56 GiB is allocated by PyTorch, and 467.47 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 549, in <module>
+[rank0]:     raise SystemExit(main())
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 544, in main
+[rank0]:     train(config)
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 468, in train
+[rank0]:     logits = model(corrupted, attention_mask)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/parallel/distributed.py", line 1643, in forward
+[rank0]:     else self._run_ddp_forward(*inputs, **kwargs)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/parallel/distributed.py", line 1459, in _run_ddp_forward
+[rank0]:     return self.module(*inputs, **kwargs)  # type: ignore[index]
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 133, in forward
+[rank0]:     return self.lm_head(self.norm(x))
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank0]:     return F.linear(input, self.weight, self.bias)
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.17 GiB. GPU 0 has a total capacity of 63.59 GiB of which 0 bytes is free. Of the allocated memory 54.56 GiB is allocated by PyTorch, and 467.47 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 549, in <module>
+[rank1]:     raise SystemExit(main())
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 544, in main
+[rank1]:     train(config)
+[rank1]:   File "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py", line 471, in train
+[rank1]:     accelerator.backward(loss)
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/accelerate/accelerator.py", line 2734, in backward
+[rank1]:     loss.backward(**kwargs)
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/_tensor.py", line 626, in backward
+[rank1]:     torch.autograd.backward(
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/autograd/__init__.py", line 347, in backward
+[rank1]:     _engine_run_backward(
+[rank1]:   File "/opt/conda/lib/python3.10/site-packages/torch/autograd/graph.py", line 823, in _engine_run_backward
+[rank1]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank1]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.17 GiB. GPU 1 has a total capacity of 63.59 GiB of which 88.06 MiB is free. Of the allocated memory 56.90 GiB is allocated by PyTorch, and 470.01 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33m02_BERT_12_layer_jiaheng[0m at: [34m[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20260610_144423-amgrzwvw/logs[0m
+W0610 14:46:23.110000 195836 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 195841 closing signal SIGTERM
+E0610 14:46:23.424000 195836 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 1 (pid: 195842) of binary: /opt/conda/bin/python3.10
+Traceback (most recent call last):
+  File "/opt/conda/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/run.py", line 918, in main
+    run(args)
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/opt/conda/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v7_jiaheng.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-06-10_14:46:23
+  host      : ji-jupyter-157708367951329600-master-0.ji-jupyter-157708367951329600.nhss-job.svc.cluster.local
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 195842)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+[rank0]:[W610 14:46:43.010044626 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+[rank1]:[W610 14:46:43.033932793 ProcessGroupNCCL.cpp:4883] [PG ID 0 PG GUID 0 Rank 1]  using GPU 1 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. Specify device_ids in barrier() to force use of a particular device, or call init_process_group() with a device_id.
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+/opt/conda/lib/python3.10/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+
+================================================================================
+Starting Stage2 MaskedSignalLM Training: v6_jiaheng
+================================================================================
+{'distributed': {'num_processes': 2,
+                 'process_index': 0,
+                 'local_process_index': 0,
+                 'device': 'cuda:0',
+                 'mixed_precision': 'no'},
+ 'data': {'train_dir': '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_split_600/train/temp',
+          'valid_dir': '/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_split_600/validation/temp',
+          'streaming': False,
+          'train_files': 1,
+          'valid_files': 1},
+ 'model': {'vocab_size': 8197,
+           'mask_token_id': 4,
+           'pad_token_id': 1,
+           'random_token_min_id': 5,
+           'random_token_max_id': 8197,
+           'd_model': 768,
+           'layers': 12,
+           'heads': 12,
+           'max_position_embeddings': 1024,
+           'mask_probability': 0.15,
+           'total_parameters': '98,441,221',
+           'trainable_parameters': '98,441,221'},
+ 'training': {'num_train_epochs': 10,
+              'learning_rate': 5e-05,
+              'weight_decay': 0.01,
+              'warmup_steps': 100,
+              'lr_scheduler_type': 'cosine',
+              'device_micro_batch_size': 32,
+              'gradient_accumulation_steps': 1,
+              'mixed_precision': 'no',
+              'gradient_clipping': 1.0,
+              'output_dir': 'models',
+              'log_dir': 'log',
+              'log_every_steps': 10,
+              'eval_every_steps': 0,
+              'eval_each_epoch': True,
+              'max_eval_batches': 100,
+              'save_every_steps': 0,
+              'save_each_epoch': True}}
+================================================================================
+
+wandb: Currently logged in as: zhoukek (zhoukek-zhejiang-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run ualygnei
+wandb: Tracking run with wandb version 0.22.2
+wandb: Run data is saved locally in /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/02_BERT_12_layer_jiaheng_v7/wandb/run-20260610_144702-ualygnei
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run 02_BERT_12_layer_jiaheng
+wandb: ⭐️ View project at https://wandb.ai/zhoukek-zhejiang-university/stage2_BERT_Encoder_experiments
+wandb: 🚀 View run at https://wandb.ai/zhoukek-zhejiang-university/stage2_BERT_Encoder_experiments/runs/ualygnei
+  0%|          | 0/142100 [00:00<?, ?it/s]/opt/conda/lib/python3.10/site-packages/torch/nn/functional.py:5912: UserWarning: 1Torch was not compiled with memory efficient attention. (Triggered internally at /workspace/framework/mcPytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:649.)
+  return _scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal, scale = scale, enable_gqa = enable_gqa)
+/opt/conda/lib/python3.10/site-packages/torch/nn/functional.py:5912: UserWarning: 1Torch was not compiled with memory efficient attention. (Triggered internally at /workspace/framework/mcPytorch/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp:649.)
+  return _scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal, scale = scale, enable_gqa = enable_gqa)
+  0%|          | 1/142100 [01:50<4378:27:45, 110.93s/it]  0%|          | 2/142100 [01:51<1808:34:01, 45.82s/it]   0%|          | 3/142100 [01:51<990:55:41, 25.10s/it]   0%|          | 4/142100 [01:52<606:59:47, 15.38s/it]  0%|          | 5/142100 [01:52<394:28:03,  9.99s/it]  0%|          | 6/142100 [01:53<266:35:11,  6.75s/it]  0%|          | 7/142100 [01:53<185:15:00,  4.69s/it]  0%|          | 8/142100 [01:53<132:00:04,  3.34s/it]  0%|          | 9/142100 [01:54<96:23:14,  2.44s/it]   0%|          | 10/142100 [01:54<72:12:50,  1.83s/it][TRAIN] {'train/loss': 9.175163269042969, 'train/loss_log10': 0.9626138011218355, 'train/lr': 1e-05, 'epoch': 0, 'step': 10}
+  0%|          | 11/142100 [01:55<55:56:30,  1.42s/it]  0%|          | 12/142100 [01:55<44:12:31,  1.12s/it]  0%|          | 13/142100 [01:56<36:18:54,  1.09it/s]  0%|          | 14/142100 [01:56<30:50:05,  1.28it/s]  0%|          | 15/142100 [01:57<26:58:25,  1.46it/s]  0%|          | 16/142100 [01:57<24:12:34,  1.63it/s]  0%|          | 17/142100 [01:58<22:21:09,  1.77it/s]  0%|          | 18/142100 [01:58<21:02:35,  1.88it/s]  0%|          | 19/142100 [01:58<20:08:03,  1.96it/s]  0%|          | 20/142100 [01:59<19:32:16,  2.02it/s][TRAIN] {'train/loss': 9.122858047485352, 'train/loss_log10': 0.9601309172541266, 'train/lr': 2e-05, 'epoch': 0, 'step': 20}
+  0%|          | 21/142100 [01:59<19:07:39,  2.06it/s]  0%|          | 22/142100 [02:00<18:44:31,  2.11it/s]  0%|          | 23/142100 [02:00<18:31:20,  2.13it/s]  0%|          | 24/142100 [02:01<18:22:42,  2.15it/s]  0%|          | 25/142100 [02:01<18:17:23,  2.16it/s]  0%|          | 26/142100 [02:02<18:12:45,  2.17it/s]  0%|          | 27/142100 [02:02<18:11:47,  2.17it/s]  0%|          | 28/142100 [02:03<18:09:49,  2.17it/s]  0%|          | 29/142100 [02:03<18:08:52,  2.17it/s]  0%|          | 30/142100 [02:03<18:08:27,  2.18it/s][TRAIN] {'train/loss': 9.071937561035156, 'train/loss_log10': 0.9577000524625471, 'train/lr': 3e-05, 'epoch': 0, 'step': 30}
+  0%|          | 31/142100 [02:04<18:13:43,  2.16it/s]  0%|          | 32/142100 [02:04<18:05:42,  2.18it/s]  0%|          | 33/142100 [02:05<18:04:31,  2.18it/s]  0%|          | 34/142100 [02:05<18:04:25,  2.18it/s]  0%|          | 35/142100 [02:06<18:03:42,  2.18it/s]  0%|          | 36/142100 [02:06<18:06:39,  2.18it/s]  0%|          | 37/142100 [02:07<18:01:46,  2.19it/s]  0%|          | 38/142100 [02:07<18:06:04,  2.18it/s]  0%|          | 39/142100 [02:08<18:01:37,  2.19it/s]  0%|          | 40/142100 [02:08<18:05:57,  2.18it/s][TRAIN] {'train/loss': 8.991086959838867, 'train/loss_log10': 0.9538121980875036, 'train/lr': 4e-05, 'epoch': 0, 'step': 40}
+  0%|          | 41/142100 [02:09<18:04:37,  2.18it/s]  0%|          | 42/142100 [02:09<18:02:07,  2.19it/s]  0%|          | 43/142100 [02:09<18:05:40,  2.18it/s]  0%|          | 44/142100 [02:10<18:05:38,  2.18it/s]  0%|          | 45/142100 [02:10<18:00:44,  2.19it/s]  0%|          | 46/142100 [02:11<18:02:34,  2.19it/s]  0%|          | 47/142100 [02:11<18:01:34,  2.19it/s]  0%|          | 48/142100 [02:12<18:03:10,  2.19it/s]  0%|          | 49/142100 [02:12<18:03:07,  2.19it/s]  0%|          | 50/142100 [02:13<18:01:55,  2.19it/s][TRAIN] {'train/loss': 8.956365585327148, 'train/loss_log10': 0.9521318125142085, 'train/lr': 5e-05, 'epoch': 0, 'step': 50}
+  0%|          | 51/142100 [02:13<18:08:02,  2.18it/s]  0%|          | 52/142100 [02:14<18:00:44,  2.19it/s]  0%|          | 53/142100 [02:14<18:01:28,  2.19it/s]  0%|          | 54/142100 [02:14<18:01:18,  2.19it/s]  0%|          | 55/142100 [02:15<18:01:36,  2.19it/s]  0%|          | 56/142100 [02:15<18:01:30,  2.19it/s]  0%|          | 57/142100 [02:16<18:06:36,  2.18it/s]  0%|          | 58/142100 [02:16<18:01:56,  2.19it/s]  0%|          | 59/142100 [02:17<18:06:48,  2.18it/s]  0%|          | 60/142100 [02:17<18:00:16,  2.19it/s][TRAIN] {'train/loss': 8.892513275146484, 'train/loss_log10': 0.9490245221928189, 'train/lr': 4.999999755266707e-05, 'epoch': 0, 'step': 60}
+  0%|          | 61/142100 [02:18<18:03:39,  2.18it/s]  0%|          | 62/142100 [02:18<18:01:20,  2.19it/s]  0%|          | 63/142100 [02:19<18:01:46,  2.19it/s]  0%|          | 64/142100 [02:19<18:01:57,  2.19it/s]  0%|          | 65/142100 [02:19<18:01:32,  2.19it/s]  0%|          | 66/142100 [02:20<18:01:16,  2.19it/s]  0%|          | 67/142100 [02:20<18:01:47,  2.19it/s]  0%|          | 68/142100 [02:21<18:03:06,  2.19it/s]  0%|          | 69/142100 [02:21<18:04:49,  2.18it/s]  0%|          | 70/142100 [02:22<18:03:05,  2.19it/s][TRAIN] {'train/loss': 8.860420227050781, 'train/loss_log10': 0.9474543198511431, 'train/lr': 4.9999990210668764e-05, 'epoch': 0, 'step': 70}
+  0%|          | 71/142100 [02:22<18:04:53,  2.18it/s]  0%|          | 72/142100 [02:23<18:04:25,  2.18it/s]  0%|          | 73/142100 [02:23<18:04:00,  2.18it/s]  0%|          | 74/142100 [02:24<18:02:36,  2.19it/s]  0%|          | 75/142100 [02:24<18:02:32,  2.19it/s]  0%|          | 76/142100 [02:25<18:02:35,  2.19it/s]  0%|          | 77/142100 [02:25<18:02:13,  2.19it/s]  0%|          | 78/142100 [02:25<18:03:44,  2.18it/s]  0%|          | 79/142100 [02:26<18:02:21,  2.19it/s]  0%|          | 80/142100 [02:26<18:00:42,  2.19it/s][TRAIN] {'train/loss': 8.872564315795898, 'train/loss_log10': 0.9480491561621444, 'train/lr': 4.9999977974006506e-05, 'epoch': 0, 'step': 80}
+  0%|          | 81/142100 [02:27<18:05:17,  2.18it/s]  0%|          | 82/142100 [02:27<18:04:57,  2.18it/s]  0%|          | 83/142100 [02:28<18:03:06,  2.19it/s]  0%|          | 84/142100 [02:28<17:59:38,  2.19it/s]  0%|          | 85/142100 [02:29<18:02:40,  2.19it/s]  0%|          | 86/142100 [02:29<18:00:35,  2.19it/s]  0%|          | 87/142100 [02:30<18:04:49,  2.18it/s]  0%|          | 88/142100 [02:30<18:05:07,  2.18it/s]  0%|          | 89/142100 [02:30<18:06:17,  2.18it/s]  0%|          | 90/142100 [02:31<18:00:42,  2.19it/s][TRAIN] {'train/loss': 8.855690002441406, 'train/loss_log10': 0.9472224054559153, 'train/lr': 4.99999608426827e-05, 'epoch': 0, 'step': 90}
+  0%|          | 91/142100 [02:31<18:07:29,  2.18it/s]  0%|          | 92/142100 [02:32<18:04:33,  2.18it/s]  0%|          | 93/142100 [02:32<18:04:27,  2.18it/s]  0%|          | 94/142100 [02:33<18:04:34,  2.18it/s]  0%|          | 95/142100 [02:33<18:06:22,  2.18it/s]  0%|          | 96/142100 [02:34<18:02:36,  2.19it/s]  0%|          | 97/142100 [02:34<18:04:03,  2.18it/s]  0%|          | 98/142100 [02:35<18:03:57,  2.18it/s]  0%|          | 99/142100 [02:35<18:02:41,  2.19it/s]  0%|          | 100/142100 [02:36<18:03:47,  2.18it/s][TRAIN] {'train/loss': 8.843175888061523, 'train/loss_log10': 0.9466082630853941, 'train/lr': 4.999993881670071e-05, 'epoch': 0, 'step': 100}
+  0%|          | 101/142100 [02:36<18:06:48,  2.18it/s]  0%|          | 102/142100 [02:36<18:07:58,  2.18it/s]  0%|          | 103/142100 [02:37<18:08:41,  2.17it/s]  0%|          | 104/142100 [02:37<18:02:35,  2.19it/s]  0%|          | 105/142100 [02:38<18:03:19,  2.18it/s]  0%|          | 106/142100 [02:38<18:01:32,  2.19it/s]  0%|          | 107/142100 [02:39<18:01:47,  2.19it/s]  0%|          | 108/142100 [02:39<18:02:57,  2.19it/s]  0%|          | 109/142100 [02:40<18:05:07,  2.18it/s]  0%|          | 110/142100 [02:40<18:01:24,  2.19it/s][TRAIN] {'train/loss': 8.836723327636719, 'train/loss_log10': 0.9462912577137149, 'train/lr': 4.999991189606483e-05, 'epoch': 0, 'step': 110}
+  0%|          | 111/142100 [02:41<18:13:13,  2.16it/s]  0%|          | 112/142100 [02:41<18:01:28,  2.19it/s]  0%|          | 113/142100 [02:41<18:01:14,  2.19it/s]  0%|          | 114/142100 [02:42<18:04:11,  2.18it/s]  0%|          | 115/142100 [02:42<18:05:03,  2.18it/s]  0%|          | 116/142100 [02:43<18:04:40,  2.18it/s]  0%|          | 117/142100 [02:43<18:02:59,  2.19it/s]  0%|          | 118/142100 [02:44<18:04:23,  2.18it/s]  0%|          | 119/142100 [02:44<18:02:56,  2.19it/s]  0%|          | 120/142100 [02:45<18:05:45,  2.18it/s][TRAIN] {'train/loss': 8.835874557495117, 'train/loss_log10': 0.946249541584419, 'train/lr': 4.999988008078035e-05, 'epoch': 0, 'step': 120}
+  0%|          | 121/142100 [02:45<18:04:52,  2.18it/s]  0%|          | 122/142100 [02:46<18:04:36,  2.18it/s]  0%|          | 123/142100 [02:46<18:03:41,  2.18it/s]  0%|          | 124/142100 [02:47<18:03:46,  2.18it/s]  0%|          | 125/142100 [02:47<18:03:58,  2.18it/s]  0%|          | 126/142100 [02:47<18:04:16,  2.18it/s]  0%|          | 127/142100 [02:48<18:11:57,  2.17it/s]  0%|          | 128/142100 [02:48<18:01:59,  2.19it/s]  0%|          | 129/142100 [02:49<18:01:52,  2.19it/s]  0%|          | 130/142100 [02:49<18:06:24,  2.18it/s][TRAIN] {'train/loss': 8.820399284362793, 'train/loss_log10': 0.945488245343943, 'train/lr': 4.999984337085348e-05, 'epoch': 0, 'step': 130}
+  0%|          | 131/142100 [02:50<18:04:49,  2.18it/s]  0%|          | 132/142100 [02:50<18:04:25,  2.18it/s]  0%|          | 133/142100 [02:51<18:03:15,  2.18it/s]  0%|          | 134/142100 [02:51<18:12:24,  2.17it/s]  0%|          | 135/142100 [02:52<17:59:57,  2.19it/s]  0%|          | 136/142100 [02:52<17:59:01,  2.19it/s]  0%|          | 137/142100 [02:52<18:01:41,  2.19it/s]  0%|          | 138/142100 [02:53<18:03:36,  2.18it/s]  0%|          | 139/142100 [02:53<17:59:26,  2.19it/s]  0%|          | 140/142100 [02:54<18:00:17,  2.19it/s][TRAIN] {'train/loss': 8.825678825378418, 'train/loss_log10': 0.9457481190206006, 'train/lr': 4.999980176629142e-05, 'epoch': 0, 'step': 140}
+  0%|          | 141/142100 [02:54<18:03:02,  2.18it/s]  0%|          | 142/142100 [02:55<18:00:36,  2.19it/s]  0%|          | 143/142100 [02:55<18:06:26,  2.18it/s]  0%|          | 144/142100 [02:56<17:59:43,  2.19it/s]  0%|          | 145/142100 [02:56<18:00:46,  2.19it/s]  0%|          | 146/142100 [02:57<18:00:19,  2.19it/s]  0%|          | 147/142100 [02:57<18:12:44,  2.17it/s]  0%|          | 148/142100 [02:58<17:57:55,  2.19it/s]  0%|          | 149/142100 [02:58<18:00:27,  2.19it/s]  0%|          | 150/142100 [02:58<17:58:48,  2.19it/s][TRAIN] {'train/loss': 8.848586082458496, 'train/loss_log10': 0.9468738802296657, 'train/lr': 4.9999755267102305e-05, 'epoch': 0, 'step': 150}
+  0%|          | 151/142100 [02:59<18:04:49,  2.18it/s]  0%|          | 152/142100 [02:59<18:02:57,  2.18it/s]  0%|          | 153/142100 [03:00<18:08:33,  2.17it/s]  0%|          | 154/142100 [03:00<17:55:52,  2.20it/s]  0%|          | 155/142100 [03:01<17:57:48,  2.19it/s]  0%|          | 156/142100 [03:01<17:58:03,  2.19it/s]  0%|          | 157/142100 [03:02<18:02:13,  2.19it/s]  0%|          | 158/142100 [03:02<18:00:11,  2.19it/s]  0%|          | 159/142100 [03:03<18:01:14,  2.19it/s]  0%|          | 160/142100 [03:03<18:03:23,  2.18it/s][TRAIN] {'train/loss': 8.847640991210938, 'train/loss_log10': 0.9468274920461969, 'train/lr': 4.999970387329525e-05, 'epoch': 0, 'step': 160}
+  0%|          | 161/142100 [03:03<18:05:26,  2.18it/s]  0%|          | 162/142100 [03:04<18:03:23,  2.18it/s]  0%|          | 163/142100 [03:04<18:02:49,  2.18it/s]  0%|          | 164/142100 [03:05<18:04:10,  2.18it/s]  0%|          | 165/142100 [03:05<18:04:06,  2.18it/s]  0%|          | 166/142100 [03:06<17:59:53,  2.19it/s]  0%|          | 167/142100 [03:06<18:00:07,  2.19it/s]  0%|          | 168/142100 [03:07<18:02:52,  2.18it/s]  0%|          | 169/142100 [03:07<18:00:25,  2.19it/s]  0%|          | 170/142100 [03:08<18:01:44,  2.19it/s][TRAIN] {'train/loss': 8.84450626373291, 'train/loss_log10': 0.9466735938403311, 'train/lr': 4.999964758488031e-05, 'epoch': 0, 'step': 170}
+  0%|          | 171/142100 [03:08<18:04:04,  2.18it/s]  0%|          | 172/142100 [03:08<18:09:21,  2.17it/s]  0%|          | 173/142100 [03:09<18:01:24,  2.19it/s]  0%|          | 174/142100 [03:09<18:01:39,  2.19it/s]  0%|          | 175/142100 [03:10<18:08:31,  2.17it/s]  0%|          | 176/142100 [03:10<18:02:47,  2.18it/s]  0%|          | 177/142100 [03:11<18:02:25,  2.19it/s]  0%|          | 178/142100 [03:11<18:03:13,  2.18it/s]  0%|          | 179/142100 [03:12<18:01:32,  2.19it/s]  0%|          | 180/142100 [03:12<18:01:27,  2.19it/s][TRAIN] {'train/loss': 8.830089569091797, 'train/loss_log10': 0.9459651089190703, 'train/lr': 4.999958640186852e-05, 'epoch': 0, 'step': 180}
+  0%|          | 181/142100 [03:13<18:02:57,  2.18it/s]  0%|          | 182/142100 [03:13<18:02:45,  2.18it/s]  0%|          | 183/142100 [03:14<18:03:02,  2.18it/s]  0%|          | 184/142100 [03:14<18:02:51,  2.18it/s]  0%|          | 185/142100 [03:14<18:06:23,  2.18it/s]  0%|          | 186/142100 [03:15<18:01:37,  2.19it/s]  0%|          | 187/142100 [03:15<18:00:38,  2.19it/s]  0%|          | 188/142100 [03:16<18:01:32,  2.19it/s]  0%|          | 189/142100 [03:16<18:01:51,  2.19it/s]  0%|          | 190/142100 [03:17<18:06:46,  2.18it/s][TRAIN] {'train/loss': 8.839868545532227, 'train/loss_log10': 0.9464458068259667, 'train/lr': 4.999952032427183e-05, 'epoch': 0, 'step': 190}
+  0%|          | 191/142100 [03:17<18:02:53,  2.18it/s]  0%|          | 192/142100 [03:18<18:04:07,  2.18it/s]  0%|          | 193/142100 [03:18<18:02:19,  2.19it/s]  0%|          | 194/142100 [03:19<18:00:01,  2.19it/s]  0%|          | 195/142100 [03:19<18:02:20,  2.19it/s]  0%|          | 196/142100 [03:19<18:03:28,  2.18it/s]  0%|          | 197/142100 [03:20<18:03:25,  2.18it/s]  0%|          | 198/142100 [03:20<17:58:19,  2.19it/s]  0%|          | 199/142100 [03:21<17:58:11,  2.19it/s]  0%|          | 200/142100 [03:21<18:00:55,  2.19it/s][TRAIN] {'train/loss': 8.821006774902344, 'train/loss_log10': 0.9455181556343534, 'train/lr': 4.99994493521032e-05, 'epoch': 0, 'step': 200}
+  0%|          | 201/142100 [03:22<18:03:14,  2.18it/s]  0%|          | 202/142100 [03:22<18:03:21,  2.18it/s]  0%|          | 203/142100 [03:23<18:00:52,  2.19it/s]  0%|          | 204/142100 [03:23<18:01:35,  2.19it/s]  0%|          | 205/142100 [03:24<18:00:59,  2.19it/s]  0%|          | 206/142100 [03:24<18:02:58,  2.18it/s]  0%|          | 207/142100 [03:25<18:01:03,  2.19it/s]  0%|          | 208/142100 [03:25<18:00:47,  2.19it/s]  0%|          | 209/142100 [03:25<17:59:36,  2.19it/s]  0%|          | 210/142100 [03:26<18:04:01,  2.18it/s][TRAIN] {'train/loss': 8.846855163574219, 'train/loss_log10': 0.9467889172709003, 'train/lr': 4.9999373485376524e-05, 'epoch': 0, 'step': 210}
+  0%|          | 211/142100 [03:26<18:03:14,  2.18it/s]  0%|          | 212/142100 [03:27<18:03:03,  2.18it/s]  0%|          | 213/142100 [03:27<18:03:13,  2.18it/s]  0%|          | 214/142100 [03:28<18:01:03,  2.19it/s]  0%|          | 215/142100 [03:28<18:00:25,  2.19it/s]  0%|          | 216/142100 [03:29<18:05:23,  2.18it/s]  0%|          | 217/142100 [03:29<18:04:28,  2.18it/s]  0%|          | 218/142100 [03:30<18:01:54,  2.19it/s]  0%|          | 219/142100 [03:30<18:01:51,  2.19it/s]  0%|          | 220/142100 [03:30<18:02:08,  2.19it/s][TRAIN] {'train/loss': 8.860197067260742, 'train/loss_log10': 0.9474433815114914, 'train/lr': 4.999929272410665e-05, 'epoch': 0, 'step': 220}
+  0%|          | 221/142100 [03:31<18:07:14,  2.17it/s]  0%|          | 222/142100 [03:31<18:00:59,  2.19it/s]  0%|          | 223/142100 [03:32<18:06:10,  2.18it/s]  0%|          | 224/142100 [03:32<18:01:46,  2.19it/s]  0%|          | 225/142100 [03:33<18:01:36,  2.19it/s]  0%|          | 226/142100 [03:33<18:01:16,  2.19it/s]  0%|          | 227/142100 [03:34<18:03:44,  2.18it/s]  0%|          | 228/142100 [03:34<17:58:31,  2.19it/s]  0%|          | 229/142100 [03:35<18:01:42,  2.19it/s]  0%|          | 230/142100 [03:35<18:00:18,  2.19it/s][TRAIN] {'train/loss': 8.82772445678711, 'train/loss_log10': 0.94584876889786, 'train/lr': 4.999920706830939e-05, 'epoch': 0, 'step': 230}
+  0%|          | 231/142100 [03:35<18:03:14,  2.18it/s]

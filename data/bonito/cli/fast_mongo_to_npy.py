@@ -5,22 +5,17 @@ Bonito Basecaller
 import os
 import sys
 import csv
+import toml
 import numpy as np
-from tqdm import tqdm
-from time import perf_counter
-from functools import partial
-from datetime import timedelta
 from itertools import islice as take
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from os.path import dirname, realpath
 
-from bonito.nn import fuse_bn_
-from bonito.aligner import align_map, Aligner
 from bonito.reader import read_chunks, Reader
-from bonito.io import CTCWriter, Writer, biofmt
+from bonito.io import biofmt
 from bonito.cli.download import Downloader, models, __models_dir__
-from bonito.multiprocessing import process_cancel, process_itemmap
-from bonito.util import column_to_set, load_symbol, load_model, init, tqdm_environ
+from bonito.multiprocessing import process_cancel
+from bonito.util import column_to_set, set_config_defaults
 
 
 def output_directory(path=None):
@@ -35,6 +30,24 @@ def find_references_path(directory):
         if os.path.exists(path):
             return path
     return os.path.join(directory, "references.npy")
+
+
+def resolve_model_directory(model_directory):
+    if model_directory in models and not (__models_dir__ / model_directory).exists():
+        sys.stderr.write("> downloading model\n")
+        Downloader(__models_dir__).download(model_directory)
+    if not os.path.isdir(model_directory) and os.path.isdir(os.path.join(__models_dir__, model_directory)):
+        return os.path.join(__models_dir__, model_directory)
+    return model_directory
+
+
+def load_basecaller_config(model_directory, chunksize=None, batchsize=None, overlap=None, quantize=None):
+    model_directory = resolve_model_directory(model_directory)
+    config_path = os.path.join(model_directory, "config.toml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(config_path)
+    config = toml.load(config_path)
+    return set_config_defaults(config, chunksize, batchsize, overlap, quantize)
 
 
 def load_summary_read_ids(summary_path):
@@ -102,9 +115,6 @@ def save_filtered_chunks(reads, read_id_to_idx, reference_rows, out_dir):
 
 
 def main(args):
-
-    init(args.seed, args.device)
-
     try:
         reader = Reader(args.reads_directory, args.recursive)
         sys.stderr.write("> reading %s\n" % reader.fmt)
@@ -122,23 +132,14 @@ def main(args):
     else:
         sys.stderr.write(f"> outputting {fmt.aligned} {fmt.name}\n")
 
-    if args.model_directory in models and not (__models_dir__ / args.model_directory).exists():
-        sys.stderr.write("> downloading model\n")
-        Downloader(__models_dir__).download(args.model_directory)
-
-    sys.stderr.write(f"> loading model {args.model_directory}\n")
     try:
-        model = load_model(
+        model_config = load_basecaller_config(
             args.model_directory,
-            args.device,
-            weights=args.weights if args.weights > 0 else None,
             chunksize=args.chunksize,
             overlap=args.overlap,
             batchsize=args.batchsize,
             quantize=args.quantize,
-            use_koi=True,
         )
-        model = model.apply(fuse_bn_)
     except FileNotFoundError:
         sys.stderr.write(f"> error: failed to load {args.model_directory}\n")
         sys.stderr.write(f"> available models:\n")
@@ -146,18 +147,12 @@ def main(args):
         exit(1)
 
     if args.verbose:
-        sys.stderr.write(f"> model basecaller params: {model.config['basecaller']}\n")
-
-    basecall = load_symbol(args.model_directory, "basecall")
+        sys.stderr.write(f"> model basecaller params: {model_config['basecaller']}\n")
 
     if args.reference:
-        sys.stderr.write("> loading reference\n")
-        aligner = Aligner(args.reference, preset=args.mm2_preset)
-        if not aligner:
-            sys.stderr.write("> failed to load/build index\n")
-            exit(1)
+        sys.stderr.write("> using precomputed summary/references; not loading reference index\n")
     else:
-        aligner = None
+        sys.stderr.write("> warning: no reference provided; using precomputed summary/references only\n")
 
     if args.save_ctc and not args.reference:
         sys.stderr.write("> a reference is needed to output ctc training data\n")
@@ -166,7 +161,7 @@ def main(args):
     if fmt.name != 'fastq':
         groups, num_reads = reader.get_read_groups(
             args.reads_directory, args.model_directory,
-            n_proc=8, recursive=args.recursive,
+            n_proc=args.read_workers, recursive=args.recursive,
             read_ids=column_to_set(args.read_ids), skip=args.skip,
             cancel=process_cancel()
         )
@@ -176,20 +171,20 @@ def main(args):
 
     # 这里是是做预处理的
     reads = reader.get_reads(
-        args.reads_directory, n_proc=8, recursive=args.recursive,
+        args.reads_directory, n_proc=args.read_workers, recursive=args.recursive,
         read_ids=column_to_set(args.read_ids), skip=args.skip,
         do_trim=not args.no_trim,
-        scaling_strategy=model.config.get("scaling"),
-        norm_params=(model.config.get("standardisation")
-                     if (model.config.get("scaling") and
-                         model.config.get("scaling").get("strategy") == "pa")
-                     else model.config.get("normalisation")
+        scaling_strategy=model_config.get("scaling"),
+        norm_params=(model_config.get("standardisation")
+                     if (model_config.get("scaling") and
+                         model_config.get("scaling").get("strategy") == "pa")
+                     else model_config.get("normalisation")
                      ),
         cancel=process_cancel()
     )
 
     if args.verbose:
-        sys.stderr.write(f"> read scaling: {model.config.get('scaling')}\n")
+        sys.stderr.write(f"> read scaling: {model_config.get('scaling')}\n")
     
     if args.max_reads:
         reads = take(reads, args.max_reads)
@@ -201,13 +196,10 @@ def main(args):
             chunk for read in reads
             for chunk in read_chunks(
                 read,
-                chunksize=model.config["basecaller"]["chunksize"],
-                overlap=model.config["basecaller"]["overlap"]
+                chunksize=model_config["basecaller"]["chunksize"],
+                overlap=model_config["basecaller"]["overlap"]
             )
         )
-        ResultsWriter = CTCWriter
-    else:
-        ResultsWriter = Writer
 
     summary_dir = args.summary_dir or args.reads_directory
     summary_path = os.path.join(summary_dir, "acc95_summary.tsv")
@@ -258,6 +250,7 @@ def argparser():
     parser.add_argument("--min-accuracy-save-ctc", default=0.99, type=float)
     parser.add_argument("--alignment-threads", default=8, type=int)
     parser.add_argument("--mm2-preset", default='lr:hq', type=str)
+    parser.add_argument("--read-workers", default=8, type=int)
     parser.add_argument("--output-dir")
     parser.add_argument("--summary-dir")
     parser.add_argument('-v', '--verbose', action='count', default=0)

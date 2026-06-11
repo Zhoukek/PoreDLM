@@ -16,6 +16,9 @@ from tqdm import tqdm
 from dateutil import parser
 from scipy.ndimage import median_filter
 from ont_fast5_api.fast5_interface import get_fast5_file
+from scipy.ndimage import median_filter
+from scipy.signal import medfilt
+
 
 
 def get_attr(attrs, key, default='unset', encoding='ascii'):
@@ -32,6 +35,14 @@ def nanopore_normalize_mongo(signal):
     )
     signal_normal, scale = nanopore_normalize_novel(signal_elite)
     return signal_normal, scale
+
+def nanopore_normalize_apple(signal):
+    signal_clear = nanopore_repair_errors(signal, 1, 220)
+    signal_elite = nanopore_remove_spikes(signal_clear, window_size=6000, spike_threshold=5.0)
+    signal_nomal,scale = nanopore_normalize_novel(signal_elite)
+    signal_return = medfilt(signal_nomal, kernel_size=5).astype(np.float32)
+
+    return signal_return, scale
 
 
 def nanopore_normalize_novel(signal):
@@ -169,9 +180,12 @@ class Read(bonito.reader.Read):
         self.num_samples = len(self.scaled)
 
         self.scaling_strategy = "mongo"
+        self.scaling_strategy = "apple"
+
         self.trimmed_samples = 0
         self.shift = 0.0
-        self.signal, self.scale = nanopore_normalize_mongo(self.scaled)
+        # self.signal, self.scale = nanopore_normalize_mongo(self.scaled)
+        self.signal, self.scale = nanopore_normalize_apple(self.scaled)
         self.template_start = self.start + (self.trimmed_samples / self.sample_rate)
         self.template_duration = self.duration - (self.trimmed_samples / self.sample_rate)
 

@@ -11,11 +11,18 @@ model=/mnt/zzbnew/rnamodel/model/bonito/dna_basic_0121
 fast5_root=/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/fast5_split_one
 summary_root=/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/basecall_chunk
 
-out_root=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/basecall_chunk
+out_root=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/basecall_chunk_apple
 
 device=cuda:0
+jobs=${JOBS:-4}
+read_workers=${READ_WORKERS:-16}
+batchsize=${BATCHSIZE:-128}
+chunksize=${CHUNKSIZE:-6000}
+overlap=${OVERLAP:-3000}
 
 mkdir -p "$out_root"
+
+echo "[INFO] jobs=${jobs} read_workers=${read_workers} batchsize=${batchsize} chunksize=${chunksize} overlap=${overlap}"
 
 # 手动指定要跑的大文件夹
 batch_list=(
@@ -42,8 +49,15 @@ for batch_id in "${batch_list[@]}"; do
     echo "[INFO] Batch dir: $batch_dir"
     echo "######################################"
 
-    for fast5_dir in "$batch_dir"/*; do
-        [ -d "$fast5_dir" ] || continue
+    pids=()
+
+    process_part() {
+        local fast5_dir="$1"
+        local part_id
+        local outdir
+        local summary_dir
+        local outfile
+        local logfile
 
         part_id=$(basename "$fast5_dir")
 
@@ -56,7 +70,7 @@ for batch_id in "${batch_list[@]}"; do
 
         if [ -s "$outfile" ]; then
             echo "[SKIP] $batch_id/$part_id already exists: $outfile"
-            continue
+            return 0
         fi
 
         echo "======================================"
@@ -70,15 +84,32 @@ for batch_id in "${batch_list[@]}"; do
             --reference "${ref}" \
             --save-ctc \
             --min-accuracy-save-ctc 0.95 \
-            --batchsize 128 \
+            --batchsize "${batchsize}" \
             --device "${device}" \
-            --chunksize 6000 \
-            --overlap 3000 \
+            --chunksize "${chunksize}" \
+            --overlap "${overlap}" \
+            --read-workers "${read_workers}" \
             --output-dir "${outdir}" \
             --summary-dir "${summary_dir}" \
             > /dev/null 2> "${logfile}"
-            
+
         echo "[DONE] $batch_id/$part_id"
+    }
+
+    for fast5_dir in "$batch_dir"/*; do
+        [ -d "$fast5_dir" ] || continue
+
+        process_part "$fast5_dir" &
+        pids+=("$!")
+
+        if [ "${#pids[@]}" -ge "$jobs" ]; then
+            wait "${pids[0]}"
+            pids=("${pids[@]:1}")
+        fi
+    done
+
+    for pid in "${pids[@]}"; do
+        wait "$pid"
     done
 done
 

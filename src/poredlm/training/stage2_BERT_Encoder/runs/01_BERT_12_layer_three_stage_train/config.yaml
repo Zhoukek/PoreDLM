@@ -1,0 +1,82 @@
+seed: 42
+
+reproducibility:
+  seed: 42
+
+data:
+  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/train"
+  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/validation"
+  num_workers: 8
+  prefetch_factor: 2
+  pin_memory: true
+  streaming: true
+  max_cache_files: 32
+
+model:
+  # Stage1 codebook ids are shifted by 5 in the Stage2 tokenizer vocabulary.
+  tokenizer_path: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/tokenizer-8k.json"
+  stage1_codebook_ckpt: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/models/porepgt_vqe_tokenizer.final.pth"
+  # Optional. Leave empty to auto-detect a key ending with vq._codebook.embed.
+  codebook_key:
+  codebook_vocab_offset: 5
+  # V6 keeps the V5 waveform loss:
+  # BERT hidden_states -> trainable Stage1-initialized decoder -> waveform,
+  # BERT predicted codebook ids -> frozen Stage1 codebook+decoder -> target waveform.
+  waveform_mse_weight: 0.0
+
+  vocab_size: 8197
+  mask_token_id: 4
+  pad_token_id: 1
+  unk_token_id: 0
+  random_token_min_id: 5
+  random_token_max_id: 8197
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  hidden_dropout_prob: 0.1
+  attention_probs_dropout_prob: 0.1
+  max_position_embeddings: 1024
+
+  # V6 keeps the V3/V4 curriculum mask:
+  # 0 <= step < 20000:
+  #   100% samples use random single-token mask positions.
+  # 20000 <= step < 60000:
+  #   80% samples use random single-token masks.
+  #   20% samples use contiguous short spans with length 2..5.
+  # step >= 60000:
+  #   70% samples use random single-token masks.
+  #   20% samples use contiguous short spans with length 2..5.
+  #   10% samples use contiguous long spans with length 6..20.
+  mask_probability: 0.50
+  short_span_start_step: 2000
+  long_span_start_step: 6000
+  short_span_min_length: 2
+  short_span_max_length: 5
+  long_span_min_length: 6
+  long_span_max_length: 20
+
+training:
+  # V6 is epoch-driven. With streaming=true the dataloader has no cheap len(),
+  # so scheduler_num_training_steps keeps the cosine scheduler horizon explicit.
+  num_train_epochs: 1
+  scheduler_num_training_steps: 10000
+  learning_rate: 5.0e-5
+  weight_decay: 0.01
+  warmup_steps: 100
+  lr_scheduler_type: cosine
+  device_micro_batch_size: 64
+  gradient_accumulation_steps: 1
+  mixed_precision: "no"
+  gradient_clipping: 1.0
+  output_dir: "models"
+  log_dir: "log"
+  log_every_steps: 10
+  eval_every_steps: 100
+  max_eval_batches: 100
+  save_every_steps: 5000
+
+wandb:
+  use_wandb: True
+  project: "stage2_BERT_Encoder_experiments"
+  name: "01_BERT_12_layer_three_stage_train_v6_epoch"
