@@ -18,11 +18,11 @@ export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:/mnt/zzbnew/rnamod
 # =========================
 # 2. Input paths
 # =========================
-STAGE1_CKPT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/models/porepgt_vqe_tokenizer.final.pth"
+STAGE1_CKPT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/models/porepgt_vqe_tokenizer.final.pth"
 
 STAGE2_BERT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/00_BERT_12_layer_three_stage_train/models/step_best"
 
-INPUT_NPY="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/250F601844011_0_0_0_0_chunks.npy"
+INPUT_NPY="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
 
 PYTHON_SCRIPT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/eval/masked_reconstruction_stage1_stage2_v3.py"
 
@@ -36,11 +36,11 @@ OUTPUT_PLOT="${OUTPUT_DIR}/compare.png"
 # =========================
 # 4. Runtime argsß
 # =========================
-INPUT_INDEX=10
+INPUT_INDEX=11
 INPUT_MODE="auto"
 DEVICE="cuda:0"
 MASK_TOKEN_ID="4"
-BWAV_VOCAB_OFFSET="5"
+BWAV_VOCAB_OFFSET="4"
 MAX_LENGTH="600"
 TOKEN_BATCH_SIZE="8000"
 
