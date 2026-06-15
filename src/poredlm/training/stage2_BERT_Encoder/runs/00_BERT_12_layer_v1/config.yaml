@@ -15,12 +15,17 @@ data:
 model:
   # Stage1 codebook ids are shifted by 5 in the Stage2 tokenizer vocabulary.
   tokenizer_path: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/tokenizer-8k.json"
+  stage1_codebook_ckpt: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/models/porepgt_vqe_tokenizer.final.pth"
+  codebook_key:
   codebook_vocab_offset: 5
+  waveform_mse_weight: 0.0
 
   vocab_size: 8197
   mask_token_id: 4
   pad_token_id: 1
   unk_token_id: 0
+  random_token_min_id: 5
+  random_token_max_id: 8197
   hidden_size: 768
   num_hidden_layers: 12
   num_attention_heads: 12
@@ -28,33 +33,38 @@ model:
   hidden_dropout_prob: 0.1
   attention_probs_dropout_prob: 0.1
   max_position_embeddings: 1024
-
-  # V8 symmetric masking:
-  # one view masks 50% of valid positions with [MASK], and the second view masks
-  # the complementary valid positions. No 80/10/10 keep/random replacement.
-  mask_probability: 0.50
+  mask_probability: 0.15
 
 training:
-  # V8 is epoch-driven. With streaming=true the dataloader has no cheap len(),
-  # so scheduler_num_training_steps keeps the cosine scheduler horizon explicit.
-  num_train_epochs: 100
-  scheduler_num_training_steps: 100000
+  # Strict epoch-driven training. Keep data.streaming=false so len(train_loader)
+  # is well-defined and each epoch consumes one complete finite pass.
+  num_train_epochs: 500
   learning_rate: 5.0e-4
   weight_decay: 0.01
   warmup_steps: 100
   lr_scheduler_type: cosine
-  device_micro_batch_size: 16
+  device_micro_batch_size: 64
   gradient_accumulation_steps: 1
   mixed_precision: "no"
   gradient_clipping: 1.0
   output_dir: "models"
   log_dir: "log"
   log_every_steps: 10
-  eval_every_steps: 100
+  eval_every_steps: 0
+  eval_each_epoch: true
   max_eval_batches: 100
-  save_every_steps: 5000
+  save_every_steps: 10000
+  save_each_epoch: false
+  # Set this to models/step_epoch_N, models/step_best, or models/step_STEP to resume.
+  # New v1 checkpoints restore model + optimizer + scheduler + global_step.
+  # Older model-only checkpoints restore only model weights.
+  resume_from_checkpoint:
 
 wandb:
   use_wandb: True
   project: "stage2_BERT_Encoder_experiments"
-  name: "01_BERT_12_layer_v8_symmetric_mask"
+  name: "00_BER_12_layer_v1"
+  # To resume an existing wandb run, set its run id here.
+  # New v1 checkpoints also save the active run id in trainer_state.pt.
+  id:
+  resume: "allow"

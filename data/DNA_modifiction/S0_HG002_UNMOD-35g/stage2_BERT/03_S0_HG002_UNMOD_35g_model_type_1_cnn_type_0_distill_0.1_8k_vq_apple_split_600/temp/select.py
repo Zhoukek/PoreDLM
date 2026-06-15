@@ -25,7 +25,7 @@ def extract_first_n_records(input_file, output_file, n=1000):
 
 # 使用示例
 if __name__ == "__main__":
-    input_file = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/validation/250F601844011_0_0_0_0_chunks.split.jsonl.gz"   # 替换为您的输入文件路径
-    output_file = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/validation/output_200.jsonl.gz"  # 替换为输出文件路径
+    input_file = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/train/250F601844011_0_0_0_0_chunks.split.jsonl.gz"   # 替换为您的输入文件路径
+    output_file = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/train/output_2000.jsonl.gz"  # 替换为输出文件路径
     
-    extract_first_n_records(input_file, output_file, 200)
+    extract_first_n_records(input_file, output_file, 2000)

@@ -20,4 +20,4 @@ export WANDB_API_KEY=wandb_v1_V6Q1FUhi4P8Rd364ANJpff5XQF4_AgyhQlAJZx1sdHQVfTrq5F
 
 nohup torchrun --nproc_per_node=4 --master_port 29506 \
   /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/stage2_bert_encoder_train_v6.py \
-  --config config.yaml 2>&1 | tee run_v6.log
+  --config config.yaml

@@ -4,8 +4,8 @@ reproducibility:
   seed: 42
 
 data:
-  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/train"
-  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq_split_600/validation"
+  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/train"
+  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/validation"
   num_workers: 8
   prefetch_factor: 2
   pin_memory: true
@@ -35,13 +35,13 @@ model:
 training:
   # Jiaheng v6 is epoch-driven. With streaming=true the dataloader has no cheap
   # len(), so scheduler_num_training_steps keeps the cosine scheduler horizon explicit.
-  num_train_epochs: 10
+  num_train_epochs: 500
   scheduler_num_training_steps: 100000
-  learning_rate: 5.0e-5
+  learning_rate: 5.0e-4
   weight_decay: 0.01
   warmup_steps: 100
   lr_scheduler_type: cosine
-  device_micro_batch_size: 32
+  device_micro_batch_size: 64
   gradient_accumulation_steps: 1
   mixed_precision: "no"
   gradient_clipping: 1.0

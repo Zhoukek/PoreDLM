@@ -1,20 +1,8 @@
-"""Train Stage 2 BERT MLM with epoch-driven symmetric 50% masking.
-
-V8 uses the plain BERT MLM model from ``bert_encoder_model.py`` and changes the
-masking policy to:
-
-1. sample 50% of valid token positions per sequence;
-2. replace every sampled token with ``[MASK]``;
-3. build a complementary masked view in the same batch, so positions not masked
-   in the first view are masked in the second view.
-
-No BERT 80/10/10 keep/random replacement is used in this version.
-"""
+"""Train a BERT encoder for Stage 2 representation learning by epoch."""
 
 from __future__ import annotations
 
 import argparse
-import inspect
 import math
 import os
 import random
@@ -32,7 +20,7 @@ from tqdm import tqdm
 from transformers import get_scheduler
 
 from bert_encoder_model import build_bert_mlm
-from dataset import Stage2Collator, Stage2TokenJsonlDataset, Stage2TokenJsonlIterableDataset
+from dataset import Stage2Collator, Stage2TokenJsonlDataset
 
 
 def seed_everything(seed: int) -> None:
@@ -57,38 +45,6 @@ def count_parameters(model: torch.nn.Module) -> tuple[int, int]:
     total = sum(param.numel() for param in model.parameters())
     trainable = sum(param.numel() for param in model.parameters() if param.requires_grad)
     return total, trainable
-
-
-def build_accelerator(config: dict[str, Any]) -> Accelerator:
-    """Build Accelerator with iterable datasets read independently on each rank."""
-
-    training_cfg = config["training"]
-    accelerator_kwargs: dict[str, Any] = {
-        "gradient_accumulation_steps": int(training_cfg.get("gradient_accumulation_steps", 1)),
-        "mixed_precision": str(training_cfg.get("mixed_precision", "no")),
-        "log_with": "wandb" if config.get("wandb", {}).get("use_wandb", False) else None,
-        "project_dir": str(training_cfg.get("log_dir", "log")),
-    }
-    if bool(config.get("data", {}).get("streaming", False)):
-        accelerator_params = inspect.signature(Accelerator).parameters
-        if "dataloader_config" in accelerator_params:
-            from accelerate import DataLoaderConfiguration
-
-            accelerator_kwargs["dataloader_config"] = DataLoaderConfiguration(dispatch_batches=False)
-        elif "dispatch_batches" in accelerator_params:
-            accelerator_kwargs["dispatch_batches"] = False
-    return Accelerator(**accelerator_kwargs)
-
-
-def safe_len(value: Any) -> int | str:
-    """Return len(value), or a descriptive string for iterable-only datasets."""
-
-    if value is None:
-        return 0
-    try:
-        return len(value)
-    except TypeError:
-        return "streaming"
 
 
 def print_startup_summary(
@@ -116,7 +72,6 @@ def print_startup_summary(
     effective_global_batch_size = (
         device_micro_batch_size * accelerator.num_processes * gradient_accumulation_steps
     )
-    symmetric_effective_views = effective_global_batch_size * 2
 
     train_files = getattr(train_dataset, "files", [])
     valid_files = getattr(valid_dataset, "files", []) if valid_dataset is not None else []
@@ -124,7 +79,7 @@ def print_startup_summary(
     valid_line_counts = getattr(valid_dataset, "file_line_counts", []) if valid_dataset is not None else []
 
     print("\n" + "=" * 80)
-    print("Starting Stage 2 BERT Encoder V8 Training")
+    print("Starting Stage 2 BERT Encoder Training")
     print("=" * 80)
     print(
         pformat(
@@ -141,11 +96,10 @@ def print_startup_summary(
                     "train_dir": data_cfg.get("train_dir"),
                     "valid_dir": data_cfg.get("valid_dir") or None,
                     "file_pattern": data_cfg.get("file_pattern", "*.jsonl.gz"),
-                    "streaming": data_cfg.get("streaming", False),
                     "train_files": len(train_files),
                     "valid_files": len(valid_files),
-                    "train_samples": safe_len(train_dataset),
-                    "valid_samples": safe_len(valid_dataset),
+                    "train_samples": len(train_dataset),
+                    "valid_samples": len(valid_dataset) if valid_dataset is not None else 0,
                     "train_lines_per_file_head": train_line_counts[:5],
                     "valid_lines_per_file_head": valid_line_counts[:5],
                     "num_workers": data_cfg.get("num_workers", 8),
@@ -158,13 +112,14 @@ def print_startup_summary(
                     "mask_token_id": model_cfg.get("mask_token_id"),
                     "pad_token_id": model_cfg.get("pad_token_id"),
                     "unk_token_id": model_cfg.get("unk_token_id"),
+                    "random_token_min_id": model_cfg.get("random_token_min_id"),
+                    "random_token_max_id": model_cfg.get("random_token_max_id"),
                     "hidden_size": model_cfg.get("hidden_size"),
                     "num_hidden_layers": model_cfg.get("num_hidden_layers"),
                     "num_attention_heads": model_cfg.get("num_attention_heads"),
                     "intermediate_size": model_cfg.get("intermediate_size"),
                     "max_position_embeddings": model_cfg.get("max_position_embeddings"),
-                    "mask_probability": model_cfg.get("mask_probability", 0.5),
-                    "mask_policy": "symmetric_complement_all_mask",
+                    "mask_probability": model_cfg.get("mask_probability"),
                     "total_parameters": format_number(total_params),
                     "trainable_parameters": format_number(trainable_params),
                 },
@@ -173,7 +128,6 @@ def print_startup_summary(
                         "num_train_epochs",
                         training_cfg.get("epochs", 1),
                     ),
-                    "steps_per_epoch": training_cfg.get("steps_per_epoch"),
                     "scheduler_num_training_steps": training_cfg.get("scheduler_num_training_steps"),
                     "learning_rate": training_cfg.get("learning_rate"),
                     "weight_decay": training_cfg.get("weight_decay"),
@@ -182,13 +136,15 @@ def print_startup_summary(
                     "device_micro_batch_size": device_micro_batch_size,
                     "gradient_accumulation_steps": gradient_accumulation_steps,
                     "effective_global_batch_size": effective_global_batch_size,
-                    "symmetric_effective_views": symmetric_effective_views,
                     "gradient_clipping": training_cfg.get("gradient_clipping"),
                     "output_dir": training_cfg.get("output_dir"),
                     "log_every_steps": training_cfg.get("log_every_steps"),
                     "eval_every_steps": training_cfg.get("eval_every_steps"),
+                    "eval_each_epoch": training_cfg.get("eval_each_epoch"),
                     "max_eval_batches": training_cfg.get("max_eval_batches"),
                     "save_every_steps": training_cfg.get("save_every_steps"),
+                    "save_each_epoch": training_cfg.get("save_each_epoch"),
+                    "resume_from_checkpoint": training_cfg.get("resume_from_checkpoint"),
                 },
             },
             width=120,
@@ -201,106 +157,69 @@ def print_startup_summary(
     print("=" * 80 + "\n")
 
 
-def build_primary_mask_indices(
+def mask_token_ids(
     input_ids: torch.Tensor,
     attention_mask: torch.Tensor,
+    vocab_size: int,
+    mask_token_id: int,
     mask_probability: float,
-) -> torch.Tensor:
-    """Select a fixed fraction of valid positions per sample."""
+    random_token_min_id: int = 0,
+    random_token_max_id: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply BERT MLM masking to VQ token ids."""
 
-    masked_indices = torch.zeros_like(input_ids, dtype=torch.bool)
+    labels = input_ids.clone()
     valid_positions = attention_mask.bool()
-
-    for batch_index in range(input_ids.shape[0]):
-        valid_token_indices = torch.nonzero(valid_positions[batch_index], as_tuple=False).flatten()
-        valid_count = int(valid_token_indices.numel())
-        if valid_count == 0:
-            continue
-
-        target_mask_count = int(round(valid_count * float(mask_probability)))
-        if mask_probability > 0.0:
-            target_mask_count = max(1, target_mask_count)
-        if valid_count > 1:
-            target_mask_count = min(target_mask_count, valid_count - 1)
-        else:
-            target_mask_count = min(target_mask_count, valid_count)
-
-        permutation = torch.randperm(valid_count, device=input_ids.device)
-        selected = valid_token_indices[permutation[:target_mask_count]]
-        masked_indices[batch_index, selected] = True
+    probability_matrix = torch.full(labels.shape, mask_probability, device=input_ids.device)
+    masked_indices = torch.bernoulli(probability_matrix).bool() & valid_positions
 
     if not masked_indices.any():
-        valid_positions_flat = torch.nonzero(valid_positions, as_tuple=False)
-        if int(valid_positions_flat.numel()) > 0:
-            first_batch = int(valid_positions_flat[0, 0].item())
-            first_position = int(valid_positions_flat[0, 1].item())
-            masked_indices[first_batch, first_position] = True
+        first_valid = valid_positions.float().argmax(dim=1)
+        masked_indices[torch.arange(input_ids.shape[0], device=input_ids.device), first_valid] = True
 
-    return masked_indices
+    labels[~masked_indices] = -100
 
+    corrupted = input_ids.clone()
+    replace_with_mask = torch.bernoulli(
+        torch.full(labels.shape, 0.8, device=input_ids.device)
+    ).bool() & masked_indices
+    corrupted[replace_with_mask] = mask_token_id
 
-def build_symmetric_masked_inputs(
-    input_ids: torch.Tensor,
-    attention_mask: torch.Tensor,
-    mask_token_id: int,
-    mask_probability: float = 0.5,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-    """Create original and complementary all-mask MLM views in one batch."""
-
-    primary_mask = build_primary_mask_indices(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        mask_probability=mask_probability,
+    replace_with_random = (
+        torch.bernoulli(torch.full(labels.shape, 0.5, device=input_ids.device)).bool()
+        & masked_indices
+        & ~replace_with_mask
     )
-    valid_positions = attention_mask.bool()
-    complement_mask = valid_positions & ~primary_mask
+    random_token_upper_bound = min(random_token_max_id or vocab_size, vocab_size)
+    random_tokens = torch.randint(
+        random_token_min_id,
+        random_token_upper_bound,
+        labels.shape,
+        dtype=torch.long,
+        device=input_ids.device,
+    )
+    corrupted[replace_with_random] = random_tokens[replace_with_random]
 
-    primary_corrupted = input_ids.clone()
-    primary_corrupted[primary_mask] = mask_token_id
-    primary_labels = input_ids.clone()
-    primary_labels[~primary_mask] = -100
-
-    complement_corrupted = input_ids.clone()
-    complement_corrupted[complement_mask] = mask_token_id
-    complement_labels = input_ids.clone()
-    complement_labels[~complement_mask] = -100
-
-    corrupted = torch.cat([primary_corrupted, complement_corrupted], dim=0)
-    labels = torch.cat([primary_labels, complement_labels], dim=0)
-    doubled_attention_mask = torch.cat([attention_mask, attention_mask], dim=0)
-    stats = {
-        "primary_masked": primary_mask.sum().detach().reshape(1),
-        "complement_masked": complement_mask.sum().detach().reshape(1),
-        "valid_tokens": valid_positions.sum().detach().reshape(1),
-    }
-    return corrupted, doubled_attention_mask, labels, stats
+    return corrupted, labels
 
 
 def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     data_cfg = config["data"]
     model_cfg = config.get("model", {})
+    if bool(data_cfg.get("streaming", False)):
+        raise ValueError(
+            "stage2_bert_encoder_train_v1.py is epoch-driven and requires "
+            "data.streaming=false so the dataloader has a reliable length."
+        )
     path_key = f"{split}_dir"
-    pattern = str(data_cfg.get(f"{split}_pattern", data_cfg.get("file_pattern", "*.jsonl.gz")))
-    use_streaming = bool(data_cfg.get("streaming", False))
-    if use_streaming:
-        dataset = Stage2TokenJsonlIterableDataset(
-            data_dir=data_cfg[path_key],
-            pattern=pattern,
-            tokenizer_path=model_cfg.get("tokenizer_path"),
-            unk_token_id=int(model_cfg.get("unk_token_id", 0)),
-            vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
-            shuffle_files=(split == "train"),
-            seed=int(config.get("reproducibility", {}).get("seed", config.get("seed", 42))),
-        )
-    else:
-        dataset = Stage2TokenJsonlDataset(
-            data_dir=data_cfg[path_key],
-            pattern=pattern,
-            max_cache_files=int(data_cfg.get("max_cache_files", data_cfg.get("max_cache_size", 2))),
-            tokenizer_path=model_cfg.get("tokenizer_path"),
-            unk_token_id=int(model_cfg.get("unk_token_id", 0)),
-            vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
-        )
+    dataset = Stage2TokenJsonlDataset(
+        data_dir=data_cfg[path_key],
+        pattern=str(data_cfg.get(f"{split}_pattern", data_cfg.get("file_pattern", "*.jsonl.gz"))),
+        max_cache_files=int(data_cfg.get("max_cache_files", 2)),
+        tokenizer_path=model_cfg.get("tokenizer_path"),
+        unk_token_id=int(model_cfg.get("unk_token_id", 0)),
+        vocab_size=int(model_cfg.get("vocab_size")) if model_cfg.get("vocab_size") else None,
+    )
     collator = Stage2Collator(
         pad_token_id=int(config.get("model", {}).get("pad_token_id", 0)),
         max_length=int(config.get("model", {}).get("max_position_embeddings", 4096)),
@@ -308,7 +227,7 @@ def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     return DataLoader(
         dataset,
         batch_size=int(config["training"].get("device_micro_batch_size", 8)),
-        shuffle=(split == "train" and not use_streaming),
+        shuffle=(split == "train"),
         num_workers=int(data_cfg.get("num_workers", 8)),
         pin_memory=bool(data_cfg.get("pin_memory", True)),
         prefetch_factor=int(data_cfg.get("prefetch_factor", 2)),
@@ -317,73 +236,127 @@ def build_dataloader(config: dict[str, Any], split: str) -> DataLoader:
     )
 
 
-def get_batch_tensor(batch: Any, name: str) -> torch.Tensor:
-    """Read tensors from either the local Stage2Batch object or a plain mapping."""
-
-    if isinstance(batch, dict):
-        return batch[name]
-    return getattr(batch, name)
-
-
 def infer_update_steps_per_epoch(
     train_loader: DataLoader,
     gradient_accumulation_steps: int,
-) -> int | None:
-    """Infer optimizer update steps per epoch when the loader exposes length."""
+) -> int:
+    """Infer optimizer update steps per epoch from a finite dataloader."""
 
-    try:
-        batches_per_epoch = len(train_loader)
-    except TypeError:
-        return None
-
+    batches_per_epoch = len(train_loader)
     if batches_per_epoch <= 0:
-        return None
+        raise ValueError("The training dataloader is empty.")
     return math.ceil(batches_per_epoch / max(1, int(gradient_accumulation_steps)))
 
 
 def resolve_epoch_training_steps(
     training_cfg: dict[str, Any],
     train_loader: DataLoader,
-) -> tuple[int, int | None, int]:
-    """Resolve epoch count, optional progress steps, and scheduler total steps."""
+) -> tuple[int, int, int]:
+    """Resolve epoch count, progress length, and scheduler total steps."""
 
     num_train_epochs = int(training_cfg.get("num_train_epochs", training_cfg.get("epochs", 1)))
     if num_train_epochs <= 0:
         raise ValueError("training.num_train_epochs/training.epochs must be > 0.")
 
     gradient_accumulation_steps = int(training_cfg.get("gradient_accumulation_steps", 1))
-    inferred_steps_per_epoch = infer_update_steps_per_epoch(train_loader, gradient_accumulation_steps)
-    configured_steps_per_epoch = training_cfg.get("steps_per_epoch")
-    if configured_steps_per_epoch is not None:
-        steps_per_epoch = int(configured_steps_per_epoch)
-        if steps_per_epoch <= 0:
-            raise ValueError("training.steps_per_epoch must be > 0 when provided.")
-    else:
-        steps_per_epoch = inferred_steps_per_epoch
+    steps_per_epoch = infer_update_steps_per_epoch(train_loader, gradient_accumulation_steps)
 
-    if steps_per_epoch is not None:
+    scheduler_num_training_steps = training_cfg.get("scheduler_num_training_steps")
+    if scheduler_num_training_steps is None:
         total_training_steps = steps_per_epoch * num_train_epochs
     else:
-        total_training_steps = int(
-            training_cfg.get(
-                "scheduler_num_training_steps",
-                training_cfg.get("max_steps", 100000),
-            )
-        )
+        total_training_steps = int(scheduler_num_training_steps)
         if total_training_steps <= 0:
-            raise ValueError(
-                "Could not infer scheduler training steps for an iterable dataloader. "
-                "Set training.steps_per_epoch or training.scheduler_num_training_steps."
-            )
+            raise ValueError("training.scheduler_num_training_steps must be > 0 when provided.")
 
     return num_train_epochs, steps_per_epoch, total_training_steps
+
+
+def get_wandb_run_id(accelerator: Accelerator) -> str | None:
+    """Return the active wandb run id when wandb tracking is enabled."""
+
+    try:
+        tracker = accelerator.get_tracker("wandb", unwrap=True)
+    except Exception:
+        return None
+    return getattr(tracker, "id", None)
+
+
+def load_trainer_state(checkpoint_dir: str | os.PathLike[str]) -> dict[str, Any] | None:
+    """Load optimizer/scheduler training state if present."""
+
+    state_path = Path(checkpoint_dir) / "trainer_state.pt"
+    if not state_path.exists():
+        return None
+    return torch.load(state_path, map_location="cpu", weights_only=False)
+
+
+def load_model_from_checkpoint(
+    accelerator: Accelerator,
+    model: torch.nn.Module,
+    checkpoint_dir: str | os.PathLike[str],
+) -> None:
+    """Load the model weights from a HF-style checkpoint directory."""
+
+    ckpt_dir = Path(checkpoint_dir)
+    if not ckpt_dir.exists():
+        raise FileNotFoundError(f"Checkpoint directory not found: {ckpt_dir}")
+
+    unwrapped = accelerator.unwrap_model(model)
+    if hasattr(unwrapped.__class__, "from_pretrained") and (ckpt_dir / "config.json").exists():
+        loaded = unwrapped.__class__.from_pretrained(str(ckpt_dir))
+        missing, unexpected = unwrapped.load_state_dict(loaded.state_dict(), strict=False)
+    else:
+        weight_path = ckpt_dir / "pytorch_model.bin"
+        if not weight_path.exists():
+            raise FileNotFoundError(
+                f"Could not find config.json or pytorch_model.bin in checkpoint directory: {ckpt_dir}"
+            )
+        missing, unexpected = unwrapped.load_state_dict(
+            torch.load(weight_path, map_location="cpu"),
+            strict=False,
+        )
+
+    if accelerator.is_main_process:
+        print(
+            f"Loaded model weights from {ckpt_dir} "
+            f"(missing={list(missing)}, unexpected={list(unexpected)})",
+            flush=True,
+        )
+
+
+def build_wandb_init_kwargs(
+    config: dict[str, Any],
+    resume_state: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build wandb init kwargs, including run resume settings when configured."""
+
+    wandb_cfg = config.get("wandb", {})
+    wandb_kwargs: dict[str, Any] = {"name": wandb_cfg.get("name")}
+    run_id = wandb_cfg.get("id") or wandb_cfg.get("run_id")
+    if run_id is None and resume_state is not None:
+        run_id = resume_state.get("wandb_run_id")
+
+    if run_id:
+        wandb_kwargs["id"] = str(run_id)
+        wandb_kwargs["resume"] = str(wandb_cfg.get("resume", "allow"))
+    elif wandb_cfg.get("resume"):
+        wandb_kwargs["resume"] = str(wandb_cfg["resume"])
+
+    return {"wandb": wandb_kwargs}
 
 
 def save_checkpoint(
     accelerator: Accelerator,
     model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: Any,
     output_dir: str,
     step: int | str,
+    global_step: int,
+    epoch: int,
+    best_eval_loss: float,
+    config: dict[str, Any],
 ) -> None:
     accelerator.wait_for_everyone()
     if not accelerator.is_main_process:
@@ -396,17 +369,36 @@ def save_checkpoint(
         unwrapped.save_pretrained(save_dir)
     else:
         torch.save(unwrapped.state_dict(), save_dir / "pytorch_model.bin")
+    torch.save(
+        {
+            "global_step": int(global_step),
+            "epoch": int(epoch),
+            "best_eval_loss": float(best_eval_loss),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "rng_state": torch.get_rng_state(),
+            "cuda_rng_state_all": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            "numpy_rng_state": np.random.get_state(),
+            "python_rng_state": random.getstate(),
+            "wandb_run_id": get_wandb_run_id(accelerator),
+            "config": config,
+        },
+        save_dir / "trainer_state.pt",
+    )
 
 
 def evaluate(
     accelerator: Accelerator,
     model: torch.nn.Module,
     valid_loader: DataLoader,
+    vocab_size: int,
     mask_token_id: int,
     mask_probability: float,
+    random_token_min_id: int = 0,
+    random_token_max_id: int | None = None,
     max_eval_batches: int | None = None,
 ) -> dict[str, float]:
-    """Run symmetric-mask MLM evaluation on the validation split."""
+    """Run MLM evaluation on the validation split."""
 
     model.eval()
     losses = []
@@ -415,25 +407,26 @@ def evaluate(
     top10_correct = []
     top50_correct = []
     masked_counts = []
-    primary_masked_counts = []
-    complement_masked_counts = []
 
     with torch.no_grad():
         for batch_index, batch in enumerate(valid_loader):
             if max_eval_batches is not None and batch_index >= max_eval_batches:
                 break
 
-            input_ids = get_batch_tensor(batch, "input_ids").to(accelerator.device)
-            attention_mask = get_batch_tensor(batch, "attention_mask").to(accelerator.device)
-            corrupted, doubled_attention_mask, labels, mask_stats = build_symmetric_masked_inputs(
+            input_ids = batch.input_ids.to(accelerator.device)
+            attention_mask = batch.attention_mask.to(accelerator.device)
+            corrupted, labels = mask_token_ids(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
+                vocab_size=vocab_size,
                 mask_token_id=mask_token_id,
                 mask_probability=mask_probability,
+                random_token_min_id=random_token_min_id,
+                random_token_max_id=random_token_max_id,
             )
             outputs = model(
                 input_ids=corrupted,
-                attention_mask=doubled_attention_mask,
+                attention_mask=attention_mask,
                 labels=labels,
             )
             losses.append(accelerator.gather_for_metrics(outputs.loss.detach()))
@@ -441,8 +434,6 @@ def evaluate(
             masked_positions = labels != -100
             masked_count = masked_positions.sum()
             masked_counts.append(accelerator.gather_for_metrics(masked_count.detach().reshape(1)))
-            primary_masked_counts.append(accelerator.gather_for_metrics(mask_stats["primary_masked"]))
-            complement_masked_counts.append(accelerator.gather_for_metrics(mask_stats["complement_masked"]))
 
             if masked_count.item() > 0:
                 masked_logits = outputs.logits[masked_positions]
@@ -482,8 +473,6 @@ def evaluate(
     top5 = torch.cat(top5_correct).sum().item()
     top10 = torch.cat(top10_correct).sum().item()
     top50 = torch.cat(top50_correct).sum().item()
-    primary_masked = torch.cat(primary_masked_counts).sum().item()
-    complement_masked = torch.cat(complement_masked_counts).sum().item()
 
     return {
         "eval/loss": loss,
@@ -493,8 +482,6 @@ def evaluate(
         "eval/top10_accuracy": top10 / total_masked if total_masked else float("nan"),
         "eval/top50_accuracy": top50 / total_masked if total_masked else float("nan"),
         "eval/masked_tokens": total_masked,
-        "eval/primary_masked_tokens": primary_masked,
-        "eval/complement_masked_tokens": complement_masked,
     }
 
 
@@ -504,9 +491,16 @@ def train(config: dict[str, Any]) -> None:
 
     training_cfg = config["training"]
     model_cfg = config["model"]
-    mask_probability = float(model_cfg.get("mask_probability", 0.5))
+    mask_probability = float(model_cfg.get("mask_probability", 0.15))
+    resume_from_checkpoint = training_cfg.get("resume_from_checkpoint")
+    resume_state = load_trainer_state(resume_from_checkpoint) if resume_from_checkpoint else None
 
-    accelerator = build_accelerator(config)
+    accelerator = Accelerator(
+        gradient_accumulation_steps=int(training_cfg.get("gradient_accumulation_steps", 1)),
+        mixed_precision=str(training_cfg.get("mixed_precision", "no")),
+        log_with="wandb" if config.get("wandb", {}).get("use_wandb", False) else None,
+        project_dir=str(training_cfg.get("log_dir", "log")),
+    )
 
     train_loader = build_dataloader(config, "train")
     valid_loader = build_dataloader(config, "valid") if config["data"].get("valid_dir") else None
@@ -528,8 +522,8 @@ def train(config: dict[str, Any]) -> None:
     )
 
     num_train_epochs, steps_per_epoch, total_training_steps = resolve_epoch_training_steps(
-        training_cfg,
-        train_loader,
+        training_cfg=training_cfg,
+        train_loader=train_loader,
     )
     scheduler = get_scheduler(
         name=str(training_cfg.get("lr_scheduler_type", "cosine")),
@@ -542,7 +536,7 @@ def train(config: dict[str, Any]) -> None:
         accelerator.init_trackers(
             project_name=str(config["wandb"].get("project", "poredlm-stage2-bert")),
             config=config,
-            init_kwargs={"wandb": {"name": config["wandb"].get("name")}},
+            init_kwargs=build_wandb_init_kwargs(config, resume_state),
         )
 
     if valid_loader is not None:
@@ -561,38 +555,91 @@ def train(config: dict[str, Any]) -> None:
             scheduler,
         )
 
-    global_step = 0
+    global_step = int(resume_state.get("global_step", 0)) if resume_state is not None else 0
+    start_epoch = int(resume_state.get("epoch", 0)) if resume_state is not None else 0
+    if start_epoch < 0:
+        raise ValueError(f"Invalid resumed epoch: {start_epoch}")
+    if start_epoch > num_train_epochs:
+        raise ValueError(
+            f"Checkpoint epoch={start_epoch} is beyond configured num_train_epochs={num_train_epochs}."
+        )
+
     output_dir = str(training_cfg.get("output_dir", "outputs/stage2_BERT_Encoder"))
     save_every = int(training_cfg.get("save_every_steps", 1000))
     log_every = int(training_cfg.get("log_every_steps", 10))
     eval_every = int(training_cfg.get("eval_every_steps", 0))
+    eval_each_epoch = bool(training_cfg.get("eval_each_epoch", False))
+    save_each_epoch = bool(training_cfg.get("save_each_epoch", True))
     max_eval_batches = training_cfg.get("max_eval_batches")
     max_eval_batches = int(max_eval_batches) if max_eval_batches is not None else None
-    mask_token_id = int(model_cfg.get("mask_token_id", int(model_cfg.get("vocab_size", 65537)) - 1))
-    best_eval_loss = float("inf")
+    vocab_size = int(model_cfg.get("vocab_size", 65537))
+    mask_token_id = int(model_cfg.get("mask_token_id", vocab_size - 1))
+    random_token_min_id = int(model_cfg.get("random_token_min_id", 0))
+    random_token_max_id = int(model_cfg.get("random_token_max_id", vocab_size))
+    best_eval_loss = (
+        float(resume_state.get("best_eval_loss", float("inf")))
+        if resume_state is not None
+        else float("inf")
+    )
 
-    progress_total = total_training_steps if steps_per_epoch is not None else None
-    progress = tqdm(total=progress_total, disable=not accelerator.is_local_main_process)
+    if resume_from_checkpoint:
+        load_model_from_checkpoint(accelerator, model, resume_from_checkpoint)
+        if resume_state is not None:
+            optimizer.load_state_dict(resume_state["optimizer_state_dict"])
+            scheduler.load_state_dict(resume_state["scheduler_state_dict"])
+            torch.set_rng_state(resume_state["rng_state"])
+            if torch.cuda.is_available() and resume_state.get("cuda_rng_state_all") is not None:
+                torch.cuda.set_rng_state_all(resume_state["cuda_rng_state_all"])
+            if resume_state.get("numpy_rng_state") is not None:
+                np.random.set_state(resume_state["numpy_rng_state"])
+            if resume_state.get("python_rng_state") is not None:
+                random.setstate(resume_state["python_rng_state"])
+            if accelerator.is_main_process:
+                print(
+                    "Resumed full training state from "
+                    f"{resume_from_checkpoint}: global_step={global_step}, "
+                    f"completed_epoch={start_epoch}, best_eval_loss={best_eval_loss}",
+                    flush=True,
+                )
+        elif accelerator.is_main_process:
+            print(
+                f"Loaded model-only checkpoint from {resume_from_checkpoint}; "
+                "optimizer/scheduler/global_step start from scratch because trainer_state.pt was not found.",
+                flush=True,
+            )
+
+    progress = tqdm(
+        total=total_training_steps,
+        initial=min(global_step, total_training_steps),
+        disable=not accelerator.is_local_main_process,
+    )
     model.train()
 
-    for epoch in range(num_train_epochs):
+    for epoch in range(start_epoch, num_train_epochs):
         epoch_index = epoch + 1
         if accelerator.is_main_process:
-            print(f"Starting epoch {epoch_index}/{num_train_epochs}", flush=True)
+            print(
+                f"Starting epoch {epoch_index}/{num_train_epochs} "
+                f"({steps_per_epoch} optimizer steps/epoch)",
+                flush=True,
+            )
 
         for batch in train_loader:
             with accelerator.accumulate(model):
-                input_ids = get_batch_tensor(batch, "input_ids").to(accelerator.device)
-                attention_mask = get_batch_tensor(batch, "attention_mask").to(accelerator.device)
-                corrupted, doubled_attention_mask, labels, mask_stats = build_symmetric_masked_inputs(
+                input_ids = batch.input_ids.to(accelerator.device)
+                attention_mask = batch.attention_mask.to(accelerator.device)
+                corrupted, labels = mask_token_ids(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
+                    vocab_size=vocab_size,
                     mask_token_id=mask_token_id,
                     mask_probability=mask_probability,
+                    random_token_min_id=random_token_min_id,
+                    random_token_max_id=random_token_max_id,
                 )
                 outputs = model(
                     input_ids=corrupted,
-                    attention_mask=doubled_attention_mask,
+                    attention_mask=attention_mask,
                     labels=labels,
                 )
                 loss = outputs.loss
@@ -613,30 +660,10 @@ def train(config: dict[str, Any]) -> None:
 
                 if global_step % log_every == 0:
                     loss_value = accelerator.gather_for_metrics(loss.detach()).mean().item()
-                    masked_positions = labels != -100
-                    masked_count = (
-                        accelerator.gather_for_metrics(masked_positions.sum().detach().reshape(1))
-                        .sum()
-                        .item()
-                    )
-                    primary_masked = (
-                        accelerator.gather_for_metrics(mask_stats["primary_masked"]).sum().item()
-                    )
-                    complement_masked = (
-                        accelerator.gather_for_metrics(mask_stats["complement_masked"]).sum().item()
-                    )
-                    valid_count = (
-                        accelerator.gather_for_metrics(mask_stats["valid_tokens"]).sum().item()
-                    )
                     logs = {
                         "train/loss": loss_value,
                         "train/loss_log10": math.log10(loss_value + 1e-12),
                         "train/lr": scheduler.get_last_lr()[0],
-                        "train/masked_tokens": masked_count,
-                        "train/primary_masked_tokens": primary_masked,
-                        "train/complement_masked_tokens": complement_masked,
-                        "train/mask_ratio_per_view": primary_masked / valid_count if valid_count else float("nan"),
-                        "train/symmetric_views": 2,
                         "train/epoch": epoch_index,
                         "step": global_step,
                     }
@@ -644,16 +671,30 @@ def train(config: dict[str, Any]) -> None:
                     if accelerator.is_main_process:
                         print(logs)
 
-                if global_step % save_every == 0:
-                    save_checkpoint(accelerator, model, output_dir, global_step)
+                if save_every > 0 and global_step % save_every == 0:
+                    save_checkpoint(
+                        accelerator=accelerator,
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        output_dir=output_dir,
+                        step=global_step,
+                        global_step=global_step,
+                        epoch=epoch,
+                        best_eval_loss=best_eval_loss,
+                        config=config,
+                    )
 
                 if valid_loader is not None and eval_every > 0 and global_step % eval_every == 0:
                     eval_logs = evaluate(
                         accelerator=accelerator,
                         model=model,
                         valid_loader=valid_loader,
+                        vocab_size=vocab_size,
                         mask_token_id=mask_token_id,
                         mask_probability=mask_probability,
+                        random_token_min_id=random_token_min_id,
+                        random_token_max_id=random_token_max_id,
                         max_eval_batches=max_eval_batches,
                     )
                     eval_logs["eval/epoch"] = epoch_index
@@ -665,17 +706,85 @@ def train(config: dict[str, Any]) -> None:
                     eval_loss = eval_logs["eval/loss"]
                     if eval_loss == eval_loss and eval_loss < best_eval_loss:
                         best_eval_loss = eval_loss
-                        save_checkpoint(accelerator, model, output_dir, "best")
+                        save_checkpoint(
+                            accelerator=accelerator,
+                            model=model,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            output_dir=output_dir,
+                            step="best",
+                            global_step=global_step,
+                            epoch=epoch,
+                            best_eval_loss=best_eval_loss,
+                            config=config,
+                        )
 
-        # save_checkpoint(accelerator, model, output_dir, f"epoch_{epoch_index}")
+        if valid_loader is not None and eval_each_epoch:
+            eval_logs = evaluate(
+                accelerator=accelerator,
+                model=model,
+                valid_loader=valid_loader,
+                vocab_size=vocab_size,
+                mask_token_id=mask_token_id,
+                mask_probability=mask_probability,
+                random_token_min_id=random_token_min_id,
+                random_token_max_id=random_token_max_id,
+                max_eval_batches=max_eval_batches,
+            )
+            eval_logs["eval/epoch"] = epoch_index
+            eval_logs["step"] = global_step
+            accelerator.log(eval_logs, step=global_step)
+            if accelerator.is_main_process:
+                print(eval_logs)
 
-    save_checkpoint(accelerator, model, output_dir, global_step)
+            eval_loss = eval_logs["eval/loss"]
+            if eval_loss == eval_loss and eval_loss < best_eval_loss:
+                best_eval_loss = eval_loss
+                save_checkpoint(
+                    accelerator=accelerator,
+                    model=model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    output_dir=output_dir,
+                    step="best",
+                    global_step=global_step,
+                    epoch=epoch_index,
+                    best_eval_loss=best_eval_loss,
+                    config=config,
+                )
+
+        if save_each_epoch:
+            save_checkpoint(
+                accelerator=accelerator,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                output_dir=output_dir,
+                step=f"epoch_{epoch_index}",
+                global_step=global_step,
+                epoch=epoch_index,
+                best_eval_loss=best_eval_loss,
+                config=config,
+            )
+
+    save_checkpoint(
+        accelerator=accelerator,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        output_dir=output_dir,
+        step=global_step,
+        global_step=global_step,
+        epoch=num_train_epochs,
+        best_eval_loss=best_eval_loss,
+        config=config,
+    )
     progress.close()
     accelerator.end_training()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train Stage 2 BERT Encoder V8")
+    parser = argparse.ArgumentParser(description="Train Stage 2 BERT Encoder")
     parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
 

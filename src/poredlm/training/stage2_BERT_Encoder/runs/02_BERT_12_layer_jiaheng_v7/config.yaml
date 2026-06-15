@@ -4,8 +4,8 @@ reproducibility:
   seed: 42
 
 data:
-  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_split_600/train/temp"
-  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/01_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_split_600/validation/temp"
+  train_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/train"
+  valid_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/validation"
   num_workers: 8
   prefetch_factor: 2
   pin_memory: true
@@ -35,23 +35,23 @@ model:
 training:
   # Strict epoch-driven training. Keep data.streaming=false so the dataloader has
   # a real len() and scheduler steps are inferred from complete epochs.
-  num_train_epochs: 10
-  learning_rate: 3.0e-4
+  num_train_epochs: 500
+  learning_rate: 5.0e-4
   weight_decay: 0.01
   warmup_steps: 100
   lr_scheduler_type: cosine
-  device_micro_batch_size: 32
+  device_micro_batch_size: 64
   gradient_accumulation_steps: 1
   mixed_precision: "no"
   gradient_clipping: 1.0
   output_dir: "models"
   log_dir: "log"
   log_every_steps: 10
-  eval_every_steps: 0
+  eval_every_steps: 100
   eval_each_epoch: true
   max_eval_batches: 100
-  save_every_steps: 0
-  save_each_epoch: true
+  save_every_steps: 1000
+  save_each_epoch: false
 
 wandb:
   use_wandb: True
