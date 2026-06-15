@@ -13,6 +13,7 @@ from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from typing import (
     Any,
     Callable,
@@ -32,6 +33,7 @@ import torch.backends.cuda
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
+from omegaconf import OmegaConf as om
 from torch import einsum
 from transformers import BertForMaskedLM
 
@@ -2096,6 +2098,171 @@ class OLMo(nn.Module):
         return state_dict, og_keys_to_new
 
 
+class _MaskedSignalContextEncoder(nn.Module):
+    """Context encoder adapter for stage2_bert_encoder_train_v1.py checkpoints."""
+
+    def __init__(
+        self,
+        *,
+        max_seq_len: int,
+        d_model: int,
+        layers: int,
+        heads: int,
+        dropout: float,
+        vocab_size: int,
+        pad_token_id: int,
+    ) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=d_model)
+        self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=heads,
+            dim_feedforward=d_model * 4,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        del kwargs
+        if attention_mask is None:
+            attention_mask = input_ids.new_ones(input_ids.shape)
+        batch, seq_len = input_ids.shape
+        pos = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch, seq_len)
+        x = self.token_embedding(input_ids) + self.position_embedding(pos)
+        x = self.encoder(x, src_key_padding_mask=~attention_mask.bool())
+        hidden = self.norm(x)
+        if return_dict:
+            return SimpleNamespace(last_hidden_state=hidden)
+        return (hidden,)
+
+
+def _strip_state_dict_prefixes(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    prefixes = ("module.", "_orig_mod.")
+    out = {}
+    for key, value in state_dict.items():
+        new_key = key
+        changed = True
+        while changed:
+            changed = False
+            for prefix in prefixes:
+                if new_key.startswith(prefix):
+                    new_key = new_key[len(prefix) :]
+                    changed = True
+        out[new_key] = value
+    return out
+
+
+def _resolve_stage2_pt_paths(context_encoder_path: str) -> Tuple[Optional[Path], Optional[Path]]:
+    path = Path(context_encoder_path)
+    if path.is_dir():
+        trainer_state_path = path / "trainer_state.pt"
+        weight_path = path / "model_state.pt"
+        if weight_path.exists():
+            return weight_path, trainer_state_path if trainer_state_path.exists() else None
+        if trainer_state_path.exists():
+            trainer_state = torch.load(trainer_state_path, map_location="cpu", weights_only=False)
+            model_state_path = trainer_state.get("model_state_path", "model_state.pt")
+            return path / model_state_path, trainer_state_path
+        return None, None
+
+    if path.is_file() and path.name == "trainer_state.pt":
+        trainer_state = torch.load(path, map_location="cpu", weights_only=False)
+        model_state_path = trainer_state.get("model_state_path", "model_state.pt")
+        return path.parent / model_state_path, path
+
+    if path.is_file() and path.suffix in {".pt", ".pth"}:
+        trainer_state_path = path.parent / "trainer_state.pt"
+        return path, trainer_state_path if trainer_state_path.exists() else None
+
+    return None, None
+
+
+def _load_stage2_config(
+    *,
+    checkpoint_payload: Any,
+    trainer_state_path: Optional[Path],
+    weight_path: Path,
+) -> Dict[str, Any]:
+    if isinstance(checkpoint_payload, dict) and isinstance(checkpoint_payload.get("config"), dict):
+        return checkpoint_payload["config"]
+
+    if trainer_state_path is not None and trainer_state_path.exists():
+        trainer_state = torch.load(trainer_state_path, map_location="cpu", weights_only=False)
+        if isinstance(trainer_state, dict) and isinstance(trainer_state.get("config"), dict):
+            return trainer_state["config"]
+
+    for config_path in (weight_path.parent / "config.yaml", weight_path.parent.parent / "config.yaml"):
+        if config_path.exists():
+            config = om.to_container(om.load(config_path), resolve=True)
+            if isinstance(config, dict):
+                return cast(Dict[str, Any], config)
+
+    raise OLMoConfigurationError(
+        f"Could not find stage2 model config for PT context encoder checkpoint {weight_path}. "
+        "Point `dlm.context_encoder_path` at a v1 checkpoint directory with trainer_state.pt, "
+        "or keep config.yaml next to the checkpoint."
+    )
+
+
+def _build_masked_signal_context_encoder(config: Dict[str, Any]) -> _MaskedSignalContextEncoder:
+    model_cfg = config.get("model", {})
+    return _MaskedSignalContextEncoder(
+        max_seq_len=int(model_cfg.get("max_position_embeddings", model_cfg.get("max_seq_len", 1024))),
+        d_model=int(model_cfg.get("d_model", model_cfg.get("hidden_size", 512))),
+        layers=int(model_cfg.get("layers", model_cfg.get("num_hidden_layers", 8))),
+        heads=int(model_cfg.get("heads", model_cfg.get("num_attention_heads", 8))),
+        dropout=float(model_cfg.get("dropout", model_cfg.get("hidden_dropout_prob", 0.1))),
+        vocab_size=int(model_cfg.get("vocab_size", 2056)),
+        pad_token_id=int(model_cfg.get("pad_token_id", 0)),
+    )
+
+
+def _load_context_encoder(context_encoder_path: str) -> nn.Module:
+    weight_path, trainer_state_path = _resolve_stage2_pt_paths(context_encoder_path)
+    if weight_path is None:
+        bert_mlm = BertForMaskedLM.from_pretrained(context_encoder_path)
+        return bert_mlm.bert
+    if not weight_path.exists():
+        raise FileNotFoundError(f"Could not find stage2 PT context encoder weights: {weight_path}")
+
+    checkpoint = torch.load(weight_path, map_location="cpu", weights_only=False)
+    if isinstance(checkpoint, dict) and isinstance(checkpoint.get("model_state_dict"), dict):
+        state_dict = checkpoint["model_state_dict"]
+    elif isinstance(checkpoint, dict):
+        state_dict = checkpoint
+    else:
+        raise OLMoConfigurationError(f"Unsupported stage2 PT checkpoint payload in {weight_path}")
+
+    config = _load_stage2_config(
+        checkpoint_payload=checkpoint,
+        trainer_state_path=trainer_state_path,
+        weight_path=weight_path,
+    )
+    context_encoder = _build_masked_signal_context_encoder(config)
+    state_dict = _strip_state_dict_prefixes(cast(Dict[str, torch.Tensor], state_dict))
+    encoder_state = {key: value for key, value in state_dict.items() if not key.startswith("lm_head.")}
+    missing, unexpected = context_encoder.load_state_dict(encoder_state, strict=False)
+    unexpected = [key for key in unexpected if not key.startswith("lm_head.")]
+    if missing or unexpected:
+        raise OLMoConfigurationError(
+            f"Could not load stage2 PT context encoder from {weight_path}: "
+            f"missing={list(missing)}, unexpected={list(unexpected)}"
+        )
+    return context_encoder
+
+
 class OLMoDLM(nn.Module):
     """Stage 3 DLM: BERT encodes tokens into latents, ELF denoises those latents."""
 
@@ -2112,8 +2279,7 @@ class OLMoDLM(nn.Module):
         super().__init__()
         self.config = config
         self.dlm_config = dlm_config
-        bert_mlm = BertForMaskedLM.from_pretrained(context_encoder_path)
-        self.context_encoder = bert_mlm.bert
+        self.context_encoder = _load_context_encoder(context_encoder_path)
         self.freeze_context_encoder = freeze_context_encoder
         self.context_hidden_size = self.context_encoder.config.hidden_size
         if freeze_context_encoder:
