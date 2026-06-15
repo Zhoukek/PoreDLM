@@ -12,14 +12,15 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 from accelerate import Accelerator
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import get_scheduler
 
-from bert_encoder_model import build_bert_mlm
 from dataset import Stage2Collator, Stage2TokenJsonlDataset
 
 
@@ -45,6 +46,57 @@ def count_parameters(model: torch.nn.Module) -> tuple[int, int]:
     total = sum(param.numel() for param in model.parameters())
     trainable = sum(param.numel() for param in model.parameters() if param.requires_grad)
     return total, trainable
+
+
+class MaskedSignalLM(nn.Module):
+    """Jiaheng's TransformerEncoder masked-token LM, with configurable vocab size."""
+
+    def __init__(
+        self,
+        max_seq_len: int,
+        d_model: int,
+        layers: int,
+        heads: int,
+        dropout: float,
+        vocab_size: int,
+        pad_token_id: int,
+    ) -> None:
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=heads,
+            dim_feedforward=d_model * 4,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
+        self.norm = nn.LayerNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size)
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        batch, seq_len = input_ids.shape
+        pos = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch, seq_len)
+        x = self.token_embedding(input_ids) + self.position_embedding(pos)
+        x = self.encoder(x, src_key_padding_mask=~attention_mask.bool())
+        return self.lm_head(self.norm(x))
+
+
+def build_masked_signal_lm(config: dict[str, Any]) -> MaskedSignalLM:
+    model_cfg = config["model"]
+    return MaskedSignalLM(
+        max_seq_len=int(model_cfg.get("max_position_embeddings", model_cfg.get("max_seq_len", 1024))),
+        d_model=int(model_cfg.get("d_model", model_cfg.get("hidden_size", 512))),
+        layers=int(model_cfg.get("layers", model_cfg.get("num_hidden_layers", 8))),
+        heads=int(model_cfg.get("heads", model_cfg.get("num_attention_heads", 8))),
+        dropout=float(model_cfg.get("dropout", model_cfg.get("hidden_dropout_prob", 0.1))),
+        vocab_size=int(model_cfg.get("vocab_size", 2056)),
+        pad_token_id=int(model_cfg.get("pad_token_id", 0)),
+    )
 
 
 def print_startup_summary(
@@ -272,6 +324,41 @@ def resolve_epoch_training_steps(
     return num_train_epochs, steps_per_epoch, total_training_steps
 
 
+def build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    scheduler_type: str,
+    warmup_steps: int,
+    total_training_steps: int,
+) -> LambdaLR:
+    """Build a torch-only LR scheduler compatible with the old config names."""
+
+    scheduler_name = scheduler_type.lower()
+    warmup_steps = max(0, int(warmup_steps))
+    total_training_steps = max(1, int(total_training_steps))
+
+    def lr_lambda(current_step: int) -> float:
+        if warmup_steps > 0 and current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+
+        progress = float(current_step - warmup_steps) / float(
+            max(1, total_training_steps - warmup_steps)
+        )
+        progress = min(max(progress, 0.0), 1.0)
+
+        if scheduler_name == "cosine":
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+        if scheduler_name == "linear":
+            return max(0.0, 1.0 - progress)
+        if scheduler_name in {"constant", "constant_with_warmup"}:
+            return 1.0
+        raise ValueError(
+            f"Unsupported lr_scheduler_type={scheduler_type!r}. "
+            "Supported values: cosine, linear, constant, constant_with_warmup."
+        )
+
+    return LambdaLR(optimizer, lr_lambda)
+
+
 def get_wandb_run_id(accelerator: Accelerator) -> str | None:
     """Return the active wandb run id when wandb tracking is enabled."""
 
@@ -285,7 +372,12 @@ def get_wandb_run_id(accelerator: Accelerator) -> str | None:
 def load_trainer_state(checkpoint_dir: str | os.PathLike[str]) -> dict[str, Any] | None:
     """Load optimizer/scheduler training state if present."""
 
-    state_path = Path(checkpoint_dir) / "trainer_state.pt"
+    ckpt_path = Path(checkpoint_dir)
+    if ckpt_path.is_file():
+        state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        return state if "optimizer_state_dict" in state else None
+
+    state_path = ckpt_path / "trainer_state.pt"
     if not state_path.exists():
         return None
     return torch.load(state_path, map_location="cpu", weights_only=False)
@@ -296,24 +388,27 @@ def load_model_from_checkpoint(
     model: torch.nn.Module,
     checkpoint_dir: str | os.PathLike[str],
 ) -> None:
-    """Load the model weights from a HF-style checkpoint directory."""
+    """Load MaskedSignalLM weights from a v1 directory or v7-style .pt checkpoint."""
 
     ckpt_dir = Path(checkpoint_dir)
     if not ckpt_dir.exists():
-        raise FileNotFoundError(f"Checkpoint directory not found: {ckpt_dir}")
+        raise FileNotFoundError(f"Checkpoint not found: {ckpt_dir}")
 
     unwrapped = accelerator.unwrap_model(model)
-    if hasattr(unwrapped.__class__, "from_pretrained") and (ckpt_dir / "config.json").exists():
-        loaded = unwrapped.__class__.from_pretrained(str(ckpt_dir))
-        missing, unexpected = unwrapped.load_state_dict(loaded.state_dict(), strict=False)
+    if ckpt_dir.is_file():
+        checkpoint = torch.load(ckpt_dir, map_location="cpu", weights_only=False)
+        if "model_state_dict" not in checkpoint:
+            raise KeyError(f"Could not find model_state_dict in checkpoint file: {ckpt_dir}")
+        missing, unexpected = unwrapped.load_state_dict(checkpoint["model_state_dict"], strict=False)
     else:
-        weight_path = ckpt_dir / "pytorch_model.bin"
+        weight_path = ckpt_dir / "model_state.pt"
         if not weight_path.exists():
             raise FileNotFoundError(
-                f"Could not find config.json or pytorch_model.bin in checkpoint directory: {ckpt_dir}"
+                f"Could not find model_state.pt in checkpoint directory: {ckpt_dir}. "
+                "HF BertForMaskedLM checkpoints are not compatible with MaskedSignalLM."
             )
         missing, unexpected = unwrapped.load_state_dict(
-            torch.load(weight_path, map_location="cpu"),
+            torch.load(weight_path, map_location="cpu", weights_only=False),
             strict=False,
         )
 
@@ -365,15 +460,14 @@ def save_checkpoint(
     save_dir = Path(output_dir) / f"step_{step}"
     save_dir.mkdir(parents=True, exist_ok=True)
     unwrapped = accelerator.unwrap_model(model)
-    if hasattr(unwrapped, "save_pretrained"):
-        unwrapped.save_pretrained(save_dir)
-    else:
-        torch.save(unwrapped.state_dict(), save_dir / "pytorch_model.bin")
+    torch.save(unwrapped.state_dict(), save_dir / "model_state.pt")
     torch.save(
         {
             "global_step": int(global_step),
             "epoch": int(epoch),
             "best_eval_loss": float(best_eval_loss),
+            "model_class": "MaskedSignalLM",
+            "model_state_path": "model_state.pt",
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict(),
             "rng_state": torch.get_rng_state(),
@@ -424,19 +518,23 @@ def evaluate(
                 random_token_min_id=random_token_min_id,
                 random_token_max_id=random_token_max_id,
             )
-            outputs = model(
+            logits = model(
                 input_ids=corrupted,
                 attention_mask=attention_mask,
-                labels=labels,
             )
-            losses.append(accelerator.gather_for_metrics(outputs.loss.detach()))
+            loss = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]),
+                labels.reshape(-1),
+                ignore_index=-100,
+            )
+            losses.append(accelerator.gather_for_metrics(loss.detach()))
 
             masked_positions = labels != -100
             masked_count = masked_positions.sum()
             masked_counts.append(accelerator.gather_for_metrics(masked_count.detach().reshape(1)))
 
             if masked_count.item() > 0:
-                masked_logits = outputs.logits[masked_positions]
+                masked_logits = logits[masked_positions]
                 masked_labels = labels[masked_positions]
                 topk = torch.topk(masked_logits, k=min(50, masked_logits.shape[-1]), dim=-1).indices
                 top1 = (topk[:, :1] == masked_labels[:, None]).any(dim=-1).sum()
@@ -505,7 +603,7 @@ def train(config: dict[str, Any]) -> None:
     train_loader = build_dataloader(config, "train")
     valid_loader = build_dataloader(config, "valid") if config["data"].get("valid_dir") else None
 
-    model = build_bert_mlm(config)
+    model = build_masked_signal_lm(config)
     print_startup_summary(
         accelerator=accelerator,
         config=config,
@@ -525,11 +623,11 @@ def train(config: dict[str, Any]) -> None:
         training_cfg=training_cfg,
         train_loader=train_loader,
     )
-    scheduler = get_scheduler(
-        name=str(training_cfg.get("lr_scheduler_type", "cosine")),
+    scheduler = build_scheduler(
         optimizer=optimizer,
-        num_warmup_steps=int(training_cfg.get("warmup_steps", 1000)),
-        num_training_steps=total_training_steps,
+        scheduler_type=str(training_cfg.get("lr_scheduler_type", "cosine")),
+        warmup_steps=int(training_cfg.get("warmup_steps", 1000)),
+        total_training_steps=total_training_steps,
     )
 
     if config.get("wandb", {}).get("use_wandb", False):
@@ -555,7 +653,8 @@ def train(config: dict[str, Any]) -> None:
             scheduler,
         )
 
-    global_step = int(resume_state.get("global_step", 0)) if resume_state is not None else 0
+    resumed_step = resume_state.get("global_step", resume_state.get("step", 0)) if resume_state is not None else 0
+    global_step = int(resumed_step) if isinstance(resumed_step, int) or str(resumed_step).isdigit() else 0
     start_epoch = int(resume_state.get("epoch", 0)) if resume_state is not None else 0
     if start_epoch < 0:
         raise ValueError(f"Invalid resumed epoch: {start_epoch}")
@@ -577,7 +676,7 @@ def train(config: dict[str, Any]) -> None:
     random_token_min_id = int(model_cfg.get("random_token_min_id", 0))
     random_token_max_id = int(model_cfg.get("random_token_max_id", vocab_size))
     best_eval_loss = (
-        float(resume_state.get("best_eval_loss", float("inf")))
+        float(resume_state.get("best_eval_loss", resume_state.get("val_loss", float("inf"))))
         if resume_state is not None
         else float("inf")
     )
@@ -585,9 +684,12 @@ def train(config: dict[str, Any]) -> None:
     if resume_from_checkpoint:
         load_model_from_checkpoint(accelerator, model, resume_from_checkpoint)
         if resume_state is not None:
-            optimizer.load_state_dict(resume_state["optimizer_state_dict"])
-            scheduler.load_state_dict(resume_state["scheduler_state_dict"])
-            torch.set_rng_state(resume_state["rng_state"])
+            if resume_state.get("optimizer_state_dict") is not None:
+                optimizer.load_state_dict(resume_state["optimizer_state_dict"])
+            if resume_state.get("scheduler_state_dict") is not None:
+                scheduler.load_state_dict(resume_state["scheduler_state_dict"])
+            if resume_state.get("rng_state") is not None:
+                torch.set_rng_state(resume_state["rng_state"])
             if torch.cuda.is_available() and resume_state.get("cuda_rng_state_all") is not None:
                 torch.cuda.set_rng_state_all(resume_state["cuda_rng_state_all"])
             if resume_state.get("numpy_rng_state") is not None:
@@ -637,12 +739,15 @@ def train(config: dict[str, Any]) -> None:
                     random_token_min_id=random_token_min_id,
                     random_token_max_id=random_token_max_id,
                 )
-                outputs = model(
+                logits = model(
                     input_ids=corrupted,
                     attention_mask=attention_mask,
-                    labels=labels,
                 )
-                loss = outputs.loss
+                loss = F.cross_entropy(
+                    logits.reshape(-1, logits.shape[-1]),
+                    labels.reshape(-1),
+                    ignore_index=-100,
+                )
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:

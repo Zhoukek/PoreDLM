@@ -53,7 +53,7 @@ training:
   eval_every_steps: 0
   eval_each_epoch: true
   max_eval_batches: 100
-  save_every_steps: 10000
+  save_every_steps: 500
   save_each_epoch: false
   # Set this to models/step_epoch_N, models/step_best, or models/step_STEP to resume.
   # New v1 checkpoints restore model + optimizer + scheduler + global_step.
