@@ -49,6 +49,12 @@ class BasecallModel(nn.Module):
         pre_head_transformer_nhead: int = 8,
         head_type: str = "ctc_crf",
         backbone_chunk_size: int = 600,
+        elf_denoise_steps: int = 4,
+        elf_denoise_start_t: float = 0.85,
+        elf_denoise_sampling_method: str = "ode",
+        elf_denoise_sde_gamma: float = 0.0,
+        elf_self_cond_cfg_scale: float = 1.0,
+        elf_noise_scale: float | None = None,
     ):
         del vq_device, vq_token_batch_size
         super().__init__()
@@ -63,6 +69,12 @@ class BasecallModel(nn.Module):
         self.unfreeze_layer_start = unfreeze_layer_start
         self.unfreeze_layer_end = unfreeze_layer_end
         self.backbone_chunk_size = max(0, int(backbone_chunk_size))
+        self.elf_denoise_steps = max(1, int(elf_denoise_steps))
+        self.elf_denoise_start_t = float(elf_denoise_start_t)
+        self.elf_denoise_sampling_method = str(elf_denoise_sampling_method)
+        self.elf_denoise_sde_gamma = float(elf_denoise_sde_gamma)
+        self.elf_self_cond_cfg_scale = float(elf_self_cond_cfg_scale)
+        self.elf_noise_scale = None if elf_noise_scale is None else float(elf_noise_scale)
         self.tokenizer = None
         self.backbone = None
         self.vq_embedding = None
@@ -77,6 +89,10 @@ class BasecallModel(nn.Module):
             raise ValueError("PoreDLM HF wrapper does not expose per-layer hidden_states; use hidden_layer=-1.")
         if self.hidden_layer not in {-1, 0}:
             raise ValueError("PoreDLM HF wrapper exposes one sequence feature. Use hidden_layer=-1 or 0.")
+        if not 0.0 < self.elf_denoise_start_t <= 1.0:
+            raise ValueError("--elf_denoise_start_t must be in (0, 1]. Higher means lighter noise.")
+        if self.elf_denoise_sampling_method not in {"ode", "sde"}:
+            raise ValueError("--elf_denoise_sampling_method must be 'ode' or 'sde'.")
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         if reset_backbone_weights:
@@ -98,7 +114,7 @@ class BasecallModel(nn.Module):
         ):
             for param in self.backbone.parameters():
                 param.requires_grad = False
-            if self.freeze_backbone and self.unfreeze_last_n_layers == 0:
+            if self.freeze_backbone and not self._has_partial_backbone_unfreeze():
                 self.backbone.eval()
 
         if self.unfreeze_context_last_n_layers > 0:
@@ -260,13 +276,20 @@ class BasecallModel(nn.Module):
             if not any(param.requires_grad for param in module.parameters()):
                 module.eval()
 
+    def _has_partial_backbone_unfreeze(self) -> bool:
+        return (
+            self.unfreeze_last_n_layers > 0
+            or self.unfreeze_context_last_n_layers > 0
+            or self.unfreeze_elf_last_n_layers > 0
+            or self.unfreeze_layer_start is not None
+            or self.unfreeze_layer_end is not None
+        )
+
     def train(self, mode: bool = True):
         super().train(mode)
         if (
             self.freeze_backbone
-            and self.unfreeze_last_n_layers == 0
-            and self.unfreeze_layer_start is None
-            and self.unfreeze_layer_end is None
+            and not self._has_partial_backbone_unfreeze()
             and self.backbone is not None
         ):
             self.backbone.eval()
@@ -323,6 +346,23 @@ class BasecallModel(nn.Module):
                 raise ValueError("PoreDLM context_encoder output does not contain last_hidden_state.")
             return hidden
 
+        if self.feature_source == "denoised_hidden":
+            if not hasattr(self.backbone, "context_encoder") or not hasattr(self.backbone, "elf_denoiser"):
+                raise ValueError("feature_source='denoised_hidden' requires context_encoder and elf_denoiser.")
+            context_outputs = self.backbone.context_encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True,
+            )
+            context = getattr(context_outputs, "last_hidden_state", None)
+            if context is None and isinstance(context_outputs, dict):
+                context = context_outputs.get("last_hidden_state")
+            if context is None:
+                raise ValueError("PoreDLM context_encoder output does not contain last_hidden_state.")
+            context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
+            context = context.to(dtype=context_dtype)
+            return self._iterative_elf_denoise(context, attention_mask=attention_mask)
+
         outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -337,3 +377,123 @@ class BasecallModel(nn.Module):
         if hidden is None:
             raise ValueError(f"PoreDLM backbone output does not contain {output_key}.")
         return hidden
+
+    def _get_dlm_config_value(self, key: str, default):
+        dlm_cfg = getattr(self.backbone.config, "dlm_config", None) or {}
+        return dlm_cfg.get(key, default)
+
+    def _elf_t_eps(self) -> float:
+        return float(self._get_dlm_config_value("t_eps", 0.05))
+
+    def _elf_noise_scale(self) -> float:
+        if self.elf_noise_scale is not None:
+            return self.elf_noise_scale
+        return float(self._get_dlm_config_value("denoiser_noise_scale", 1.0))
+
+    @staticmethod
+    def _elf_net_out_to_v_x(net_out, z: torch.Tensor, t: torch.Tensor, t_eps: float) -> tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(net_out, tuple):
+            net_out = net_out[0]
+        t_reshaped = t.view(-1, 1, 1)
+        x_pred = net_out
+        v_pred = (x_pred - z) / torch.clamp(1.0 - t_reshaped, min=t_eps)
+        return v_pred, x_pred
+
+    def _elf_forward_sample(
+        self,
+        z: torch.Tensor,
+        t_batch: torch.Tensor,
+        x_pred_prev: torch.Tensor | None,
+        attention_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        elf = self.backbone.elf_denoiser
+        t_eps = self._elf_t_eps()
+        num_self_cond_cfg_tokens = int(getattr(elf, "num_self_cond_cfg_tokens", 0))
+        if num_self_cond_cfg_tokens > 0:
+            if x_pred_prev is None:
+                x_pred_prev = torch.zeros_like(z)
+            model_input = torch.cat([z, x_pred_prev], dim=-1)
+            self_cond_cfg_scale = torch.full(
+                (z.shape[0],),
+                self.elf_self_cond_cfg_scale,
+                device=z.device,
+                dtype=z.dtype,
+            )
+            net_out = elf(
+                model_input,
+                t_batch,
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=False,
+            )
+        else:
+            net_out = elf(
+                z,
+                t_batch,
+                attention_mask=attention_mask,
+                decoder_step_active=False,
+            )
+        return self._elf_net_out_to_v_x(net_out, z, t_batch, t_eps)
+
+    def _iterative_elf_denoise(
+        self,
+        context: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        noise = torch.randn_like(context) * self._elf_noise_scale()
+        start_t = torch.full(
+            (context.shape[0],),
+            self.elf_denoise_start_t,
+            device=context.device,
+            dtype=context.dtype,
+        )
+        z = start_t.view(-1, 1, 1) * context + (1.0 - start_t.view(-1, 1, 1)) * noise
+
+        if attention_mask is not None:
+            valid_mask = attention_mask.to(device=context.device, dtype=torch.bool).unsqueeze(-1)
+            z = torch.where(valid_mask, z, context)
+
+        x_pred = torch.zeros_like(z)
+        t_steps = torch.linspace(
+            self.elf_denoise_start_t,
+            1.0,
+            self.elf_denoise_steps + 1,
+            device=context.device,
+            dtype=context.dtype,
+        )
+        for idx in range(self.elf_denoise_steps):
+            t = t_steps[idx]
+            t_next = t_steps[idx + 1]
+            if self.elf_denoise_sampling_method == "sde":
+                h = float((t_next - t).detach().item())
+                alpha = max(1.0 - self.elf_denoise_sde_gamma * h, 0.0)
+                t_back_value = alpha * float(t.detach().item())
+                eps = torch.randn_like(z) * self._elf_noise_scale()
+                z_back = alpha * z + (1.0 - alpha) * eps
+                if attention_mask is not None:
+                    valid_mask = attention_mask.to(device=context.device, dtype=torch.bool).unsqueeze(-1)
+                    z_back = torch.where(valid_mask, z_back, context)
+                t_batch = torch.full((z.shape[0],), t_back_value, device=z.device, dtype=z.dtype)
+                v_pred, x_pred = self._elf_forward_sample(
+                    z_back,
+                    t_batch,
+                    x_pred,
+                    attention_mask=attention_mask,
+                )
+                z = z_back + (t_next - t_batch.view(-1, 1, 1)) * v_pred
+            else:
+                t_batch = torch.full((z.shape[0],), float(t.detach().item()), device=z.device, dtype=z.dtype)
+                v_pred, x_pred = self._elf_forward_sample(
+                    z,
+                    t_batch,
+                    x_pred,
+                    attention_mask=attention_mask,
+                )
+                z = z + (t_next - t) * v_pred
+
+            if attention_mask is not None:
+                valid_mask = attention_mask.to(device=context.device, dtype=torch.bool).unsqueeze(-1)
+                z = torch.where(valid_mask, z, context)
+                x_pred = torch.where(valid_mask, x_pred, context)
+
+        return z

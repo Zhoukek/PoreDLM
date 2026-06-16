@@ -20,7 +20,11 @@ unfreeze_last_n_layers=0
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="tcn"
-feature_source="hidden"
+feature_source="denoised_hidden"
+elf_denoise_steps=4
+elf_denoise_start_t="0.85"
+elf_denoise_sampling_method="ode"
+elf_self_cond_cfg_scale="1.0"
 head_output_activation="tanh"
 head_output_scale=5
 ddp_backend="nccl" 
@@ -54,6 +58,10 @@ torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 \
   --train_decoder "${train_decode}" \
   --unfreeze_last_n_layers "${unfreeze_last_n_layers}" \
   --feature_source "${feature_source}" \
+  --elf_denoise_steps "${elf_denoise_steps}" \
+  --elf_denoise_start_t "${elf_denoise_start_t}" \
+  --elf_denoise_sampling_method "${elf_denoise_sampling_method}" \
+  --elf_self_cond_cfg_scale "${elf_self_cond_cfg_scale}" \
   --head_output_activation "${head_output_activation}" \
   --head_output_scale "${head_output_scale}" \
   --ddp_backend nccl \
