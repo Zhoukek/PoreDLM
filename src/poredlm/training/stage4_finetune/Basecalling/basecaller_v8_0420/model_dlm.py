@@ -34,6 +34,9 @@ class BasecallModel(nn.Module):
         freeze_backbone: bool = False,
         reset_backbone_weights: bool = False,
         unfreeze_last_n_layers: int = 0,
+        unfreeze_target: str = "auto",
+        unfreeze_context_last_n_layers: int = 0,
+        unfreeze_elf_last_n_layers: int = 0,
         unfreeze_layer_start: int | None = None,
         unfreeze_layer_end: int | None = None,
         head_output_activation: str | None = None,
@@ -54,6 +57,9 @@ class BasecallModel(nn.Module):
         self.feature_source = feature_source
         self.freeze_backbone = bool(freeze_backbone)
         self.unfreeze_last_n_layers = max(0, int(unfreeze_last_n_layers))
+        self.unfreeze_target = str(unfreeze_target)
+        self.unfreeze_context_last_n_layers = max(0, int(unfreeze_context_last_n_layers))
+        self.unfreeze_elf_last_n_layers = max(0, int(unfreeze_elf_last_n_layers))
         self.unfreeze_layer_start = unfreeze_layer_start
         self.unfreeze_layer_end = unfreeze_layer_end
         self.backbone_chunk_size = max(0, int(backbone_chunk_size))
@@ -61,8 +67,12 @@ class BasecallModel(nn.Module):
         self.backbone = None
         self.vq_embedding = None
 
-        if self.feature_source != "hidden":
-            raise ValueError("model_dlm.BasecallModel only supports feature_source='hidden'.")
+        allowed_feature_sources = {"hidden", "denoised_hidden", "context_hidden"}
+        if self.feature_source not in allowed_feature_sources:
+            raise ValueError(
+                "model_dlm.BasecallModel supports feature_source in "
+                f"{sorted(allowed_feature_sources)}."
+            )
         if self.learnable_fuse_last_n_layers > 0:
             raise ValueError("PoreDLM HF wrapper does not expose per-layer hidden_states; use hidden_layer=-1.")
         if self.hidden_layer not in {-1, 0}:
@@ -81,6 +91,8 @@ class BasecallModel(nn.Module):
         if (
             self.freeze_backbone
             or self.unfreeze_last_n_layers > 0
+            or self.unfreeze_context_last_n_layers > 0
+            or self.unfreeze_elf_last_n_layers > 0
             or unfreeze_layer_start is not None
             or unfreeze_layer_end is not None
         ):
@@ -89,8 +101,13 @@ class BasecallModel(nn.Module):
             if self.freeze_backbone and self.unfreeze_last_n_layers == 0:
                 self.backbone.eval()
 
+        if self.unfreeze_context_last_n_layers > 0:
+            self._unfreeze_last_layers("context_encoder", self.unfreeze_context_last_n_layers)
+        if self.unfreeze_elf_last_n_layers > 0:
+            self._unfreeze_last_layers("elf_denoiser", self.unfreeze_elf_last_n_layers)
+
         if self.unfreeze_last_n_layers > 0 or unfreeze_layer_start is not None or unfreeze_layer_end is not None:
-            layers = self._get_transformer_layers()
+            layers = self._get_transformer_layers(self.unfreeze_target)
             n_layers = len(layers)
             if unfreeze_layer_start is not None or unfreeze_layer_end is not None:
                 start = 0 if unfreeze_layer_start is None else int(unfreeze_layer_start)
@@ -109,6 +126,7 @@ class BasecallModel(nn.Module):
                 for param in layer.parameters():
                     param.requires_grad = True
 
+        self._set_frozen_backbone_submodules_eval()
         show_layer_trainable_status(self.backbone)
 
         hidden_size = self._infer_hidden_size()
@@ -185,15 +203,31 @@ class BasecallModel(nn.Module):
             return TCNPreHead(model_dim=hidden_size)
         raise ValueError(f"Unsupported pre_head_type: {pre_head_type}")
 
-    def _get_transformer_layers(self) -> nn.ModuleList:
-        candidates = (
-            ("elf_denoiser", "blocks"),
-            ("context_encoder", "encoder", "layer"),
-            ("encoder", "layer"),
-            ("model", "layers"),
-            ("layers",),
-            ("blocks",),
-        )
+    def _get_transformer_layers(self, target: str = "auto") -> nn.ModuleList:
+        target = str(target)
+        candidate_groups = {
+            "auto": (
+                ("elf_denoiser", "blocks"),
+                ("context_encoder", "encoder", "layers"),
+                ("context_encoder", "encoder", "layer"),
+                ("encoder", "layer"),
+                ("model", "layers"),
+                ("layers",),
+                ("blocks",),
+            ),
+            "elf_denoiser": (
+                ("elf_denoiser", "blocks"),
+            ),
+            "context_encoder": (
+                ("context_encoder", "encoder", "layers"),
+                ("context_encoder", "encoder", "layer"),
+            ),
+        }
+        if target not in candidate_groups:
+            raise ValueError(
+                f"Unsupported unfreeze_target={target!r}; choose from {sorted(candidate_groups)}."
+            )
+        candidates = candidate_groups[target]
         for path in candidates:
             obj = self.backbone
             for attr in path:
@@ -202,9 +236,29 @@ class BasecallModel(nn.Module):
                     break
                 obj = getattr(obj, attr)
             if obj is not None and isinstance(obj, (nn.ModuleList, list, tuple)):
-                print(f"[PoreDLM] partial unfreeze layers from: {'.'.join(path)}")
+                print(f"[PoreDLM] partial unfreeze target={target} layers from: {'.'.join(path)}")
                 return nn.ModuleList(list(obj))
-        raise ValueError("Cannot locate PoreDLM transformer layers for partial unfreezing.")
+        raise ValueError(f"Cannot locate PoreDLM transformer layers for partial unfreezing target={target!r}.")
+
+    def _unfreeze_last_layers(self, target: str, n_layers: int) -> None:
+        layers = self._get_transformer_layers(target)
+        n_unfreeze = min(max(0, int(n_layers)), len(layers))
+        if n_unfreeze <= 0:
+            return
+        print(f"[PoreDLM] unfreeze last {n_unfreeze}/{len(layers)} layers for target={target}")
+        for layer in layers[-n_unfreeze:]:
+            for param in layer.parameters():
+                param.requires_grad = True
+
+    def _set_frozen_backbone_submodules_eval(self) -> None:
+        if self.backbone is None:
+            return
+        for name in ("context_encoder", "elf_denoiser"):
+            module = getattr(self.backbone, name, None)
+            if module is None:
+                continue
+            if not any(param.requires_grad for param in module.parameters()):
+                module.eval()
 
     def train(self, mode: bool = True):
         super().train(mode)
@@ -216,6 +270,8 @@ class BasecallModel(nn.Module):
             and self.backbone is not None
         ):
             self.backbone.eval()
+        elif mode:
+            self._set_frozen_backbone_submodules_eval()
         return self
 
     def forward(
@@ -254,15 +310,30 @@ class BasecallModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if self.feature_source == "context_hidden" and hasattr(self.backbone, "context_encoder"):
+            outputs = self.backbone.context_encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True,
+            )
+            hidden = getattr(outputs, "last_hidden_state", None)
+            if hidden is None and isinstance(outputs, dict):
+                hidden = outputs.get("last_hidden_state")
+            if hidden is None:
+                raise ValueError("PoreDLM context_encoder output does not contain last_hidden_state.")
+            return hidden
+
         outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
+            return_context=(self.feature_source == "context_hidden"),
             return_dict=True,
         )
+        output_key = "context_hidden_state" if self.feature_source == "context_hidden" else "last_hidden_state"
         if isinstance(outputs, dict):
-            hidden = outputs.get("last_hidden_state")
+            hidden = outputs.get(output_key)
         else:
-            hidden = getattr(outputs, "last_hidden_state", None)
+            hidden = getattr(outputs, output_key, None)
         if hidden is None:
-            raise ValueError("PoreDLM backbone output does not contain last_hidden_state.")
+            raise ValueError(f"PoreDLM backbone output does not contain {output_key}.")
         return hidden

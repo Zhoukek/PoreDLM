@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -110,6 +111,184 @@ from training.stage1_tokenizer.tokenizer_model_v1 import Nanopore_Tokenizer_Mode
 
 
 BWAV_VOCAB_OFFSET = 5
+
+
+class MaskedSignalLM(nn.Module):
+    """TransformerEncoder masked-token LM used by stage2_bert_encoder_train_v1.py."""
+
+    def __init__(
+        self,
+        max_seq_len: int,
+        d_model: int,
+        layers: int,
+        heads: int,
+        dropout: float,
+        vocab_size: int,
+        pad_token_id: int,
+    ) -> None:
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.config = types.SimpleNamespace(
+            vocab_size=vocab_size,
+            max_position_embeddings=max_seq_len,
+            pad_token_id=pad_token_id,
+        )
+        self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=heads,
+            dim_feedforward=d_model * 4,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
+        self.norm = nn.LayerNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size)
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        batch, seq_len = input_ids.shape
+        pos = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch, seq_len)
+        x = self.token_embedding(input_ids) + self.position_embedding(pos)
+        x = self.encoder(x, src_key_padding_mask=~attention_mask.bool())
+        return self.lm_head(self.norm(x))
+
+
+def build_masked_signal_lm(config: dict[str, Any]) -> MaskedSignalLM:
+    """Build the local .pt-format Stage2 model from the training config."""
+
+    model_cfg = config["model"]
+    return MaskedSignalLM(
+        max_seq_len=int(model_cfg.get("max_position_embeddings", model_cfg.get("max_seq_len", 1024))),
+        d_model=int(model_cfg.get("d_model", model_cfg.get("hidden_size", 512))),
+        layers=int(model_cfg.get("layers", model_cfg.get("num_hidden_layers", 8))),
+        heads=int(model_cfg.get("heads", model_cfg.get("num_attention_heads", 8))),
+        dropout=float(model_cfg.get("dropout", model_cfg.get("hidden_dropout_prob", 0.1))),
+        vocab_size=int(model_cfg.get("vocab_size", 2056)),
+        pad_token_id=int(model_cfg.get("pad_token_id", 0)),
+    )
+
+
+def load_config_file(config_path: str | os.PathLike[str]) -> dict[str, Any]:
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Stage2 config not found: {path}")
+    if path.suffix.lower() == ".json":
+        return json.loads(path.read_text(encoding="utf-8"))
+    import yaml
+
+    with path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    if not isinstance(config, dict):
+        raise ValueError(f"Expected a mapping in stage2 config: {path}")
+    return config
+
+
+def extract_model_state_dict(checkpoint: Any, checkpoint_path: Path) -> dict[str, torch.Tensor]:
+    if isinstance(checkpoint, dict):
+        for key in ("model_state_dict", "state_dict"):
+            value = checkpoint.get(key)
+            if isinstance(value, dict):
+                return value
+        if checkpoint and all(torch.is_tensor(value) for value in checkpoint.values()):
+            return checkpoint
+    raise KeyError(
+        f"Could not find a model state dict in {checkpoint_path}. Expected a raw state_dict "
+        "or a dict with model_state_dict/state_dict."
+    )
+
+
+def find_stage2_config_from_checkpoint(
+    checkpoint_path: Path,
+    checkpoint: Any | None,
+    stage2_config: str | None,
+) -> dict[str, Any]:
+    if stage2_config:
+        return load_config_file(stage2_config)
+
+    if isinstance(checkpoint, dict) and isinstance(checkpoint.get("config"), dict):
+        return checkpoint["config"]
+
+    if checkpoint_path.is_dir():
+        trainer_state_path = checkpoint_path / "trainer_state.pt"
+        if trainer_state_path.exists():
+            trainer_state = torch.load(trainer_state_path, map_location="cpu", weights_only=False)
+            if isinstance(trainer_state, dict) and isinstance(trainer_state.get("config"), dict):
+                return trainer_state["config"]
+
+        for name in ("config.yaml", "config.yml", "config.json"):
+            candidate = checkpoint_path / name
+            if candidate.exists():
+                return load_config_file(candidate)
+
+    raise ValueError(
+        "Local .pt Stage2 checkpoints need model config to build MaskedSignalLM. "
+        "Pass --stage2-config, or use a checkpoint directory that contains trainer_state.pt "
+        "with config or config.yaml/config.json."
+    )
+
+
+def load_stage2_bert_model(
+    checkpoint: str,
+    *,
+    stage2_config: str | None,
+    device: torch.device,
+) -> torch.nn.Module:
+    """Load either a HF BertForMaskedLM directory or local MaskedSignalLM .pt weights."""
+
+    checkpoint_path = Path(checkpoint)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Stage2 checkpoint not found: {checkpoint_path}")
+
+    hf_config_path = checkpoint_path / "config.json" if checkpoint_path.is_dir() else None
+    hf_weight_paths = (
+        (checkpoint_path / "model.safetensors", checkpoint_path / "pytorch_model.bin")
+        if checkpoint_path.is_dir()
+        else ()
+    )
+    if (
+        checkpoint_path.is_dir()
+        and hf_config_path is not None
+        and hf_config_path.exists()
+        and any(path.exists() for path in hf_weight_paths)
+        and not (checkpoint_path / "model_state.pt").exists()
+    ):
+        print(f"[INFO] Loading Stage2 HF BertForMaskedLM from {checkpoint_path}", file=sys.stderr)
+        return BertForMaskedLM.from_pretrained(str(checkpoint_path)).to(device).eval()
+
+    if checkpoint_path.is_dir():
+        weight_path = checkpoint_path / "model_state.pt"
+        if not weight_path.exists():
+            raise FileNotFoundError(
+                f"Could not find model_state.pt in local Stage2 checkpoint directory: {checkpoint_path}"
+            )
+        loaded_checkpoint = torch.load(weight_path, map_location="cpu", weights_only=False)
+    else:
+        weight_path = checkpoint_path
+        loaded_checkpoint = torch.load(weight_path, map_location="cpu", weights_only=False)
+
+    config = find_stage2_config_from_checkpoint(checkpoint_path, loaded_checkpoint, stage2_config)
+    model = build_masked_signal_lm(config)
+    state_dict = extract_model_state_dict(loaded_checkpoint, weight_path)
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    print(
+        f"[INFO] Loading Stage2 MaskedSignalLM from {weight_path} "
+        f"(missing={list(missing)}, unexpected={list(unexpected)})",
+        file=sys.stderr,
+    )
+    return model.to(device).eval()
+
+
+def stage2_forward_logits(
+    model: torch.nn.Module,
+    *,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+) -> torch.Tensor:
+    outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+    return outputs.logits if hasattr(outputs, "logits") else outputs
 
 
 def default_plot_path(output_npz: str) -> str:
@@ -420,7 +599,7 @@ def crop_signal(signal: np.ndarray, *, signal_start: int, signal_length: int) ->
 
 
 def run_contiguous_mask_bert_reconstruction(
-    bert: BertForMaskedLM,
+    bert: torch.nn.Module,
     codebook_ids: np.ndarray,
     *,
     token_mask: np.ndarray,
@@ -455,7 +634,11 @@ def run_contiguous_mask_bert_reconstruction(
         corrupted[masked_positions] = mask_token_id
 
         with torch.no_grad():
-            logits = bert(input_ids=corrupted, attention_mask=attention_mask).logits
+            logits = stage2_forward_logits(
+                bert,
+                input_ids=corrupted,
+                attention_mask=attention_mask,
+            )
 
         logits[..., :BWAV_VOCAB_OFFSET] = -float("inf")
         logits[..., BWAV_VOCAB_OFFSET + codebook_size :] = -float("inf")
@@ -1158,7 +1341,16 @@ def main() -> None:
         description="Stage1 -> contiguous token-region BERT MLM -> stage1 decoder reconstruction."
     )
     parser.add_argument("--stage1-ckpt", required=True, help="Stage1 Accelerate checkpoint directory.")
-    parser.add_argument("--stage2-bert", required=True, help="Stage2 BertForMaskedLM checkpoint directory.")
+    parser.add_argument(
+        "--stage2-bert",
+        required=True,
+        help="Stage2 checkpoint. Supports HF BertForMaskedLM directories, local model_state.pt directories, or .pt files.",
+    )
+    parser.add_argument(
+        "--stage2-config",
+        default=None,
+        help="Stage2 training config YAML/JSON for local .pt checkpoints when config is not stored in the checkpoint.",
+    )
     parser.add_argument("--input-npy", required=True, help="Input .npy file containing a 1D signal or 2D signal chunks.")
     parser.add_argument("--output-npz", required=True, help="Output .npz with tokens, masks, and signals.")
     parser.add_argument("--output-plot", default=None, help="Output comparison image. Defaults to output-npz with .png.")
@@ -1218,12 +1410,12 @@ def main() -> None:
     )
 
     stage1 = build_stage1_model(args.stage1_ckpt, device)
-    bert = BertForMaskedLM.from_pretrained(args.stage2_bert).to(device).eval()
+    bert = load_stage2_bert_model(args.stage2_bert, stage2_config=args.stage2_config, device=device)
     required_vocab_size = BWAV_VOCAB_OFFSET + int(stage1.codebook_size)
     if bert.config.vocab_size < required_vocab_size:
         raise ValueError(
             f"Stage2 BERT vocab_size={bert.config.vocab_size} is smaller than "
-            f"129 + stage1 codebook_size={required_vocab_size}."
+            f"BWAV_VOCAB_OFFSET({BWAV_VOCAB_OFFSET}) + stage1 codebook_size={required_vocab_size}."
         )
     max_length = int(args.max_length or bert.config.max_position_embeddings)
 

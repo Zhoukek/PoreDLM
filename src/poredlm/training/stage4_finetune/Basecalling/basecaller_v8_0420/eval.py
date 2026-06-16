@@ -280,8 +280,8 @@ def main() -> None:
                     help="Which backbone hidden layer to use when --feature_source hidden.")
     ap.add_argument("--learnable_fuse_last_n_layers", type=int, default=0,
                     help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden_layer).")
-    ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "embedding"], default="hidden",
-                    help="Use transformer hidden states or input embeddings as head input features.")
+    ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "embedding"], default="hidden",
+                    help="Use Stage3 denoised hidden states, raw context_encoder hidden states, or input embeddings as head input features.")
     ap.add_argument("--pre_head_type", choices=["auto", "none", "bilstm", "transformer", "tcn"], default="auto",
                     help="Optional module before CTC-CRF head. Default auto-infers from checkpoint.")
     ap.add_argument("--pre_head_transformer_nhead", type=int, default=8,

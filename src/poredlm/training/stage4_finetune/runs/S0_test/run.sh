@@ -16,11 +16,14 @@ weight_decay="1e-6"
 warmup_ratio="0.4"
 min_lr="1e-7"
 hidden_layer=-1
-unfreeze_last_n_layers=24
+unfreeze_last_n_layers=0
+unfreeze_target="auto"
+unfreeze_context_last_n_layers=12
+unfreeze_elf_last_n_layers=0
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="tcn"
-feature_source="hidden"
+feature_source="denoised_hidden"
 head_output_activation="tanh"
 head_output_scale=5
 backbone_chunk_size=600
@@ -54,6 +57,9 @@ nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port 295
   --pre_head_type "${pre_head_type}" \
   --train_decoder "${train_decode}" \
   --unfreeze_last_n_layers "${unfreeze_last_n_layers}" \
+  --unfreeze_target "${unfreeze_target}" \
+  --unfreeze_context_last_n_layers "${unfreeze_context_last_n_layers}" \
+  --unfreeze_elf_last_n_layers "${unfreeze_elf_last_n_layers}" \
   --feature_source "${feature_source}" \
   --head_output_activation "${head_output_activation}" \
   --head_output_scale "${head_output_scale}" \

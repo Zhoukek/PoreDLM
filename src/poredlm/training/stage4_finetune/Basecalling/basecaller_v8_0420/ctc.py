@@ -20,6 +20,7 @@ def ctc_label_smoothing_loss(
     logits_tbc: torch.Tensor,
     targets: torch.Tensor,
     target_lengths: torch.Tensor,
+    input_lengths: Optional[torch.Tensor] = None,
     blank_idx: int = 0,
     weights: Optional[torch.Tensor] = None,
 ) -> dict:
@@ -34,12 +35,18 @@ def ctc_label_smoothing_loss(
             [torch.tensor([0.4]), (0.1 / max(num_classes - 1, 1)) * torch.ones(max(num_classes - 1, 1))]
         )[:num_classes]
 
-    log_probs_lengths = torch.full(
-        size=(batch_size,),
-        fill_value=time_steps,
-        dtype=torch.int64,
-        device="cpu",
-    )
+    if input_lengths is None:
+        log_probs_lengths = torch.full(
+            size=(batch_size,),
+            fill_value=time_steps,
+            dtype=torch.int64,
+            device="cpu",
+        )
+    else:
+        log_probs_lengths = input_lengths.to(dtype=torch.long, device="cpu").clamp(
+            min=0,
+            max=time_steps,
+        )
     targets = targets.to(dtype=torch.long)
     target_lengths = target_lengths.to(dtype=torch.long, device="cpu")
 

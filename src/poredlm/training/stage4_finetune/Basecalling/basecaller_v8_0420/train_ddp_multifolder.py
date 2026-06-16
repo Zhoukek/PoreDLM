@@ -355,6 +355,7 @@ def train_one_epoch(
                     logits_tbc,
                     target_labels,
                     target_lengths,
+                    input_lengths=input_lengths,
                     blank_idx=BLANK_IDX,
                 )
                 loss = ctc_loss_dict["total_loss"]
@@ -447,6 +448,7 @@ def eval_one_epoch(
                 logits_tbc,
                 target_labels,
                 target_lengths,
+                input_lengths=input_lengths,
                 blank_idx=BLANK_IDX,
             )
             loss = ctc_loss_dict["total_loss"]
@@ -615,8 +617,8 @@ def parse_args():
     p.add_argument("--hidden-layer",type=int,default=-1, help="Which backbone hidden layer to use when --feature_source hidden (-1=last, -2=second last, etc.)")
     p.add_argument("--learnable_fuse_last_n_layers", type=int, default=0,
                    help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden-layer).")
-    p.add_argument("--feature_source", "--feature-source", choices=["hidden", "embedding", "vq_embedding"], default="hidden",
-                   help="Use backbone hidden states / backbone input embedding / tokenize-model VQ codebook embedding.")
+    p.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "embedding", "vq_embedding"], default="hidden",
+                   help="Use Stage3 denoised hidden states, raw context_encoder hidden states, input embeddings, or VQ codebook embeddings.")
     p.add_argument("--vq_device", type=str, default="cuda",
                    help="Device used when loading VQETokenizer for --feature_source vq_embedding.")
     p.add_argument("--vq_token_batch_size", type=int, default=100,
@@ -680,6 +682,13 @@ def parse_args():
                    help="Reinitialize backbone weights for ablation (ignores pretrained backbone init).")
     p.add_argument("--unfreeze_last_n_layers", type=int, default=0,
                    help="Unfreeze only the last N backbone layers (default: 0).")
+    p.add_argument("--unfreeze_target", type=str, default="auto",
+                   choices=["auto", "elf_denoiser", "context_encoder"],
+                   help="Backbone submodule used by --unfreeze_last_n_layers/--unfreeze_layer_*.")
+    p.add_argument("--unfreeze_context_last_n_layers", type=int, default=0,
+                   help="Unfreeze only the last N context_encoder layers; independent of elf_denoiser.")
+    p.add_argument("--unfreeze_elf_last_n_layers", type=int, default=0,
+                   help="Unfreeze only the last N elf_denoiser layers; independent of context_encoder.")
     p.add_argument("--unfreeze_layer_start", type=int, default=None,
                    help="Unfreeze backbone layers in [start, end). Optional finer control.")
     p.add_argument("--unfreeze_layer_end", type=int, default=None,
@@ -807,6 +816,9 @@ def main():
         freeze_backbone=bool(args.freeze_backbone),
         reset_backbone_weights=bool(args.reset_backbone_weights),
         unfreeze_last_n_layers=args.unfreeze_last_n_layers,
+        unfreeze_target=args.unfreeze_target,
+        unfreeze_context_last_n_layers=args.unfreeze_context_last_n_layers,
+        unfreeze_elf_last_n_layers=args.unfreeze_elf_last_n_layers,
         unfreeze_layer_start=args.unfreeze_layer_start,
         unfreeze_layer_end=args.unfreeze_layer_end,
         head_output_activation=args.head_output_activation,
