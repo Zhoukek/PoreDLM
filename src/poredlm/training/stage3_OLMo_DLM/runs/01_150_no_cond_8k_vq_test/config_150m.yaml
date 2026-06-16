@@ -35,7 +35,7 @@ dlm:
   self_cond_prob: 0.5
 
   # Training (optimizer + schedule)
-  epochs: 5
+  epochs: 100
   global_batch_size: 512
   blr: 0.001
   weight_decay: 0.0
@@ -49,8 +49,6 @@ dlm:
   # Sampling
   sampling_configs_path: "configs/sampling_configs/uncond_sampling_configs.yml"
   num_samples: 1000
-
-
 
 wandb:
    entity: YourWandbEntity
@@ -308,17 +306,18 @@ tokenizer:
 save_folder: save/olmo_output
 save_overwrite: true
 
-save_interval: 1000
+save_interval: 100
 save_interval_ephemeral: null
 save_num_checkpoints_to_keep: 0
 sharded_checkpointer: olmo_core
 
-save_interval_unsharded: 1000
+save_interval_unsharded: 100
 save_num_unsharded_checkpoints_to_keep: 5
 
 load_path: null
 
-max_duration: 3ep
+# 这个是控制训练轮数的
+max_duration: 500ep
 #stop_at: 406_934
 global_train_batch_size: 128
 device_train_microbatch_size: 16

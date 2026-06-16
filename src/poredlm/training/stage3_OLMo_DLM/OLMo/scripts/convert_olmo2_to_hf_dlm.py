@@ -40,7 +40,64 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 from torch import nn
+from types import SimpleNamespace
 from transformers import BertConfig, BertModel, PretrainedConfig, PreTrainedModel
+
+
+class MaskedSignalContextEncoder(nn.Module):
+    def __init__(
+        self,
+        *,
+        max_seq_len: int,
+        d_model: int,
+        layers: int,
+        heads: int,
+        dropout: float,
+        vocab_size: int,
+        pad_token_id: int,
+    ) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=d_model)
+        self.num_attention_heads = heads
+        self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=heads,
+            dim_feedforward=d_model * 4,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        del kwargs
+        if attention_mask is None:
+            attention_mask = input_ids.new_ones(input_ids.shape)
+        batch, seq_len = input_ids.shape
+        pos = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch, seq_len)
+        x = self.token_embedding(input_ids) + self.position_embedding(pos)
+        if attention_mask.dim() == 3:
+            attn_mask = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            attn_mask = attn_mask.repeat_interleave(self.num_attention_heads, dim=0)
+            x = self.encoder(x, mask=attn_mask)
+        else:
+            if attention_mask.dim() > 2:
+                attention_mask = attention_mask.view(batch, -1)
+            x = self.encoder(x, src_key_padding_mask=~attention_mask.to(device=input_ids.device).bool())
+        hidden = self.norm(x)
+        if return_dict:
+            return SimpleNamespace(last_hidden_state=hidden)
+        return (hidden,)
 
 
 class PoreDLMConfig(PretrainedConfig):
@@ -48,6 +105,7 @@ class PoreDLMConfig(PretrainedConfig):
 
     def __init__(
         self,
+        context_encoder_type: str = "bert",
         context_encoder_config: Optional[dict[str, Any]] = None,
         dlm_config: Optional[dict[str, Any]] = None,
         model_config: Optional[dict[str, Any]] = None,
@@ -55,6 +113,7 @@ class PoreDLMConfig(PretrainedConfig):
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
+        self.context_encoder_type = context_encoder_type
         self.context_encoder_config = context_encoder_config or {}
         self.dlm_config = dlm_config or {}
         self.model_config = model_config or {}
@@ -78,7 +137,15 @@ class PoreDLMForDiffusion(PreTrainedModel):
                 "before loading this HF model."
             ) from exc
 
-        self.context_encoder = BertModel(BertConfig.from_dict(config.context_encoder_config), add_pooling_layer=False)
+        if config.context_encoder_type == "masked_signal":
+            self.context_encoder = MaskedSignalContextEncoder(**config.context_encoder_config)
+        elif config.context_encoder_type == "bert":
+            self.context_encoder = BertModel(
+                BertConfig.from_dict(config.context_encoder_config),
+                add_pooling_layer=False,
+            )
+        else:
+            raise ValueError(f"Unsupported context_encoder_type={config.context_encoder_type!r}")
         self.context_hidden_size = self.context_encoder.config.hidden_size
 
         dlm = config.dlm_config
@@ -172,6 +239,32 @@ def _strip_fsdp_prefixes(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch
     return {key.replace("_fsdp_wrapped_module.", ""): value for key, value in state_dict.items()}
 
 
+def _context_encoder_hf_config(model: OLMoDLM) -> tuple[str, Dict[str, Any]]:
+    context_encoder = model.context_encoder
+    context_config = getattr(context_encoder, "config", None)
+    if hasattr(context_config, "to_dict"):
+        return "bert", context_config.to_dict()
+
+    if all(hasattr(context_encoder, attr) for attr in ("token_embedding", "position_embedding", "encoder", "norm")):
+        encoder = context_encoder.encoder
+        layers = getattr(encoder, "layers", None)
+        if layers is None:
+            raise RuntimeError("MaskedSignal context encoder is missing encoder.layers.")
+        first_layer = layers[0] if len(layers) > 0 else None
+        dropout = getattr(getattr(first_layer, "dropout1", None), "p", 0.0)
+        return "masked_signal", {
+            "max_seq_len": int(context_encoder.position_embedding.num_embeddings),
+            "d_model": int(context_encoder.token_embedding.embedding_dim),
+            "layers": int(len(layers)),
+            "heads": int(getattr(context_encoder, "num_attention_heads")),
+            "dropout": float(dropout),
+            "vocab_size": int(context_encoder.token_embedding.num_embeddings),
+            "pad_token_id": int(context_encoder.token_embedding.padding_idx or 0),
+        }
+
+    raise RuntimeError(f"Unsupported context encoder type: {context_encoder.__class__.__name__}")
+
+
 def _load_model(input_dir: Path) -> tuple[OLMoDLM, TrainConfig]:
     config_path = input_dir / "config.yaml"
     model_path = input_dir / "model.pt"
@@ -202,6 +295,7 @@ def _load_model(input_dir: Path) -> tuple[OLMoDLM, TrainConfig]:
 
 
 def _write_config(output_dir: Path, model: OLMoDLM, cfg: TrainConfig) -> None:
+    context_encoder_type, context_encoder_config = _context_encoder_hf_config(model)
     hf_config = {
         "model_type": "poredlm_dlm",
         "architectures": ["PoreDLMForDiffusion"],
@@ -209,7 +303,8 @@ def _write_config(output_dir: Path, model: OLMoDLM, cfg: TrainConfig) -> None:
             "AutoConfig": "modeling_poredlm.PoreDLMConfig",
             "AutoModel": "modeling_poredlm.PoreDLMForDiffusion",
         },
-        "context_encoder_config": model.context_encoder.config.to_dict(),
+        "context_encoder_type": context_encoder_type,
+        "context_encoder_config": context_encoder_config,
         "dlm_config": _json_safe(cfg.dlm.asdict()),
         "model_config": _json_safe(cfg.model.asdict()),
         "elf_src_path": str(ELF_SRC) if ELF_SRC.is_dir() else None,

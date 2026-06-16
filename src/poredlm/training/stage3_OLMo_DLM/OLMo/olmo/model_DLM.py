@@ -2114,6 +2114,7 @@ class _MaskedSignalContextEncoder(nn.Module):
     ) -> None:
         super().__init__()
         self.config = SimpleNamespace(hidden_size=d_model)
+        self.num_attention_heads = heads
         self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
         self.position_embedding = nn.Embedding(max_seq_len, d_model)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -2127,6 +2128,7 @@ class _MaskedSignalContextEncoder(nn.Module):
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
         self.norm = nn.LayerNorm(d_model)
+        
 
     def forward(
         self,
@@ -2141,7 +2143,16 @@ class _MaskedSignalContextEncoder(nn.Module):
         batch, seq_len = input_ids.shape
         pos = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch, seq_len)
         x = self.token_embedding(input_ids) + self.position_embedding(pos)
-        x = self.encoder(x, src_key_padding_mask=~attention_mask.bool())
+        
+        if attention_mask.dim() == 3:
+            attn_mask = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            attn_mask = attn_mask.repeat_interleave(self.num_attention_heads, dim=0)
+            x = self.encoder(x, mask=attn_mask)
+        else:
+            if attention_mask.dim() > 2:
+                attention_mask = attention_mask.view(batch, -1)
+            x = self.encoder(x, src_key_padding_mask=~attention_mask.to(device=input_ids.device).bool())
+            
         hidden = self.norm(x)
         if return_dict:
             return SimpleNamespace(last_hidden_state=hidden)
