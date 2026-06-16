@@ -714,6 +714,8 @@ def parse_args():
                    help="For --feature_source denoised_hidden, starting timestep for light-noise ELF denoising. Higher means less noise.")
     p.add_argument("--elf_denoise_sampling_method", choices=["ode", "sde"], default="ode",
                    help="For --feature_source denoised_hidden, iterative ELF sampler type.")
+    p.add_argument("--elf_denoise_time_schedule", choices=["uniform", "logit_normal"], default="uniform",
+                   help="For --feature_source denoised_hidden, timestep spacing between --elf_denoise_start_t and 1.")
     p.add_argument("--elf_denoise_sde_gamma", type=float, default=0.0,
                    help="SDE churn strength when --elf_denoise_sampling_method=sde.")
     p.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
@@ -805,7 +807,8 @@ def main():
         if args.feature_source == "denoised_hidden":
             logger.info(
                 f"[ELFDenoise] steps={args.elf_denoise_steps} start_t={args.elf_denoise_start_t} "
-                f"method={args.elf_denoise_sampling_method} sde_gamma={args.elf_denoise_sde_gamma} "
+                f"method={args.elf_denoise_sampling_method} time_schedule={args.elf_denoise_time_schedule} "
+                f"sde_gamma={args.elf_denoise_sde_gamma} "
                 f"self_cond_cfg_scale={args.elf_self_cond_cfg_scale} noise_scale={args.elf_noise_scale}"
             )
         if args.quick:
@@ -851,6 +854,7 @@ def main():
         elf_denoise_steps=args.elf_denoise_steps,
         elf_denoise_start_t=args.elf_denoise_start_t,
         elf_denoise_sampling_method=args.elf_denoise_sampling_method,
+        elf_denoise_time_schedule=args.elf_denoise_time_schedule,
         elf_denoise_sde_gamma=args.elf_denoise_sde_gamma,
         elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
         elf_noise_scale=args.elf_noise_scale,

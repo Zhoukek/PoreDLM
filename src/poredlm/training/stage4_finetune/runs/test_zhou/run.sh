@@ -21,10 +21,12 @@ head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="tcn"
 feature_source="denoised_hidden"
-elf_denoise_steps=4
+elf_denoise_steps=16
 elf_denoise_start_t="0.85"
-elf_denoise_sampling_method="ode"
-elf_self_cond_cfg_scale="1.0"
+elf_denoise_sampling_method="sde"
+elf_denoise_time_schedule="logit_normal"
+elf_denoise_sde_gamma="1.0"
+elf_self_cond_cfg_scale="3.0"
 head_output_activation="tanh"
 head_output_scale=5
 ddp_backend="nccl" 
@@ -61,6 +63,8 @@ torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 \
   --elf_denoise_steps "${elf_denoise_steps}" \
   --elf_denoise_start_t "${elf_denoise_start_t}" \
   --elf_denoise_sampling_method "${elf_denoise_sampling_method}" \
+  --elf_denoise_time_schedule "${elf_denoise_time_schedule}" \
+  --elf_denoise_sde_gamma "${elf_denoise_sde_gamma}" \
   --elf_self_cond_cfg_scale "${elf_self_cond_cfg_scale}" \
   --head_output_activation "${head_output_activation}" \
   --head_output_scale "${head_output_scale}" \

@@ -52,6 +52,7 @@ class BasecallModel(nn.Module):
         elf_denoise_steps: int = 4,
         elf_denoise_start_t: float = 0.85,
         elf_denoise_sampling_method: str = "ode",
+        elf_denoise_time_schedule: str = "uniform",
         elf_denoise_sde_gamma: float = 0.0,
         elf_self_cond_cfg_scale: float = 1.0,
         elf_noise_scale: float | None = None,
@@ -72,6 +73,7 @@ class BasecallModel(nn.Module):
         self.elf_denoise_steps = max(1, int(elf_denoise_steps))
         self.elf_denoise_start_t = float(elf_denoise_start_t)
         self.elf_denoise_sampling_method = str(elf_denoise_sampling_method)
+        self.elf_denoise_time_schedule = str(elf_denoise_time_schedule)
         self.elf_denoise_sde_gamma = float(elf_denoise_sde_gamma)
         self.elf_self_cond_cfg_scale = float(elf_self_cond_cfg_scale)
         self.elf_noise_scale = None if elf_noise_scale is None else float(elf_noise_scale)
@@ -93,6 +95,8 @@ class BasecallModel(nn.Module):
             raise ValueError("--elf_denoise_start_t must be in (0, 1]. Higher means lighter noise.")
         if self.elf_denoise_sampling_method not in {"ode", "sde"}:
             raise ValueError("--elf_denoise_sampling_method must be 'ode' or 'sde'.")
+        if self.elf_denoise_time_schedule not in {"uniform", "logit_normal"}:
+            raise ValueError("--elf_denoise_time_schedule must be 'uniform' or 'logit_normal'.")
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         if reset_backbone_weights:
@@ -390,6 +394,26 @@ class BasecallModel(nn.Module):
             return self.elf_noise_scale
         return float(self._get_dlm_config_value("denoiser_noise_scale", 1.0))
 
+    def _elf_t_steps(self, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        if self.elf_denoise_time_schedule == "uniform" or self.elf_denoise_steps == 1:
+            return torch.linspace(
+                self.elf_denoise_start_t,
+                1.0,
+                self.elf_denoise_steps + 1,
+                device=device,
+                dtype=dtype,
+            )
+
+        p_mean = float(self._get_dlm_config_value("denoiser_p_mean", 0.8))
+        p_std = float(self._get_dlm_config_value("denoiser_p_std", 0.8))
+        sampled = torch.sigmoid(torch.randn(self.elf_denoise_steps - 1, device=device, dtype=dtype) * p_std + p_mean)
+        sampled = self.elf_denoise_start_t + (1.0 - self.elf_denoise_start_t) * sampled
+        return torch.cat([
+            torch.tensor([self.elf_denoise_start_t], device=device, dtype=dtype),
+            torch.sort(sampled).values,
+            torch.tensor([1.0], device=device, dtype=dtype),
+        ])
+
     @staticmethod
     def _elf_net_out_to_v_x(net_out, z: torch.Tensor, t: torch.Tensor, t_eps: float) -> tuple[torch.Tensor, torch.Tensor]:
         if isinstance(net_out, tuple):
@@ -454,13 +478,7 @@ class BasecallModel(nn.Module):
             z = torch.where(valid_mask, z, context)
 
         x_pred = torch.zeros_like(z)
-        t_steps = torch.linspace(
-            self.elf_denoise_start_t,
-            1.0,
-            self.elf_denoise_steps + 1,
-            device=context.device,
-            dtype=context.dtype,
-        )
+        t_steps = self._elf_t_steps(device=context.device, dtype=context.dtype)
         for idx in range(self.elf_denoise_steps):
             t = t_steps[idx]
             t_next = t_steps[idx + 1]
