@@ -11,7 +11,7 @@ file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/withou
 file_path = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall/validation_00001.jsonl.gz"
 # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/poregpt/dataset/human_dna_032g/train/train_00001.jsonl.gz"
+file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/train/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()
@@ -44,8 +44,11 @@ for key in sorted(all_keys):
 # 可选：显示第一行数据的示例
 print("\n" + "="*50)
 
-data = read_specific_line(file_path, 1)  # 索引1表示第二行
-print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
+data = read_specific_line(file_path, 0)  # 索引1表示第二行
+print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
+
+# data = read_specific_line(file_path, 1)  # 索引1表示第二行
+# print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
