@@ -282,20 +282,6 @@ def main() -> None:
                     help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden_layer).")
     ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "embedding"], default="hidden",
                     help="Use Stage3 denoised hidden states, raw context_encoder hidden states, or input embeddings as head input features.")
-    ap.add_argument("--elf_denoise_steps", type=int, default=4,
-                    help="For --feature_source denoised_hidden, number of ELF denoising steps from --elf_denoise_start_t to 1.")
-    ap.add_argument("--elf_denoise_start_t", type=float, default=0.85,
-                    help="For --feature_source denoised_hidden, starting timestep for light-noise ELF denoising. Higher means less noise.")
-    ap.add_argument("--elf_denoise_sampling_method", choices=["ode", "sde"], default="ode",
-                    help="For --feature_source denoised_hidden, iterative ELF sampler type.")
-    ap.add_argument("--elf_denoise_time_schedule", choices=["uniform", "logit_normal"], default="uniform",
-                    help="For --feature_source denoised_hidden, timestep spacing between --elf_denoise_start_t and 1.")
-    ap.add_argument("--elf_denoise_sde_gamma", type=float, default=0.0,
-                    help="SDE churn strength when --elf_denoise_sampling_method=sde.")
-    ap.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
-                    help="Self-conditioning CFG scale passed to ELF during iterative denoising.")
-    ap.add_argument("--elf_noise_scale", type=float, default=None,
-                    help="Override ELF denoiser_noise_scale for the initial light-noise corruption.")
     ap.add_argument("--pre_head_type", choices=["auto", "none", "bilstm", "transformer", "tcn"], default="auto",
                     help="Optional module before CTC-CRF head. Default auto-infers from checkpoint.")
     ap.add_argument("--pre_head_transformer_nhead", type=int, default=8,
@@ -375,13 +361,6 @@ def main() -> None:
         head_crf_n_base=n_base,
         head_crf_state_len=state_len,
         head_crf_expand_blanks=True,
-        elf_denoise_steps=args.elf_denoise_steps,
-        elf_denoise_start_t=args.elf_denoise_start_t,
-        elf_denoise_sampling_method=args.elf_denoise_sampling_method,
-        elf_denoise_time_schedule=args.elf_denoise_time_schedule,
-        elf_denoise_sde_gamma=args.elf_denoise_sde_gamma,
-        elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
-        elf_noise_scale=args.elf_noise_scale,
     ).to(device)
     model.load_state_dict(state_dict, strict=False)
     model.eval()

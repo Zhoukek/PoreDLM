@@ -708,20 +708,6 @@ def parse_args():
                    help="Attention heads for --pre_head_type transformer.")
     p.add_argument("--backbone_chunk_size", type=int, default=600,
                    help="Encode long token sequences through the backbone in chunks of this length, then concatenate hidden states before the basecalling head. Use 0 to disable chunking.")
-    p.add_argument("--elf_denoise_steps", type=int, default=4,
-                   help="For --feature_source denoised_hidden, number of ELF denoising steps from --elf_denoise_start_t to 1.")
-    p.add_argument("--elf_denoise_start_t", type=float, default=0.85,
-                   help="For --feature_source denoised_hidden, starting timestep for light-noise ELF denoising. Higher means less noise.")
-    p.add_argument("--elf_denoise_sampling_method", choices=["ode", "sde"], default="ode",
-                   help="For --feature_source denoised_hidden, iterative ELF sampler type.")
-    p.add_argument("--elf_denoise_time_schedule", choices=["uniform", "logit_normal"], default="uniform",
-                   help="For --feature_source denoised_hidden, timestep spacing between --elf_denoise_start_t and 1.")
-    p.add_argument("--elf_denoise_sde_gamma", type=float, default=0.0,
-                   help="SDE churn strength when --elf_denoise_sampling_method=sde.")
-    p.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
-                   help="Self-conditioning CFG scale passed to ELF during iterative denoising.")
-    p.add_argument("--elf_noise_scale", type=float, default=None,
-                   help="Override ELF denoiser_noise_scale for the initial light-noise corruption.")
 
     p.add_argument("--acc_balanced", action="store_true",
                    help="Use Bonito balanced accuracy: (match - ins) / (match + mismatch + del).")
@@ -804,13 +790,6 @@ def main():
             f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers}"
         )
         logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
-        if args.feature_source == "denoised_hidden":
-            logger.info(
-                f"[ELFDenoise] steps={args.elf_denoise_steps} start_t={args.elf_denoise_start_t} "
-                f"method={args.elf_denoise_sampling_method} time_schedule={args.elf_denoise_time_schedule} "
-                f"sde_gamma={args.elf_denoise_sde_gamma} "
-                f"self_cond_cfg_scale={args.elf_self_cond_cfg_scale} noise_scale={args.elf_noise_scale}"
-            )
         if args.quick:
             logger.info("[Quick] enabled: freeze_backbone=True, ctc_crf_state_len=5, ctc_crf_blank_score=0, head_output_scale=5, head_output_activation=tanh, head_type=ctc_crf, pre_ctc_module=none")
 
@@ -851,13 +830,6 @@ def main():
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
         head_crf_state_len=int(args.ctc_crf_state_len),
-        elf_denoise_steps=args.elf_denoise_steps,
-        elf_denoise_start_t=args.elf_denoise_start_t,
-        elf_denoise_sampling_method=args.elf_denoise_sampling_method,
-        elf_denoise_time_schedule=args.elf_denoise_time_schedule,
-        elf_denoise_sde_gamma=args.elf_denoise_sde_gamma,
-        elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
-        elf_noise_scale=args.elf_noise_scale,
     )
 
     model = base_model
