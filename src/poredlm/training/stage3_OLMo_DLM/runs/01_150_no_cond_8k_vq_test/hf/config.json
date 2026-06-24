@@ -18,7 +18,7 @@
     "pad_token_id": 1
   },
   "dlm_config": {
-    "context_encoder_path": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/00_BERT_12_layer_v1/models/step_3000",
+    "context_encoder_path": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/00_BERT_12_layer_v1/models/step_3000",
     "freeze_context_encoder": true,
     "max_length": 1024,
     "max_input_length": null,
@@ -106,6 +106,6 @@
     "emb_init_std": null,
     "norm_after": true
   },
-  "elf_src_path": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/ELF-pytorch-port/src",
+  "elf_src_path": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/ELF-pytorch-port/src",
   "torch_dtype": "float32"
 }

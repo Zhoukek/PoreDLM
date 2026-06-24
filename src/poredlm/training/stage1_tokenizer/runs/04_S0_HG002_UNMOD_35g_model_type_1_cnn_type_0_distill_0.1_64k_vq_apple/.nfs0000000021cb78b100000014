@@ -1,0 +1,206 @@
+
+============================================================
+ 🚀 Starting VQE Training with Accelerate. Configuration:
+============================================================
+
+============================================================
+ 🚀 Starting VQE Training with Accelerate. Configuration:
+============================================================{'train_npy_dir': '/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/train',
+ 'model_type': 1,
+ 'evaluation_npy_dir': '/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation',
+ 'output_model_path': 'models/porepgt_vqe_tokenizer',
+ 'lr': 2e-05,
+ 'num_epochs': 20,
+ 'codebook_size': 65536,
+ 'codebook_decay': 0.99,
+ 'codebook_emadc': 2,
+ 'chunk_size': 6000,
+ 'num_workers': 64,
+ 'update_loss_weight_every': 10,
+ 'prefetch_factor': 8192,
+ 'val_ratio': 0.2,
+ 'do_evaluate': True,
+ 'commitment_weight': 9.0,
+ 'commitment_weight_lr': 0.001,
+ 'codebook_diversity_loss_weight': 0.0,
+ 'orthogonal_reg_weight': 0.0,
+ 'loss_csv_path': 'train_loss.csv',
+ 'use_wandb': True,
+ 'use_dynamic_commitment_weight': True,
+ 'commitment_weight_freeze_steps': 1000,
+ 'commitment_weight_rpc': 10,
+ 'wandb_project': 'stage1_tokenizer_experiments',
+ 'wandb_name': '04_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_64k_vq_apple',
+ 'lr_scheduler_type': 'cosine',
+ 'warmup_steps': 1000,
+ 'warmup_start_factor': 0.01,
+ 'warmup_end_factor': 1.0,
+ 'main_scheduler_end_factor': 0.4,
+ 'save_checkpoint_every_spoch': 10000,
+ 'evaluate_every_spoch': 1000,
+ 'checkpoint_path': None,
+ 'init_codebook_path': '',
+ 'cnn_type': 0,
+ 'freeze_cnn': 0,
+ 'learnable_codebook': False,
+ 'global_batch_size': 2048,
+ 'device_micro_batch_size': 32,
+ 'mixed_precision': 'no',
+ 'gradient_clipping': 1.0,
+ 'cpu': False,
+ 'dataset_logic_chunk_size': 2400,
+ 'codebook_type': 'VQ_distill',
+ 'teacher_model_path': '/mnt/si002562jbsc/rnamodel/model/bonito/dna_basic_0121',
+ 'seed': 42,
+ 'distill_loss_weight': 0.1}
+
+============================================================
+
+{'train_npy_dir': '/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/train',
+ 'model_type': 1,
+ 'evaluation_npy_dir': '/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation',
+ 'output_model_path': 'models/porepgt_vqe_tokenizer',
+ 'lr': 2e-05,
+ 'num_epochs': 20,
+ 'codebook_size': 65536,
+ 'codebook_decay': 0.99,
+ 'codebook_emadc': 2,
+ 'chunk_size': 6000,
+ 'num_workers': 64,
+ 'update_loss_weight_every': 10,
+ 'prefetch_factor': 8192,
+ 'val_ratio': 0.2,
+ 'do_evaluate': True,
+ 'commitment_weight': 9.0,
+ 'commitment_weight_lr': 0.001,
+ 'codebook_diversity_loss_weight': 0.0,
+ 'orthogonal_reg_weight': 0.0,
+ 'loss_csv_path': 'train_loss.csv',
+ 'use_wandb': True,
+ 'use_dynamic_commitment_weight': True,
+ 'commitment_weight_freeze_steps': 1000,
+ 'commitment_weight_rpc': 10,
+ 'wandb_project': 'stage1_tokenizer_experiments',
+ 'wandb_name': '04_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_64k_vq_apple',
+ 'lr_scheduler_type': 'cosine',
+ 'warmup_steps': 1000,
+ 'warmup_start_factor': 0.01,
+ 'warmup_end_factor': 1.0,
+ 'main_scheduler_end_factor': 0.4,
+ 'save_checkpoint_every_spoch': 10000,
+ 'evaluate_every_spoch': 1000,
+ 'checkpoint_path': None,
+ 'init_codebook_path': '',
+ 'cnn_type': 0,
+ 'freeze_cnn': 0,
+ 'learnable_codebook': False,
+ 'global_batch_size': 2048,
+ 'device_micro_batch_size': 32,
+ 'mixed_precision': 'no',
+ 'gradient_clipping': 1.0,
+ 'cpu': False,
+ 'dataset_logic_chunk_size': 2400,
+ 'codebook_type': 'VQ_distill',
+ 'teacher_model_path': '/mnt/si002562jbsc/rnamodel/model/bonito/dna_basic_0121',
+ 'seed': 42,
+ 'distill_loss_weight': 0.1}
+============================================================
+
+✅ Using independent evaluation dataset: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation
+codebook_dim:768
+wandb: Currently logged in as: zhoukek (zhoukek-zhejiang-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run kjicggsv
+wandb: Tracking run with wandb version 0.22.2
+wandb: Run data is saved locally in /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/04_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_64k_vq_apple/wandb/run-20260623_111653-kjicggsv
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run 04_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_64k_vq_apple
+wandb: ⭐️ View project at https://wandb.ai/zhoukek-zhejiang-university/stage1_tokenizer_experiments
+wandb: 🚀 View run at https://wandb.ai/zhoukek-zhejiang-university/stage1_tokenizer_experiments/runs/kjicggsv
+🚀 Accelerator initialized. Device: cuda:0, Type: MULTI_GPU
+   Number of processes: 2
+   Mixed Precision: no
+   Global Batch Size: 2048, Device Micro-Batch Size: 32
+   Gradient Accumulation Steps: 16
+✅ Using independent evaluation dataset: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation
+codebook_dim:768
+Intialized VectorQuantize with the following hyperparameters:
+  codebook_size: 65536
+  kmeans_init: True
+  kmeans_iters: 10
+  decay: 0.99
+  threshold_ema_dead_code: 2
+  cnn_type: 0
+------------------------------------------------------------
+📈 Using LR scheduler: cosine, warmup_steps=1000
+📈 Calculated total_training_global_steps: 87712
+📈 Calculated num_epochs: 20
+📈 Calculated accumulation_steps: 16
+调试信息:
+  len(train_dataloader) = 70170
+  accumulation_steps = 16成功更新 runtime.json
+
+  num_epochs = 20
+  计算的总步数 = 87712
+⚠️ No checkpoint path provided or path is not a directory. Starting from scratch.
+Gradient Accumulation Steps: 16
+Num Processes (GPUs): 2
+actual_warmup_steps: 1000
+
+=== 调度器详细调试 ===
+配置值:
+  lr: 2e-05
+  warmup_start_factor: 0.01
+  warmup_end_factor: 1.0
+  warmup_steps (配置): 1000
+  actual_warmup_steps (计算): 1000
+
+初始学习率: 2.000000e-07
+=== 调试结束 ===
+
+成功更新 runtime.json
+/opt/conda/lib/python3.10/site-packages/torch/autograd/graph.py:823: UserWarning: Attempting to run cuBLAS, but there was no current CUDA context! Attempting to set the primary context... (Triggered internally at /workspace/framework/mcPytorch/aten/src/ATen/cuda/CublasHandlePool.cpp:184.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[Epoch  1/20 | Step     1/87712 | 00:09<233:35:35] Total: 0.890315 | Recon: 0.788121 | Comit: 0.000045 | Rperc: 17340.407717 | Usage: 0.0% | LR: 2.20e-07 |
+[Epoch  1/20 | Step     2/87712 | 00:11<142:09:46] Total: 0.859270 | Recon: 0.757295 | Comit: 0.000046 | Rperc: 16608.311170 | Usage: 0.0% | LR: 2.40e-07 |
+[Epoch  1/20 | Step     3/87712 | 00:13<111:52:05] Total: 0.861745 | Recon: 0.759799 | Comit: 0.000045 | Rperc: 16910.749297 | Usage: 0.0% | LR: 2.59e-07 |
+[Epoch  1/20 | Step     4/87712 | 00:15<97:01:59] Total: 0.871984 | Recon: 0.769895 | Comit: 0.000049 | Rperc: 15638.342554 | Usage: 0.0% | LR: 2.79e-07 |
+[Epoch  1/20 | Step     5/87712 | 00:18<88:03:59] Total: 0.899361 | Recon: 0.797217 | Comit: 0.000046 | Rperc: 17192.933131 | Usage: 0.0% | LR: 2.99e-07 |
+[Epoch  1/20 | Step     6/87712 | 00:20<82:06:00] Total: 0.876607 | Recon: 0.774685 | Comit: 0.000045 | Rperc: 17098.000891 | Usage: 0.0% | LR: 3.19e-07 |
+[Epoch  1/20 | Step     7/87712 | 00:22<78:00:38] Total: 0.869926 | Recon: 0.768038 | Comit: 0.000044 | Rperc: 17502.085763 | Usage: 0.0% | LR: 3.39e-07 |
+[Epoch  1/20 | Step     8/87712 | 00:24<74:45:57] Total: 0.888056 | Recon: 0.786002 | Comit: 0.000044 | Rperc: 17928.224692 | Usage: 0.0% | LR: 3.58e-07 |
+[Epoch  1/20 | Step     9/87712 | 00:26<72:12:04] Total: 0.844890 | Recon: 0.742751 | Comit: 0.000043 | Rperc: 17398.138360 | Usage: 0.0% | LR: 3.78e-07 |
+[Epoch  1/20 | Step    10/87712 | 00:28<70:03:40] Total: 0.891689 | Recon: 0.789703 | Comit: 0.000045 | Rperc: 17459.501270 | Usage: 0.0% | LR: 3.98e-07 |
+[Epoch  1/20 | Step    11/87712 | 00:30<68:23:59] Total: 0.872687 | Recon: 0.770833 | Comit: 0.000046 | Rperc: 16714.871987 | Usage: 0.0% | LR: 4.18e-07 |
+[Epoch  1/20 | Step    12/87712 | 00:33<67:01:07] Total: 0.867948 | Recon: 0.766172 | Comit: 0.000045 | Rperc: 16931.692505 | Usage: 0.0% | LR: 4.38e-07 |
+[Epoch  1/20 | Step    13/87712 | 00:35<65:47:50] Total: 0.847258 | Recon: 0.745243 | Comit: 0.000043 | Rperc: 17266.200239 | Usage: 0.0% | LR: 4.57e-07 |
+[Epoch  1/20 | Step    14/87712 | 00:37<64:51:54] Total: 0.888965 | Recon: 0.786828 | Comit: 0.000045 | Rperc: 17375.632288 | Usage: 0.0% | LR: 4.77e-07 |
+[Epoch  1/20 | Step    15/87712 | 00:39<64:15:13] Total: 0.854673 | Recon: 0.752811 | Comit: 0.000045 | Rperc: 16639.499953 | Usage: 0.0% | LR: 4.97e-07 |
+[Epoch  1/20 | Step    16/87712 | 00:41<63:26:27] Total: 0.891243 | Recon: 0.789403 | Comit: 0.000047 | Rperc: 16885.136309 | Usage: 0.0% | LR: 5.17e-07 |
+[Epoch  1/20 | Step    17/87712 | 00:43<62:44:33] Total: 0.864936 | Recon: 0.762955 | Comit: 0.000045 | Rperc: 16963.092281 | Usage: 0.0% | LR: 5.37e-07 |
+[Epoch  1/20 | Step    18/87712 | 00:45<62:04:42] Total: 0.851644 | Recon: 0.749697 | Comit: 0.000046 | Rperc: 16452.298301 | Usage: 0.0% | LR: 5.56e-07 |
+[Epoch  1/20 | Step    19/87712 | 00:48<61:35:55] Total: 0.885004 | Recon: 0.783012 | Comit: 0.000043 | Rperc: 18016.324430 | Usage: 0.0% | LR: 5.76e-07 |
+[Epoch  1/20 | Step    20/87712 | 00:50<61:11:30] Total: 0.884173 | Recon: 0.782152 | Comit: 0.000044 | Rperc: 17830.130226 | Usage: 0.0% | LR: 5.96e-07 |
+[Epoch  1/20 | Step    21/87712 | 00:52<60:44:43] Total: 0.867805 | Recon: 0.765752 | Comit: 0.000049 | Rperc: 15502.849661 | Usage: 0.0% | LR: 6.16e-07 |
+[Epoch  1/20 | Step    22/87712 | 00:54<60:17:26] Total: 0.874989 | Recon: 0.772952 | Comit: 0.000048 | Rperc: 16226.269516 | Usage: 0.0% | LR: 6.36e-07 |
+[Epoch  1/20 | Step    23/87712 | 00:56<59:58:15] Total: 0.884861 | Recon: 0.782885 | Comit: 0.000044 | Rperc: 17845.013939 | Usage: 0.0% | LR: 6.55e-07 |
+[Epoch  1/20 | Step    24/87712 | 00:58<59:40:01] Total: 0.891833 | Recon: 0.789999 | Comit: 0.000044 | Rperc: 18007.488095 | Usage: 0.0% | LR: 6.75e-07 |
+[Epoch  1/20 | Step    25/87712 | 01:00<59:22:15] Total: 0.847906 | Recon: 0.745972 | Comit: 0.000041 | Rperc: 18123.997503 | Usage: 0.0% | LR: 6.95e-07 |
+[Epoch  1/20 | Step    26/87712 | 01:02<58:59:53] Total: 0.852218 | Recon: 0.750161 | Comit: 0.000044 | Rperc: 17217.965658 | Usage: 0.0% | LR: 7.15e-07 |
+[Epoch  1/20 | Step    27/87712 | 01:05<58:42:35] Total: 0.866539 | Recon: 0.764839 | Comit: 0.000044 | Rperc: 17526.710897 | Usage: 0.0% | LR: 7.35e-07 |
+[Epoch  1/20 | Step    28/87712 | 01:07<58:31:00] Total: 0.872871 | Recon: 0.770980 | Comit: 0.000043 | Rperc: 17769.019168 | Usage: 0.0% | LR: 7.54e-07 |
+[Epoch  1/20 | Step    29/87712 | 01:10<59:33:41] Total: 0.863572 | Recon: 0.761776 | Comit: 0.000046 | Rperc: 16623.391567 | Usage: 0.0% | LR: 7.74e-07 |
+[Epoch  1/20 | Step    30/87712 | 01:13<59:16:50] Total: 0.879482 | Recon: 0.777869 | Comit: 0.000044 | Rperc: 17770.403876 | Usage: 0.0% | LR: 7.94e-07 |
+[Epoch  1/20 | Step    31/87712 | 01:15<59:04:06] Total: 0.885989 | Recon: 0.784100 | Comit: 0.000045 | Rperc: 17406.910892 | Usage: 0.0% | LR: 8.14e-07 |
+[Epoch  1/20 | Step    32/87712 | 01:17<58:57:53] Total: 0.862128 | Recon: 0.760385 | Comit: 0.000048 | Rperc: 15797.572417 | Usage: 0.0% | LR: 8.34e-07 |
+[Epoch  1/20 | Step    33/87712 | 01:19<58:44:10] Total: 0.860339 | Recon: 0.758542 | Comit: 0.000045 | Rperc: 16876.088610 | Usage: 0.0% | LR: 8.53e-07 |
+[Epoch  1/20 | Step    34/87712 | 01:21<58:30:57] Total: 0.865771 | Recon: 0.763887 | Comit: 0.000045 | Rperc: 16861.863540 | Usage: 0.0% | LR: 8.73e-07 |
+[Epoch  1/20 | Step    35/87712 | 01:23<58:18:45] Total: 0.894148 | Recon: 0.792277 | Comit: 0.000049 | Rperc: 16246.136384 | Usage: 0.0% | LR: 8.93e-07 |
+[Epoch  1/20 | Step    36/87712 | 01:25<58:10:03] Total: 0.855947 | Recon: 0.754222 | Comit: 0.000044 | Rperc: 17329.362272 | Usage: 0.0% | LR: 9.13e-07 |
+[Epoch  1/20 | Step    37/87712 | 01:28<57:58:24] Total: 0.882725 | Recon: 0.780996 | Comit: 0.000044 | Rperc: 17689.195781 | Usage: 0.0% | LR: 9.33e-07 |
+[Epoch  1/20 | Step    38/87712 | 01:30<57:48:50] Total: 0.855950 | Recon: 0.754108 | Comit: 0.000044 | Rperc: 17074.417002 | Usage: 0.0% | LR: 9.52e-07 |
+[Epoch  1/20 | Step    39/87712 | 01:32<57:39:57] Total: 0.880180 | Recon: 0.778369 | Comit: 0.000043 | Rperc: 17971.057789 | Usage: 0.0% | LR: 9.72e-07 |
+[Epoch  1/20 | Step    40/87712 | 01:34<57:34:55] Total: 0.874441 | Recon: 0.772632 | Comit: 0.000045 | Rperc: 17158.670682 | Usage: 0.0% | LR: 9.92e-07 |
+[Epoch  1/20 | Step    41/87712 | 01:36<57:26:59] Total: 0.871011 | Recon: 0.769256 | Comit: 0.000045 | Rperc: 17137.242867 | Usage: 0.0% | LR: 1.01e-06 |
+[Epoch  1/20 | Step    42/87712 | 01:40<58:08:55] Total: 0.870747 | Recon: 0.768928 | Comit: 0.000043 | Rperc: 17867.309329 | Usage: 0.0% | LR: 1.03e-06 |
+[Epoch  1/20 | Step    43/87712 | 01:42<57:59:12] Total: 0.868090 | Recon: 0.766300 | Comit: 0.000043 | Rperc: 17681.660601 | Usage: 0.0% | LR: 1.05e-06 |
+[Epoch  1/20 | Step    44/87712 | 01:44<57:50:06] Total: 0.864005 | Recon: 0.762111 | Comit: 0.000043 | Rperc: 17605.819745 | Usage: 0.0% | LR: 1.07e-06 |

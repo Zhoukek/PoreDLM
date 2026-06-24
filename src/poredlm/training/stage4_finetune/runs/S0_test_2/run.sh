@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # 先加载MACA环境
-source /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh
+source /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh
 
-export PYTHONPATH=/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune:/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src:${PYTHONPATH:-}
+export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune:/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:${PYTHONPATH:-}
 export CUDA_VISIBLE_DEVICES=0,1
 export WANDB_API_KEY=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
 
@@ -19,7 +19,7 @@ hidden_layer=-1
 unfreeze_last_n_layers=0
 unfreeze_target="auto"
 unfreeze_context_last_n_layers=4
-unfreeze_elf_last_n_layers=12
+unfreeze_elf_last_n_layers=0
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="tcn"
@@ -33,14 +33,14 @@ ddp_backend="nccl"
 wandb_project="stage4_finetune"
 wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32"
 
-base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/01_150_no_cond_8k_vq_test/hf"
-data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp"
-outdir="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/runs/S0_test"
+base_model="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/01_150_no_cond_8k_vq_test/hf"
+data_root="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp"
+outdir="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/runs/S0_test"
 
 mkdir -p "${outdir}"
 
 nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port 29512 \
-  /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/Basecalling/basecaller_v8_0420/train_ddp_multifolder.py \
+  /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/Basecalling/basecaller_v8_0420/train_ddp_multifolder.py \
   --jsonl_paths "${data_root}" \
   --model_name_or_path "${base_model}" \
   --output_dir "${outdir}" \

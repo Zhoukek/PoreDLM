@@ -47,7 +47,7 @@ model:
   emb_init_std: null
   norm_after: true
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/00_BERT_12_layer_v1/models/step_3000
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/00_BERT_12_layer_v1/models/step_3000
   freeze_context_encoder: true
   max_length: 1024
   max_input_length: null
@@ -114,7 +114,7 @@ scheduler:
   warmup_min_lr: 0.0
 data:
   paths:
-  - /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/stage3_dlm/train/part-0-00000.npy
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/temp/stage3_dlm/train/part-0-00000.npy
   memmap_dtype: uint16
   datasets: null
   label_mask_paths: null
@@ -138,9 +138,9 @@ fast_forward_batches: null
 evaluators: []
 eval_interval: 1000
 tokenizer:
-  identifier: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/tokenizer-8k.json
+  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/tokenizer-8k.json
   truncate_direction: right
-save_folder: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/01_150_no_cond_8k_vq_test/model/olmo_150m_dlm
+save_folder: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/01_150_no_cond_8k_vq_test/model/olmo_150m_dlm
 remote_save_folder: null
 canceled_check_interval: 50
 save_interval: 100

@@ -125,6 +125,8 @@ class BasecallModel(nn.Module):
             for layer in target_layers:
                 for param in layer.parameters():
                     param.requires_grad = True
+            if target_layers:
+                self._unfreeze_context_embeddings()
 
         self._set_frozen_backbone_submodules_eval()
         show_layer_trainable_status(self.backbone)
@@ -249,6 +251,26 @@ class BasecallModel(nn.Module):
         for layer in layers[-n_unfreeze:]:
             for param in layer.parameters():
                 param.requires_grad = True
+        if target == "context_encoder":
+            self._unfreeze_context_embeddings()
+
+    def _unfreeze_context_embeddings(self) -> None:
+        context_encoder = getattr(self.backbone, "context_encoder", None)
+        if context_encoder is None:
+            raise ValueError("Cannot unfreeze context embeddings: backbone has no context_encoder.")
+
+        embedding_names = ("token_embedding", "position_embedding")
+        missing = [name for name in embedding_names if not hasattr(context_encoder, name)]
+        if missing:
+            raise ValueError(
+                "Cannot unfreeze context embeddings; missing modules: " + ", ".join(missing)
+            )
+
+        for name in embedding_names:
+            embedding = getattr(context_encoder, name)
+            for param in embedding.parameters():
+                param.requires_grad = True
+        print("[PoreDLM] unfreeze context_encoder token_embedding and position_embedding")
 
     def _set_frozen_backbone_submodules_eval(self) -> None:
         if self.backbone is None:

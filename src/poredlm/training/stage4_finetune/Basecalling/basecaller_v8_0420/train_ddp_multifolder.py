@@ -316,10 +316,19 @@ def train_one_epoch(
     ctc_crf_blank_score: float,
     use_amp: bool,
     clip_grad_norm: float,
+    koi_blank_score: float,
+    acc_balanced: bool,
+    acc_min_coverage: float,
+    decoder_mode: str,
     head_type: str,
-):
+) -> Tuple[float, float, float, float, float, float]:
     model.train()
     total_loss, n_batches = 0.0, 0
+    total_acc, n_acc = 0.0, 0
+    total_crf_acc, n_crf_acc = 0.0, 0
+    total_cov, n_cov = 0.0, 0
+    blank_ratios: List[float] = []
+    nonzero_lengths: List[float] = []
 
     it = tqdm(enumerate(data_loader, start=1), total=len(data_loader),
               disable=not is_main_process(accelerator), desc="[train]")
@@ -379,15 +388,101 @@ def train_one_epoch(
         total_loss += float(loss.item())
         n_batches += 1
 
+        with torch.no_grad():
+            input_len_list = input_lengths.detach().cpu().tolist()
+            detached_logits_tbc = logits_tbc.detach()
+            if decoder_mode == "koi":
+                pred_seqs = koi_beam_search_decode(
+                    detached_logits_tbc,
+                    blank_score=float(koi_blank_score),
+                    input_lengths=input_lengths,
+                )
+            elif decoder_mode == "ctc_viterbi":
+                pred_seqs = ctc_viterbi_decode(
+                    detached_logits_tbc,
+                    input_lengths=input_lengths,
+                    blank_idx=BLANK_IDX,
+                )
+            else:
+                pred_seqs = []
+                for idx, input_len in enumerate(input_len_list):
+                    step_len = int(input_len)
+                    if step_len <= 0:
+                        pred_seqs.append([])
+                        continue
+                    decoded_ids = ctc_crf_decode(
+                        detached_logits_tbc[:step_len, idx : idx + 1, :].float(),
+                        blank_idx=BLANK_IDX,
+                    )[0]
+                    pred_seqs.append(decoded_ids[:step_len])
+
+            acc = batch_bonito_accuracy(
+                pred_seqs,
+                batch["target_seqs"],
+                balanced=acc_balanced,
+                min_coverage=acc_min_coverage,
+            )
+            total_acc += float(acc)
+            n_acc += 1
+            if decoder_mode == "ctc_crf":
+                total_crf_acc += float(acc)
+                n_crf_acc += 1
+
+            batch_cov, batch_blank, batch_nonzero_len = [], [], []
+            for r_ids, pred_ids, input_len in zip(batch["target_seqs"], pred_seqs, input_len_list):
+                step_len = int(input_len)
+                decoded_len = min(len(pred_ids), max(step_len, 0))
+                nonzero_len = float(decoded_len)
+                blank_ratio = max(1.0 - (decoded_len / max(step_len, 1)), 0.0)
+                coverage = nonzero_len / max(len(r_ids), 1)
+                batch_cov.append(coverage)
+                batch_blank.append(blank_ratio)
+                batch_nonzero_len.append(nonzero_len)
+                total_cov += coverage
+                n_cov += 1
+            blank_ratios.extend(batch_blank)
+            nonzero_lengths.extend(batch_nonzero_len)
+
         if is_main_process(accelerator) and (step % log_interval == 0):
             lr = optimizer.param_groups[0]["lr"]
-            msg = f"[Train] step={step}/{len(data_loader)} loss={loss.item():.4f} lr={lr:.6g}"
+            batch_coverage = float(np.mean(batch_cov)) if batch_cov else 0.0
+            batch_blank_ratio = float(np.mean(batch_blank)) if batch_blank else 0.0
+            batch_nonzero = float(np.mean(batch_nonzero_len)) if batch_nonzero_len else 0.0
+            msg = (
+                f"[Train] step={step}/{len(data_loader)} loss={loss.item():.4f} "
+                f"acc={acc:.4f} coverage={batch_coverage:.4f} "
+                f"blank={batch_blank_ratio:.4f} nonzero_len={batch_nonzero:.2f} lr={lr:.6g}"
+            )
             print(msg)
             if use_wandb and wandb is not None:
-                wandb.log({"train/loss": float(loss.item()), "lr": float(lr), "step": step})
+                payload = {
+                    "train/loss": float(loss.item()),
+                    "train/acc": float(acc),
+                    "train/coverage": batch_coverage,
+                    "train/blank": batch_blank_ratio,
+                    "train/nonzero_len": batch_nonzero,
+                    "lr": float(lr),
+                    "step": step,
+                }
+                if decoder_mode == "ctc_crf":
+                    payload["train/crf_acc"] = float(acc)
+                wandb.log(payload)
 
-    avg = total_loss / max(n_batches, 1)
-    return reduce_mean(accelerator, avg, device)
+    avg_loss = reduce_mean(accelerator, total_loss / max(n_batches, 1), device)
+    avg_acc = reduce_mean(accelerator, total_acc / max(n_acc, 1), device)
+    avg_crf_acc = reduce_mean(accelerator, total_crf_acc / max(n_crf_acc, 1), device)
+    avg_cov = reduce_mean(accelerator, total_cov / max(n_cov, 1), device)
+    avg_blank = reduce_mean(
+        accelerator,
+        float(np.mean(blank_ratios)) if blank_ratios else 0.0,
+        device,
+    )
+    avg_nonzero_len = reduce_mean(
+        accelerator,
+        float(np.mean(nonzero_lengths)) if nonzero_lengths else 0.0,
+        device,
+    )
+    return avg_loss, avg_acc, avg_crf_acc, avg_cov, avg_blank, avg_nonzero_len
 
 
 @torch.no_grad()
@@ -1066,7 +1161,7 @@ def main():
         logger.info(f"[Decoder] mode={decoder_mode} use_amp={use_amp}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
-        tr_loss = train_one_epoch(
+        tr_loss, tr_acc, tr_crf_acc, tr_cov, tr_blank, tr_nonzero_len = train_one_epoch(
             accelerator,
             model,
             train_loader,
@@ -1078,12 +1173,19 @@ def main():
             args.ctc_crf_blank_score,
             use_amp,
             args.clip_grad_norm,
+            args.koi_blank_score,
+            args.acc_balanced,
+            args.acc_min_coverage,
+            decoder_mode,
             args.head_type,
         )
         train_losses.append(tr_loss)
 
         if is_main_process(accelerator):
-            logger.info(f"[Train] epoch={epoch} avg_loss={tr_loss:.4f}")
+            logger.info(
+                f"[Train] epoch={epoch} loss={tr_loss:.4f} acc={tr_acc:.4f} "
+                f"coverage={tr_cov:.4f} blank={tr_blank:.4f} nonzero_len={tr_nonzero_len:.2f}"
+            )
 
         val_loss, val_acc = None, None
         if val_loader is not None:
@@ -1140,7 +1242,12 @@ def main():
                 scheduler=scheduler,
                 epoch=epoch,
                 best_pbma=best_pbma,
-                extra={"train_loss": tr_loss, "val_loss": val_loss, "val_acc": val_acc},
+                extra={
+                    "train_loss": tr_loss,
+                    "train_acc": tr_acc,
+                    "val_loss": val_loss,
+                    "val_acc": val_acc,
+                },
             )
             logger.info(f"[CKPT] saved {last_path}")
 
@@ -1156,12 +1263,27 @@ def main():
                     scheduler=scheduler,
                     epoch=epoch,
                     best_pbma=best_pbma,
-                    extra={"train_loss": tr_loss, "val_loss": val_loss, "val_acc": val_acc},
+                    extra={
+                        "train_loss": tr_loss,
+                        "train_acc": tr_acc,
+                        "val_loss": val_loss,
+                        "val_acc": val_acc,
+                    },
                 )
                 logger.info(f"[CKPT] new best acc={best_pbma:.4f} @ epoch={epoch}, saved {best_path}")
 
         if use_wandb and wandb is not None and is_main_process(accelerator):
-            wandb.log({"epoch": epoch, "train/epoch_loss": float(tr_loss)})
+            payload = {
+                "epoch": epoch,
+                "train/epoch_loss": float(tr_loss),
+                "train/epoch_acc": float(tr_acc),
+                "train/epoch_coverage": float(tr_cov),
+                "train/epoch_blank": float(tr_blank),
+                "train/epoch_nonzero_len": float(tr_nonzero_len),
+            }
+            if decoder_mode == "ctc_crf":
+                payload["train/epoch_crf_acc"] = float(tr_crf_acc)
+            wandb.log(payload)
 
     # ---- test ----
     if test_loader is not None:

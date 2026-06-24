@@ -8,10 +8,10 @@ import json
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation/references_validation.jsonl.gz"
 
 # 标准
-file_path = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall/validation_00001.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/validation/250F601844011_0_0_0_0_chunks.split.jsonl.gz"
 # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
-file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp_10/temp_10.jsonl.gz"
+# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp_10/temp_10.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()
@@ -52,35 +52,35 @@ print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-# # 读取npy文件
-# import numpy as np
+# 读取npy文件
+import numpy as np
 
-# # 读取 npy 文件
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/250F601844011_0_0_0_0_chunks.npy"
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/train/reference/250F601844011_0_0_0_3_references.npy"
+# 读取 npy 文件
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_mongo/validation/250F601844011_0_0_0_0_chunks.npy"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_3_chunks.npy"
 
-# data = np.load(file_path, allow_pickle=True)
+data = np.load(file_path, allow_pickle=True)
 
-# # 输出基本信息
-# print("=" * 50)
-# print("文件信息:")
-# print(f"文件路径: {file_path}")
-# print(f"数据类型: {data.dtype}")
-# print(f"数组形状: {data.shape}")
-# print(f"数组维度: {data.ndim}")
-# print(f"总元素数: {data.size}")
-# print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
-# print("=" * 50)
+# 输出基本信息
+print("=" * 50)
+print("文件信息:")
+print(f"文件路径: {file_path}")
+print(f"数据类型: {data.dtype}")
+print(f"数组形状: {data.shape}")
+print(f"数组维度: {data.ndim}")
+print(f"总元素数: {data.size}")
+print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
+print("=" * 50)
 
-# # 输出内容
-# print("\n数组内容:")
-# print(data)
+# 输出内容
+print("\n数组内容:")
+print(data)
 
-# # 如果是高维数组，输出部分内容
-# if data.ndim >= 2:
-#     print(f"\n前5行（如果有）:")
-#     print(data[1] if data.shape[0] > 5 else data)
+# 如果是高维数组，输出部分内容
+if data.ndim >= 2:
+    print(f"\n前5行（如果有）:")
+    print(data[1] if data.shape[0] > 5 else data)
 
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————

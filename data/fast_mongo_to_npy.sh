@@ -14,7 +14,7 @@ summary_root=/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F60184
 out_root=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/basecall_chunk_apple
 
 device=cuda:0
-jobs=${JOBS:-4}
+jobs=${JOBS:-8}
 read_workers=${READ_WORKERS:-16}
 batchsize=${BATCHSIZE:-128}
 chunksize=${CHUNKSIZE:-6000}

@@ -33,7 +33,7 @@ bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD
 
 ~~~
 数据准备：
-1. conda activate /mnt/zzbnew/rnamodel/zhoukexuan/miniconda3/envs/dolma
+1. conda activate /mnt/si002562jbsc/rnamodel/zhoukexuan/miniconda3/envs/dolma
 bash /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage3_OLMo_DLM/step01_dolma.sh
 ~~~
 
