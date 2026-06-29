@@ -226,8 +226,14 @@ def main():
                     help="Which backbone hidden layer to use when --feature_source hidden.")
     ap.add_argument("--learnable_fuse_last_n_layers", type=int, default=0,
                     help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden_layer).")
-    ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "embedding"], default="hidden",
-                    help="Use Stage3 denoised hidden states, raw context_encoder hidden states, or input embeddings as head input features.")
+    ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "embedding"], default="hidden",
+                    help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, or input embeddings as head input features.")
+    ap.add_argument("--elf_ode_steps", type=int, default=4,
+                    help="For --feature_source ode_hidden, number of deterministic ELF ODE steps without adding noise.")
+    ap.add_argument("--elf_ode_start_t", type=float, default=0.85,
+                    help="For --feature_source ode_hidden, starting timestep for deterministic ELF ODE.")
+    ap.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
+                    help="Self-conditioning CFG scale passed to ELF for --feature_source ode_hidden.")
     ap.add_argument("--pre_head_type", choices=["auto", "none", "bilstm", "transformer", "tcn"], default="auto",
                     help="Optional module before CTC-CRF head. Default auto-infers from checkpoint.")
     ap.add_argument("--pre_head_transformer_nhead", type=int, default=8,
@@ -300,6 +306,9 @@ def main():
         head_crf_n_base=n_base,
         head_crf_state_len=state_len,
         head_crf_expand_blanks=True,
+        elf_ode_steps=args.elf_ode_steps,
+        elf_ode_start_t=args.elf_ode_start_t,
+        elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
     ).to(device)
     model.load_state_dict(sd, strict=False)
     model.eval()

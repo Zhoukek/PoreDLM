@@ -49,6 +49,9 @@ class BasecallModel(nn.Module):
         pre_head_transformer_nhead: int = 8,
         head_type: str = "ctc_crf",
         backbone_chunk_size: int = 600,
+        elf_ode_steps: int = 4,
+        elf_ode_start_t: float = 0.85,
+        elf_self_cond_cfg_scale: float = 1.0,
     ):
         del vq_device, vq_token_batch_size
         super().__init__()
@@ -63,11 +66,14 @@ class BasecallModel(nn.Module):
         self.unfreeze_layer_start = unfreeze_layer_start
         self.unfreeze_layer_end = unfreeze_layer_end
         self.backbone_chunk_size = max(0, int(backbone_chunk_size))
+        self.elf_ode_steps = max(1, int(elf_ode_steps))
+        self.elf_ode_start_t = float(elf_ode_start_t)
+        self.elf_self_cond_cfg_scale = float(elf_self_cond_cfg_scale)
         self.tokenizer = None
         self.backbone = None
         self.vq_embedding = None
 
-        allowed_feature_sources = {"hidden", "denoised_hidden", "context_hidden"}
+        allowed_feature_sources = {"hidden", "denoised_hidden", "context_hidden", "ode_hidden"}
         if self.feature_source not in allowed_feature_sources:
             raise ValueError(
                 "model_dlm.BasecallModel supports feature_source in "
@@ -77,6 +83,8 @@ class BasecallModel(nn.Module):
             raise ValueError("PoreDLM HF wrapper does not expose per-layer hidden_states; use hidden_layer=-1.")
         if self.hidden_layer not in {-1, 0}:
             raise ValueError("PoreDLM HF wrapper exposes one sequence feature. Use hidden_layer=-1 or 0.")
+        if not 0.0 < self.elf_ode_start_t <= 1.0:
+            raise ValueError("--elf_ode_start_t must be in (0, 1].")
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         if reset_backbone_weights:
@@ -98,7 +106,7 @@ class BasecallModel(nn.Module):
         ):
             for param in self.backbone.parameters():
                 param.requires_grad = False
-            if self.freeze_backbone and self.unfreeze_last_n_layers == 0:
+            if self.freeze_backbone and not self._has_partial_backbone_unfreeze():
                 self.backbone.eval()
 
         if self.unfreeze_context_last_n_layers > 0:
@@ -259,18 +267,27 @@ class BasecallModel(nn.Module):
         if context_encoder is None:
             raise ValueError("Cannot unfreeze context embeddings: backbone has no context_encoder.")
 
-        embedding_names = ("token_embedding", "position_embedding")
-        missing = [name for name in embedding_names if not hasattr(context_encoder, name)]
-        if missing:
-            raise ValueError(
-                "Cannot unfreeze context embeddings; missing modules: " + ", ".join(missing)
-            )
+        embeddings = []
+        if hasattr(context_encoder, "token_embedding"):
+            embeddings.append(("token_embedding", context_encoder.token_embedding))
+        if hasattr(context_encoder, "position_embedding"):
+            embeddings.append(("position_embedding", context_encoder.position_embedding))
 
-        for name in embedding_names:
-            embedding = getattr(context_encoder, name)
+        hf_embeddings = getattr(context_encoder, "embeddings", None)
+        if hf_embeddings is not None:
+            if hasattr(hf_embeddings, "word_embeddings"):
+                embeddings.append(("embeddings.word_embeddings", hf_embeddings.word_embeddings))
+            if hasattr(hf_embeddings, "position_embeddings"):
+                embeddings.append(("embeddings.position_embeddings", hf_embeddings.position_embeddings))
+
+        if not embeddings:
+            raise ValueError("Cannot unfreeze context embeddings: no known embedding modules found.")
+
+        for _, embedding in embeddings:
             for param in embedding.parameters():
                 param.requires_grad = True
-        print("[PoreDLM] unfreeze context_encoder token_embedding and position_embedding")
+        names = ", ".join(name for name, _ in embeddings)
+        print(f"[PoreDLM] unfreeze context_encoder embeddings: {names}")
 
     def _set_frozen_backbone_submodules_eval(self) -> None:
         if self.backbone is None:
@@ -282,13 +299,20 @@ class BasecallModel(nn.Module):
             if not any(param.requires_grad for param in module.parameters()):
                 module.eval()
 
+    def _has_partial_backbone_unfreeze(self) -> bool:
+        return (
+            self.unfreeze_last_n_layers > 0
+            or self.unfreeze_context_last_n_layers > 0
+            or self.unfreeze_elf_last_n_layers > 0
+            or self.unfreeze_layer_start is not None
+            or self.unfreeze_layer_end is not None
+        )
+
     def train(self, mode: bool = True):
         super().train(mode)
         if (
             self.freeze_backbone
-            and self.unfreeze_last_n_layers == 0
-            and self.unfreeze_layer_start is None
-            and self.unfreeze_layer_end is None
+            and not self._has_partial_backbone_unfreeze()
             and self.backbone is not None
         ):
             self.backbone.eval()
@@ -332,7 +356,7 @@ class BasecallModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.feature_source == "context_hidden" and hasattr(self.backbone, "context_encoder"):
+        if self.feature_source in {"context_hidden", "ode_hidden"} and hasattr(self.backbone, "context_encoder"):
             outputs = self.backbone.context_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -343,6 +367,8 @@ class BasecallModel(nn.Module):
                 hidden = outputs.get("last_hidden_state")
             if hidden is None:
                 raise ValueError("PoreDLM context_encoder output does not contain last_hidden_state.")
+            if self.feature_source == "ode_hidden":
+                return self._ode_from_context_hidden(hidden, attention_mask=attention_mask)
             return hidden
 
         outputs = self.backbone(
@@ -359,3 +385,92 @@ class BasecallModel(nn.Module):
         if hidden is None:
             raise ValueError(f"PoreDLM backbone output does not contain {output_key}.")
         return hidden
+
+    def _get_dlm_config_value(self, key: str, default):
+        dlm_cfg = getattr(self.backbone.config, "dlm_config", None) or {}
+        return dlm_cfg.get(key, default)
+
+    def _elf_t_eps(self) -> float:
+        return float(self._get_dlm_config_value("t_eps", 0.05))
+
+    @staticmethod
+    def _elf_net_out_to_v_x(net_out, z: torch.Tensor, t: torch.Tensor, t_eps: float) -> tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(net_out, tuple):
+            net_out = net_out[0]
+        t_reshaped = t.view(-1, 1, 1)
+        x_pred = net_out
+        v_pred = (x_pred - z) / torch.clamp(1.0 - t_reshaped, min=t_eps)
+        return v_pred, x_pred
+
+    def _elf_forward_ode_sample(
+        self,
+        z: torch.Tensor,
+        t_batch: torch.Tensor,
+        x_pred_prev: torch.Tensor | None,
+        attention_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        elf = getattr(self.backbone, "elf_denoiser", None)
+        if elf is None:
+            raise ValueError("feature_source='ode_hidden' requires backbone.elf_denoiser.")
+
+        num_self_cond_cfg_tokens = int(getattr(elf, "num_self_cond_cfg_tokens", 0))
+        if num_self_cond_cfg_tokens > 0:
+            if x_pred_prev is None:
+                x_pred_prev = torch.zeros_like(z)
+            model_input = torch.cat([z, x_pred_prev], dim=-1)
+            self_cond_cfg_scale = torch.full(
+                (z.shape[0],),
+                self.elf_self_cond_cfg_scale,
+                device=z.device,
+                dtype=z.dtype,
+            )
+            net_out = elf(
+                model_input,
+                t_batch,
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=False,
+            )
+        else:
+            net_out = elf(
+                z,
+                t_batch,
+                attention_mask=attention_mask,
+                decoder_step_active=False,
+            )
+        return self._elf_net_out_to_v_x(net_out, z, t_batch, self._elf_t_eps())
+
+    def _ode_from_context_hidden(
+        self,
+        context: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
+        context = context.to(dtype=context_dtype)
+        z = context
+        x_pred = torch.zeros_like(z)
+        t_steps = torch.linspace(
+            self.elf_ode_start_t,
+            1.0,
+            self.elf_ode_steps + 1,
+            device=context.device,
+            dtype=context.dtype,
+        )
+
+        for idx in range(self.elf_ode_steps):
+            t = t_steps[idx]
+            t_next = t_steps[idx + 1]
+            t_batch = torch.full((z.shape[0],), float(t.detach().item()), device=z.device, dtype=z.dtype)
+            v_pred, x_pred = self._elf_forward_ode_sample(
+                z,
+                t_batch,
+                x_pred,
+                attention_mask=attention_mask,
+            )
+            z = z + (t_next - t) * v_pred
+            if attention_mask is not None:
+                valid_mask = attention_mask.to(device=context.device, dtype=torch.bool).unsqueeze(-1)
+                z = torch.where(valid_mask, z, context)
+                x_pred = torch.where(valid_mask, x_pred, context)
+
+        return z

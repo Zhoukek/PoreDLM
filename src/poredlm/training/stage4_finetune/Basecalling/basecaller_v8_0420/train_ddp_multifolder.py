@@ -712,8 +712,8 @@ def parse_args():
     p.add_argument("--hidden-layer",type=int,default=-1, help="Which backbone hidden layer to use when --feature_source hidden (-1=last, -2=second last, etc.)")
     p.add_argument("--learnable_fuse_last_n_layers", type=int, default=0,
                    help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden-layer).")
-    p.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "embedding", "vq_embedding"], default="hidden",
-                   help="Use Stage3 denoised hidden states, raw context_encoder hidden states, input embeddings, or VQ codebook embeddings.")
+    p.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "embedding", "vq_embedding"], default="hidden",
+                   help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, input embeddings, or VQ codebook embeddings.")
     p.add_argument("--vq_device", type=str, default="cuda",
                    help="Device used when loading VQETokenizer for --feature_source vq_embedding.")
     p.add_argument("--vq_token_batch_size", type=int, default=100,
@@ -803,6 +803,12 @@ def parse_args():
                    help="Attention heads for --pre_head_type transformer.")
     p.add_argument("--backbone_chunk_size", type=int, default=600,
                    help="Encode long token sequences through the backbone in chunks of this length, then concatenate hidden states before the basecalling head. Use 0 to disable chunking.")
+    p.add_argument("--elf_ode_steps", type=int, default=4,
+                   help="For --feature_source ode_hidden, number of deterministic ELF ODE steps without adding noise.")
+    p.add_argument("--elf_ode_start_t", type=float, default=0.85,
+                   help="For --feature_source ode_hidden, starting timestep for deterministic ELF ODE.")
+    p.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
+                   help="Self-conditioning CFG scale passed to ELF for --feature_source ode_hidden.")
 
     p.add_argument("--acc_balanced", action="store_true",
                    help="Use Bonito balanced accuracy: (match - ins) / (match + mismatch + del).")
@@ -885,6 +891,11 @@ def main():
             f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers}"
         )
         logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
+        if args.feature_source == "ode_hidden":
+            logger.info(
+                f"[ELF-ODE] no_noise=True steps={args.elf_ode_steps} "
+                f"start_t={args.elf_ode_start_t} self_cond_cfg_scale={args.elf_self_cond_cfg_scale}"
+            )
         if args.quick:
             logger.info("[Quick] enabled: freeze_backbone=True, ctc_crf_state_len=5, ctc_crf_blank_score=0, head_output_scale=5, head_output_activation=tanh, head_type=ctc_crf, pre_ctc_module=none")
 
@@ -925,6 +936,9 @@ def main():
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
         head_crf_state_len=int(args.ctc_crf_state_len),
+        elf_ode_steps=args.elf_ode_steps,
+        elf_ode_start_t=args.elf_ode_start_t,
+        elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
     )
 
     model = base_model
