@@ -1,0 +1,62 @@
+{
+  "train": {
+    "input_jsonl": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/train.jsonl",
+    "output_npy": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/train_signal_fullapple_chunk500_overlap450.npy",
+    "process_order": "full_signal_first_then_chunk",
+    "total_records": 17397,
+    "valid_signal_records": 17397,
+    "short_signal_records": 0,
+    "invalid_signal_records": 0,
+    "preprocess_empty_records": 0,
+    "processed_short_records": 0,
+    "total_chunks": 426352,
+    "shape": [
+      426352,
+      500
+    ],
+    "dtype": "float32",
+    "elapsed_seconds": 25.209040641784668,
+    "records_per_second": 690.1095621688991,
+    "chunks_per_second": 16912.662645848966
+  },
+  "validation": {
+    "input_jsonl": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/validation.jsonl",
+    "output_npy": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/validation_signal_fullapple_chunk500_overlap450.npy",
+    "process_order": "full_signal_first_then_chunk",
+    "total_records": 2174,
+    "valid_signal_records": 2174,
+    "short_signal_records": 0,
+    "invalid_signal_records": 0,
+    "preprocess_empty_records": 0,
+    "processed_short_records": 0,
+    "total_chunks": 53283,
+    "shape": [
+      53283,
+      500
+    ],
+    "dtype": "float32",
+    "elapsed_seconds": 3.1151435375213623,
+    "records_per_second": 697.881164644437,
+    "chunks_per_second": 17104.50878369344
+  },
+  "test": {
+    "input_jsonl": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/test.jsonl",
+    "output_npy": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/test_signal_fullapple_chunk500_overlap450.npy",
+    "process_order": "full_signal_first_then_chunk",
+    "total_records": 2176,
+    "valid_signal_records": 2176,
+    "short_signal_records": 0,
+    "invalid_signal_records": 0,
+    "preprocess_empty_records": 0,
+    "processed_short_records": 0,
+    "total_chunks": 53444,
+    "shape": [
+      53444,
+      500
+    ],
+    "dtype": "float32",
+    "elapsed_seconds": 3.1124942302703857,
+    "records_per_second": 699.117761837897,
+    "chunks_per_second": 17170.79488219879
+  }
+}

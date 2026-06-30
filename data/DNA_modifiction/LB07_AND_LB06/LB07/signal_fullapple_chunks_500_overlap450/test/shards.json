@@ -1,0 +1,11 @@
+{
+  "total_samples": 53444,
+  "chunk_size": 500,
+  "dtype": "float32",
+  "shards": [
+    {
+      "path": "test_signal_fullapple_chunk500_overlap450.npy",
+      "num_samples": 53444
+    }
+  ]
+}

@@ -9,8 +9,8 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 export WANDB_API_KEY=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
 
 nproc_per_node=4
-batch_size=4
-num_epochs=100
+batch_size=16
+num_epochs=500
 lr="1e-4"
 weight_decay="1e-5"
 warmup_ratio="0.1"
@@ -18,15 +18,12 @@ min_lr="1e-6"
 hidden_layer=-1
 unfreeze_last_n_layers=0
 unfreeze_target="auto"
-unfreeze_context_last_n_layers=8
-unfreeze_elf_last_n_layers=0
+unfreeze_context_last_n_layers=4
+unfreeze_elf_last_n_layers=4
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="tcn"
-feature_source="context_hidden"
-elf_ode_steps=4
-elf_ode_start_t="0.85"
-elf_self_cond_cfg_scale="1.0"
+feature_source="denoised_hidden"
 head_output_activation="tanh"
 head_output_scale=5
 backbone_chunk_size=1200
@@ -34,11 +31,11 @@ ddp_backend="nccl"
 
 
 wandb_project="stage4_finetune"
-wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_mx"
+wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_lr_0.00001_4_layer"
 
 base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/02_150m_no_cond_8k_vq_context_1200/hf_dlm"
-data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp1"
-outdir="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/runs/S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test"
+data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/basecall_validation"
+outdir="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/runs/S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_lr_0.0001_4_layer"
 
 mkdir -p "${outdir}"
 
@@ -64,9 +61,6 @@ nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port 295
   --unfreeze_context_last_n_layers "${unfreeze_context_last_n_layers}" \
   --unfreeze_elf_last_n_layers "${unfreeze_elf_last_n_layers}" \
   --feature_source "${feature_source}" \
-  --elf_ode_steps "${elf_ode_steps}" \
-  --elf_ode_start_t "${elf_ode_start_t}" \
-  --elf_self_cond_cfg_scale "${elf_self_cond_cfg_scale}" \
   --head_output_activation "${head_output_activation}" \
   --head_output_scale "${head_output_scale}" \
   --backbone_chunk_size "${backbone_chunk_size}" \
