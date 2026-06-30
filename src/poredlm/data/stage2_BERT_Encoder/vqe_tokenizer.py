@@ -15,7 +15,6 @@ import gzip
 import numpy as np
 import torch
 from math import ceil
-from ont_fast5_api.fast5_interface import get_fast5_file
 from utils.signal import nanopore_process_signal
 from tqdm import tqdm
 from scipy.signal import medfilt
@@ -24,10 +23,24 @@ from typing import List
 
 import numpy as np
 from typing import List
-import pyccf5 as slow5
+
+try:
+    from ont_fast5_api.fast5_interface import get_fast5_file
+except Exception as exc:
+    get_fast5_file = None
+    _FAST5_IMPORT_ERROR = exc
+else:
+    _FAST5_IMPORT_ERROR = None
+
+try:
+    import pyccf5 as slow5
+except Exception as exc:
+    slow5 = None
+    _CCF5_IMPORT_ERROR = exc
+else:
+    _CCF5_IMPORT_ERROR = None
 
 
-from accelerate import Accelerator
 # Import your model definition (must define NanoporeVQModel)
 from training.stage1_tokenizer.tokenizer_model_v0 import Nanopore_Tokenizer_Model_V0
 from training.stage1_tokenizer.tokenizer_model_v1 import Nanopore_Tokenizer_Model_V1
@@ -39,7 +52,6 @@ def load_accelerate_checkpoint(model_ckpt_dir: str):
     """
     从accelerate保存的目录中加载模型检查点
     """
-    from accelerate import Accelerator
     from safetensors.torch import load_file
     import json
 
@@ -216,6 +228,27 @@ class VQETokenizer:
         print(f"   Chunk size       : {self.chunk_size}")
         print(f"   Margin           : {self.margin} samples")
         print("-" * 60)
+
+    @staticmethod
+    def _indices_to_tokens(raw_model, indices: torch.Tensor, layer: int = 0) -> torch.Tensor:
+        """
+        Convert model forward indices to flat token ids.
+
+        Older/multi-layer tokenizers may expose ``tokenize_indices``. The current
+        Nanopore_Tokenizer_Model_V0/V1 forward already returns token ids as
+        ``indices`` with shape [B, T], so in that case no extra conversion is
+        needed.
+        """
+        if hasattr(raw_model, "tokenize_indices"):
+            return raw_model.tokenize_indices(indices, layer=layer)
+
+        if indices.ndim == 3 and indices.shape[-1] == 1:
+            return indices.squeeze(-1)
+
+        if indices.ndim == 2:
+            return indices
+
+        raise ValueError(f"Unexpected tokenizer indices shape: {tuple(indices.shape)}")
     
 
     def _tokenize_chunked_signal(self, signal: np.ndarray, layer: int = 0) -> np.ndarray:
@@ -251,7 +284,7 @@ class VQETokenizer:
                 # Assume: (recon, level_indices, loss, ...)
                 level_indices = outputs[1]  # [B, N, K]
 
-            tokens_tensor = raw_model.tokenize_indices(level_indices, layer=layer)
+            tokens_tensor = self._indices_to_tokens(raw_model, level_indices, layer=layer)
             tokens = tokens_tensor[0].cpu().numpy().astype(np.int64)  # [T]
             return tokens[:T_expected].astype(np.int64)
 
@@ -275,7 +308,7 @@ class VQETokenizer:
                 outputs = self.model(x)
                 level_indices = outputs[1]  # [B, N, K]
 
-            tokens_tensor = raw_model.tokenize_indices(level_indices, layer=layer)
+            tokens_tensor = self._indices_to_tokens(raw_model, level_indices, layer=layer)
             tokens = tokens_tensor[0].cpu().numpy().astype(np.int64)  # [T]
             T_valid = (real_len + self.downsample_rate - 1) // self.downsample_rate
 
@@ -378,7 +411,7 @@ class VQETokenizer:
 
             # 使用模型的 tokenize_indices 方法将层级索引转换为单一的token ID序列
             # 返回的 tokens_tensor 形状是 [批次大小(Batch_Size), 序列长度(N)]
-            tokens_tensor = raw_model.tokenize_indices(level_indices, layer=layer)
+            tokens_tensor = self._indices_to_tokens(raw_model, level_indices, layer=layer)
             
             # 将整个批次的 tokens 张量转换为 numpy 数组
             # tokens_np_batch 的形状是 [批次大小(Batch_Size), 序列长度(N)]
@@ -435,6 +468,11 @@ class VQETokenizer:
     
 
     def tokenize_fast5(self, fast5_path: str, output_path:str, nanopore_signal_process_strategy="apple"):
+        if get_fast5_file is None:
+            raise ImportError(
+                "ont_fast5_api/h5py is required for tokenize_fast5(), "
+                "but it could not be imported."
+            ) from _FAST5_IMPORT_ERROR
         print(f"✅ Processing {fast5_path} with strategy{nanopore_signal_process_strategy}")
         results = []
         with get_fast5_file(fast5_path, mode="r") as f5:
@@ -533,6 +571,11 @@ class VQETokenizer:
         max_batch_size: int = 32,
         chunk_token_count: int = 8000 # 用于内部校验
     ):
+        if get_fast5_file is None:
+            raise ImportError(
+                "ont_fast5_api/h5py is required for tokenize_fast5_batched(), "
+                "but it could not be imported."
+            ) from _FAST5_IMPORT_ERROR
         print(f"✅ Processing {fast5_path} with strategy {nanopore_signal_process_strategy}")
         results = []
 
@@ -683,6 +726,10 @@ class VQETokenizer:
 
 
     def tokenize_ccf5(self, ccf5_path: str, output_path:str,nanopore_signal_process_strategy="apple"):
+        if slow5 is None:
+            raise ImportError(
+                "pyccf5 is required for tokenize_ccf5(), but it could not be imported."
+            ) from _CCF5_IMPORT_ERROR
         print(f"✅ Process {ccf5_path}")
         """内部方法：处理单个 FAST5 → JSONL.GZ"""
         results = []

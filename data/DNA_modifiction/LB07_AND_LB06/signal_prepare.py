@@ -638,9 +638,9 @@ def process_all_splits(
 
 
 if __name__ == "__main__":
-    split_dir = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split"
+    split_dir = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split"
 
-    output_dir = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450"
+    output_dir = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450"
 
     process_all_splits(
         split_dir=split_dir,

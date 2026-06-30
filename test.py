@@ -1,86 +1,86 @@
-# # 读取jsonl.gz文件
-# import gzip
-# import json
+# 读取jsonl.gz文件
+import gzip
+import json
 
-# # 文件路径
-# # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.jsonl.gz"
-# # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.split.jsonl.gz"
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation/references_validation.jsonl.gz"
+# 文件路径
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.jsonl.gz"
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.split.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation/references_validation.jsonl.gz"
 
-# # 标准
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/validation/250F601844011_0_0_0_0_chunks.split.jsonl.gz"
-# # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
+# 标准
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage2_BERT/train/train_fullapple_token1600.jsonl.gz"
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
-# # file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp_10/temp_10.jsonl.gz"
+# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp_10/temp_10.jsonl.gz"
 
-# # 读取文件并收集所有的keys
-# all_keys = set()
+# 读取文件并收集所有的keys
+all_keys = set()
 
-# with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-#     for line_num, line in enumerate(f, 1):
-#         try:
-#             data = json.loads(line.strip())
-#             all_keys.update(data.keys())
-#         except json.JSONDecodeError as e:
-#             print(f"Line {line_num}: JSON decode error: {e}")
-#         except Exception as e:
-#             print(f"Line {line_num}: Error: {e}")
+with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+    for line_num, line in enumerate(f, 1):
+        try:
+            data = json.loads(line.strip())
+            all_keys.update(data.keys())
+        except json.JSONDecodeError as e:
+            print(f"Line {line_num}: JSON decode error: {e}")
+        except Exception as e:
+            print(f"Line {line_num}: Error: {e}")
 
-# def read_specific_line(file_path, line_number):
-#     """读取指定行（从0开始计数）"""
-#     with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-#         for idx, line in enumerate(f):
-#             if idx == line_number:
-#                 return json.loads(line.strip())
-#     return None
+def read_specific_line(file_path, line_number):
+    """读取指定行（从0开始计数）"""
+    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+        for idx, line in enumerate(f):
+            if idx == line_number:
+                return json.loads(line.strip())
+    return None
 
-# # 输出结果
-# print(f"文件: {file_path}")
-# print(f"总行数: {line_num}")
-# print(f"\n所有的keys:")
-# for key in sorted(all_keys):
-#     print(f"  - {key}")
+# 输出结果
+print(f"文件: {file_path}")
+print(f"总行数: {line_num}")
+print(f"\n所有的keys:")
+for key in sorted(all_keys):
+    print(f"  - {key}")
 
-# # 可选：显示第一行数据的示例
-# print("\n" + "="*50)
+# 可选：显示第一行数据的示例
+print("\n" + "="*50)
 
-# data = read_specific_line(file_path, 0)  # 索引1表示第二行
-# print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
+data = read_specific_line(file_path, 0)  # 索引1表示第二行
+print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 
-# # data = read_specific_line(file_path, 1)  # 索引1表示第二行
-# # print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
+# data = read_specific_line(file_path, 1)  # 索引1表示第二行
+# print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 
 # # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-# 读取npy文件
-import numpy as np
+# # 读取npy文件
+# import numpy as np
 
-# 读取 npy 文件
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
-file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
-file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_chunks_500_overlap450_apple/train_signal_chunk500_overlap450_apple.npy"
+# # 读取 npy 文件
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
+# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
+# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_chunks_500_overlap450_apple/train_signal_chunk500_overlap450_apple.npy"
 
-data = np.load(file_path, allow_pickle=True)
+# data = np.load(file_path, allow_pickle=True)
 
-# 输出基本信息
-print("=" * 50)
-print("文件信息:")
-print(f"文件路径: {file_path}")
-print(f"数据类型: {data.dtype}")
-print(f"数组形状: {data.shape}")
-print(f"数组维度: {data.ndim}")
-print(f"总元素数: {data.size}")
-print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
-print("=" * 50)
+# # 输出基本信息
+# print("=" * 50)
+# print("文件信息:")
+# print(f"文件路径: {file_path}")
+# print(f"数据类型: {data.dtype}")
+# print(f"数组形状: {data.shape}")
+# print(f"数组维度: {data.ndim}")
+# print(f"总元素数: {data.size}")
+# print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
+# print("=" * 50)
 
-# 输出内容
-# print("\n数组内容:")
-# print(data)
+# # 输出内容
+# # print("\n数组内容:")
+# # print(data)
 
-# 如果是高维数组，输出部分内容
-if data.ndim >= 2:
-    print(f"\n前5行（如果有）:")
-    print(data[1] if data.shape[0] > 5 else data)
+# # 如果是高维数组，输出部分内容
+# if data.ndim >= 2:
+#     print(f"\n前5行（如果有）:")
+#     print(data[1] if data.shape[0] > 5 else data)
 
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————

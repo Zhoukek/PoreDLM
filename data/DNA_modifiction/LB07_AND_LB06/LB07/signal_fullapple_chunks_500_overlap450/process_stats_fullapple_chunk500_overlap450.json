@@ -1,7 +1,7 @@
 {
   "train": {
-    "input_jsonl": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/train.jsonl",
-    "output_npy": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/train_signal_fullapple_chunk500_overlap450.npy",
+    "input_jsonl": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/train.jsonl",
+    "output_npy": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/train_signal_fullapple_chunk500_overlap450.npy",
     "process_order": "full_signal_first_then_chunk",
     "total_records": 17397,
     "valid_signal_records": 17397,
@@ -15,13 +15,13 @@
       500
     ],
     "dtype": "float32",
-    "elapsed_seconds": 25.209040641784668,
-    "records_per_second": 690.1095621688991,
-    "chunks_per_second": 16912.662645848966
+    "elapsed_seconds": 87.85342812538147,
+    "records_per_second": 198.023006856051,
+    "chunks_per_second": 4852.992183657589
   },
   "validation": {
-    "input_jsonl": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/validation.jsonl",
-    "output_npy": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/validation_signal_fullapple_chunk500_overlap450.npy",
+    "input_jsonl": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/validation.jsonl",
+    "output_npy": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/validation_signal_fullapple_chunk500_overlap450.npy",
     "process_order": "full_signal_first_then_chunk",
     "total_records": 2174,
     "valid_signal_records": 2174,
@@ -35,13 +35,13 @@
       500
     ],
     "dtype": "float32",
-    "elapsed_seconds": 3.1151435375213623,
-    "records_per_second": 697.881164644437,
-    "chunks_per_second": 17104.50878369344
+    "elapsed_seconds": 3.9453749656677246,
+    "records_per_second": 551.0249390534334,
+    "chunks_per_second": 13505.180233479345
   },
   "test": {
-    "input_jsonl": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/test.jsonl",
-    "output_npy": "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/test_signal_fullapple_chunk500_overlap450.npy",
+    "input_jsonl": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split/test.jsonl",
+    "output_npy": "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/signal_fullapple_chunks_500_overlap450/test_signal_fullapple_chunk500_overlap450.npy",
     "process_order": "full_signal_first_then_chunk",
     "total_records": 2176,
     "valid_signal_records": 2176,
@@ -55,8 +55,8 @@
       500
     ],
     "dtype": "float32",
-    "elapsed_seconds": 3.1124942302703857,
-    "records_per_second": 699.117761837897,
-    "chunks_per_second": 17170.79488219879
+    "elapsed_seconds": 3.7490432262420654,
+    "records_per_second": 580.4147534946298,
+    "chunks_per_second": 14255.370443826743
   }
 }
