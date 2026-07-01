@@ -8,7 +8,7 @@ import json
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation/references_validation.jsonl.gz"
 
 # 标准
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage2_BERT/train/train_fullapple_token1600.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage2_BERT/test/test_fullapple_token1600.jsonl.gz"
 # file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
 
 # file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp_10/temp_10.jsonl.gz"

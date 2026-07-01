@@ -43,7 +43,7 @@ training:
   max_train_steps: 2000000
   learning_rate: 5.0e-4
   weight_decay: 0.01
-  warmup_steps: 100
+  warmup_steps: 1000
   lr_scheduler_type: cosine
   device_micro_batch_size: 16
   gradient_accumulation_steps: 1
@@ -54,7 +54,7 @@ training:
   log_every_steps: 10
   eval_every_steps: 100
   max_eval_batches: 100
-  save_every_steps: 10000
+  save_every_steps: 5000
   # Set this to models/step_best or models/step_STEP to resume.
   # v2 checkpoints restore model + optimizer + scheduler + global_step.
   # Older model-only checkpoints restore only model weights.

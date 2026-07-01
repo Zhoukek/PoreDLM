@@ -19,17 +19,18 @@ from tqdm.auto import tqdm
 
 THIS_FILE = Path(__file__).resolve()
 REPO_ROOT = THIS_FILE.parents[5]
-SRC_ROOT = REPO_ROOT / "src"
-for import_root in (SRC_ROOT, REPO_ROOT):
+TRAINING_DIR = REPO_ROOT / "src" / "poredlm" / "training"
+STAGE4_DIR = TRAINING_DIR / "stage4_finetune"
+for import_root in (STAGE4_DIR, TRAINING_DIR, REPO_ROOT / "src", REPO_ROOT):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
-from poredlm.training.stage2_BERT_Encoder.dataset import (  # noqa: E402
+from stage2_BERT_Encoder.dataset import (  # noqa: E402
     build_bwav_vocab_lookup,
-    load_vocab,
+    load_tokenizer_vocab,
     parse_bwav_token_text,
 )
-from poredlm.training.stage4_finetune.Basecalling.basecaller_v8_0420.model_dlm import (  # noqa: E402
+from Basecalling.basecaller_v8_0420.model_dlm import (  # noqa: E402
     BasecallModel,
 )
 
@@ -160,7 +161,7 @@ def iter_records(
     unk_token_id: int,
     pad_token_id: int,
 ) -> Iterator[TokenRecord]:
-    vocab = load_vocab(tokenizer_json) if tokenizer_json else None
+    vocab = load_tokenizer_vocab(tokenizer_json) if tokenizer_json else None
     bwav_vocab_lookup = build_bwav_vocab_lookup(vocab) if vocab is not None else None
 
     for path in iter_input_files(jsonl_inputs, (".jsonl", ".jsonl.gz")):

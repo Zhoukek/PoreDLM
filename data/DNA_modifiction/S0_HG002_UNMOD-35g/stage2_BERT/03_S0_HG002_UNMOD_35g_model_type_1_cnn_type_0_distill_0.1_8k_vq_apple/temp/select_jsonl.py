@@ -25,7 +25,7 @@ def extract_first_n_records(input_file, output_file, n=1000):
 
 # 使用示例
 if __name__ == "__main__":
-    input_file = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/validation/250F601844011_0_0_0_1_chunks.jsonl.gz"   # 替换为您的输入文件路径
-    output_file = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/temp/validation/1000_chunks.jsonl.gz"  # 替换为输出文件路径
+    input_file = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall/validation_00001.jsonl.gz"   # 替换为您的输入文件路径
+    output_file = "/mnt/zzbnew/rnamodel/shenhaojie/signalDNAmodel/test-haojieshen-model-type26-cnn_type13_teacher_model_distill0.1_VQ_64k_lemon/basecall_1000/1000_chunks.jsonl.gz"  # 替换为输出文件路径
     
     extract_first_n_records(input_file, output_file, 1000)

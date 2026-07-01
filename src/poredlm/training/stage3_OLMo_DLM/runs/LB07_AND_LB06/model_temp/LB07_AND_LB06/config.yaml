@@ -1,4 +1,4 @@
-run_name: poredlm-stage3-olmo-150m-dlm_02_150m_no_cond_8k_vq_context_1200
+run_name: poredlm-stage3-olmo-150m-dlm_02_150m_LB07_AND_LB06
 seed: 6198
 epoch: null
 dry_run: false
@@ -47,7 +47,7 @@ model:
   emb_init_std: null
   norm_after: true
 dlm:
-  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/01_BERT_S0_HG002_UNMOD_35G/models/step_best
+  context_encoder_path: //mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/LB07_AND_LB06/models/step_best
   freeze_context_encoder: true
   max_length: 1280
   max_input_length: null
@@ -114,14 +114,7 @@ scheduler:
   warmup_min_lr: 0.0
 data:
   paths:
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-0-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-1-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-2-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-3-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-4-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-5-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-6-00000.npy
-  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/train/part-7-00000.npy
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage3_DLM/train/part-0-00000.npy
   memmap_dtype: uint16
   datasets: null
   label_mask_paths: null
@@ -150,8 +143,7 @@ evaluators:
     memmap_dtype: uint16
     datasets:
       small_eval:
-      - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/validation/part-0-00000.npy
-      - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage3_OLMo_DLM/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_1200/validation/part-1-00000.npy
+      - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage3_DLM/validation/part-0-00000.npy
     label_mask_paths: null
     pad_direction: right
     generate_attention_mask: false
@@ -171,7 +163,7 @@ eval_interval: 1000
 tokenizer:
   identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_split_600/tokenizer-8k.json
   truncate_direction: right
-save_folder: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/02_150m_no_cond_8k_vq_context_1200/model/02_150m_no_cond_8k_vq_context_1200
+save_folder: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/LB07_AND_LB06/model/LB07_AND_LB06
 remote_save_folder: null
 canceled_check_interval: 50
 save_interval: 1000
@@ -190,10 +182,10 @@ reset_trainer_state: false
 sharded_checkpointer: olmo_core
 new_style_checkpoints: null
 max_duration: 5ep
-global_train_batch_size: 128
-device_train_batch_size: 32
-device_train_microbatch_size: 16
-device_eval_batch_size: 16
+global_train_batch_size: 32
+device_train_batch_size: 16
+device_train_microbatch_size: 8
+device_eval_batch_size: 8
 eval_subset_num_batches: -1
 eval_on_load: false
 device_train_grad_accum: 2
@@ -204,7 +196,7 @@ wandb:
   project: poredlm-stage3
   entity: zhoukek-zhejiang-university
   group: null
-  name: poredlm-stage3-olmo-150m-dlm_02_150m_no_cond_8k_vq_context_1200
+  name: poredlm-stage3-olmo-150m-dlm_02_150m_LB07_AND_LB06
   tags:
   - watching
   log_artifacts: false
@@ -234,7 +226,7 @@ early_stopping_factor: null
 save_data_indices: true
 python_profiling: false
 torch_profiling: false
-stop_at: 82375
+stop_at: null
 stop_after: null
 activation_checkpointing: null
 fused_loss: null

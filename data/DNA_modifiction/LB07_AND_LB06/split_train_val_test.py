@@ -109,8 +109,8 @@ def split_jsonl(
 
 if __name__ == "__main__":
     split_jsonl(
-        input_jsonl="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/lb07_signal_none_selected.jsonl",
-        output_dir="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/split",
+        input_jsonl="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/lb06_signal_none_selected.jsonl",
+        output_dir="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/split",
         train_ratio=0.8,
         val_ratio=0.1,
         test_ratio=0.1,
