@@ -234,6 +234,7 @@ def process_one_jsonl(
                     "padded_token_count": max(0, target_token_length - original_token_len),
                     "truncated": was_truncated,
                     "strategy": strategy,
+                    "base_sample_spans_rel": obj.get("base_sample_spans_rel"),
                 },
             }
             fout.write(json.dumps(out_item, ensure_ascii=False) + "\n")

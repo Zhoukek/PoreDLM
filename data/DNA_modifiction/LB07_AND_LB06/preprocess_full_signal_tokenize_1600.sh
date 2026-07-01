@@ -13,7 +13,7 @@ python_script="${project_root}/data/DNA_modifiction/LB07_AND_LB06/preprocess_ful
 
 split_dir="${project_root}/data/DNA_modifiction/LB07_AND_LB06/LB06/split"
 output_dir="${project_root}/data/DNA_modifiction/LB07_AND_LB06/LB06/stage2_fullapple_token1600"
-splits="train,validation,test"
+splits="validation"
 
 model_ckpt="${project_root}/src/poredlm/training/stage1_tokenizer/runs/LB07_AND_LB06_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/models/porepgt_vqe_tokenizer.final.pth"
 

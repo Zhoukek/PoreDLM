@@ -1,17 +1,9 @@
-# 读取jsonl.gz文件
+# # 读取jsonl.gz文件
 import gzip
 import json
 
 # 文件路径
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.jsonl.gz"
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test/train_00005.split.jsonl.gz"
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/stage2_BERT_Encoder/validation/references_validation.jsonl.gz"
-
-# 标准
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage2_BERT/test/test_fullapple_token1600.jsonl.gz"
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/00_S0_HG002_UNMOD_35g_model_type_0_cnn_type_0_8k_vq/validation/250F601844011_0_0_0_0_chunks.jsonl.gz"
-
-# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp_10/temp_10.jsonl.gz"
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/stage2_fullapple_token1600/validation/validation_fullapple_token1600_modlabel.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()
@@ -34,6 +26,33 @@ def read_specific_line(file_path, line_number):
                 return json.loads(line.strip())
     return None
 
+def truncate_value(value, max_length=100):
+    """截断过长的值"""
+    if isinstance(value, str):
+        if len(value) > max_length:
+            return value[:max_length] + "...(truncated)"
+        return value
+    elif isinstance(value, list):
+        if len(value) > 10:  # 列表只显示前10个元素
+            return [truncate_value(v, max_length) for v in value[:10]] + [f"...({len(value)-10} more)"]
+        return [truncate_value(v, max_length) for v in value]
+    elif isinstance(value, dict):
+        # 对于字典，限制显示的键值对数量
+        new_dict = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= 20:  # 只显示前10个键值对
+                new_dict[f"...({len(value)-10} more keys)"] = "..."
+                break
+            new_dict[k] = truncate_value(v, max_length)
+        return new_dict
+    else:
+        return value
+
+def print_truncated_json(data, max_length=100, indent=2):
+    """打印截断后的JSON"""
+    truncated = truncate_value(data, max_length)
+    print(json.dumps(truncated, indent=indent, ensure_ascii=False))
+
 # 输出结果
 print(f"文件: {file_path}")
 print(f"总行数: {line_num}")
@@ -41,11 +60,12 @@ print(f"\n所有的keys:")
 for key in sorted(all_keys):
     print(f"  - {key}")
 
-# 可选：显示第一行数据的示例
+# 显示第一行数据的示例（截断版）
 print("\n" + "="*50)
+print("第一行数据（截断版）:")
 
-data = read_specific_line(file_path, 0)  # 索引1表示第二行
-print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
+data = read_specific_line(file_path, 0)
+print_truncated_json(data, max_length=300)  # 可以调整这个长度
 
 # data = read_specific_line(file_path, 1)  # 索引1表示第二行
 # print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
@@ -137,7 +157,7 @@ print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 # print(f"Total reads: {total_reads}")
 
 
-###################
+##################
 # 读取jsonl文件
 
 # import json
@@ -241,7 +261,7 @@ print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 #             print(json.dumps(sample_to_show, ensure_ascii=False, indent=2))
 
 # # 使用示例
-# analyze_jsonl("/mnt/si002562jbsc/rnamodel/wangxue/DNA_modification/03.token/result_0331/LB06_1/signal_none.jsonl")
+# analyze_jsonl("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/lb06_signal_none_selected.jsonl")
 
 
 # import json
@@ -269,4 +289,4 @@ print("第一行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 #                 print(f"第 {i} 行解析失败: {e}")
 
 # # 使用
-# print_signal("/mnt/si002562jbsc/rnamodel/wangxue/DNA_modification/03.token/result_0331/LB07_1/signal.jsonl")
+# print_signal("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/lb06_signal_none_selected.jsonl")
