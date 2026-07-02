@@ -1,0 +1,65 @@
+====================================================================================================
+train/test/val split summary
+====================================================================================================
+RANDOM_SEED: 42
+TRAIN_RATIO: 0.8
+TEST_RATIO: 0.1
+VAL_RATIO: 0.1
+Constraint: val records are all from LB06
+
+Input files:
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/LB06_250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/LB06_250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl
+
+Input source line counts:
+  LB06_250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 7928
+  LB06_250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 7733
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 9603
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 9716
+
+Input group counts:
+  LB06: 15661
+  LB07: 19319
+
+Total records: 34980
+
+Split counts:
+  train: 27984 (0.800000)
+  test : 3498 (0.100000)
+  val  : 3498 (0.100000)
+
+Train group counts:
+  LB07: 17189
+  LB06: 10795
+
+Test group counts:
+  LB07: 2130
+  LB06: 1368
+
+Val group counts:
+  LB06: 3498
+
+Train source counts:
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 8625
+  LB06_250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 5460
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 8564
+  LB06_250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 5335
+
+Test source counts:
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 1039
+  LB06_250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 691
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 1091
+  LB06_250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 677
+
+Val source counts:
+  LB06_250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 1721
+  LB06_250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 1777
+
+Output files:
+  train: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/train.jsonl
+  test : /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/test.jsonl
+  val  : /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/val.jsonl
+  summary: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_train_test_val_summary.txt
+====================================================================================================

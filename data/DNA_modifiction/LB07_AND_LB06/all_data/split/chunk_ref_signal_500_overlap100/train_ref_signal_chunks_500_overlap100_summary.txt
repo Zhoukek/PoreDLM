@@ -1,0 +1,81 @@
+====================================================================================================
+Extract base_sample_span_ref signal and chunk summary
+====================================================================================================
+INPUT_JSONL: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/train.jsonl
+OUTPUT_DIR: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/chunk_ref_signal_500_overlap100
+OUTPUT_NPY: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/chunk_ref_signal_500_overlap100/train_ref_signal_chunks_500_overlap100.npy
+OUTPUT_META_JSONL: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/chunk_ref_signal_500_overlap100/train_ref_signal_chunks_500_overlap100_meta.jsonl
+
+CHUNK_SIZE: 500
+OVERLAP: 100
+STRIDE: 400
+SAVE_DTYPE: <class 'numpy.float16'>
+
+First pass:
+  total_records: 27984
+  valid_records: 27790
+  total_chunks: 121281
+  skipped reasons: {'no_valid_ref_spans': 159, 'extracted_signal_shorter_than_chunk_size': 35}
+
+Second pass:
+  total_records: 27984
+  valid_records: 27790
+  written_chunks: 121281
+  skipped reasons: {'no_valid_ref_spans': 159, 'extracted_signal_shorter_than_chunk_size': 35}
+
+Label counts in input:
+  seq_6: 2473
+  seq_17: 2330
+  seq_7: 2290
+  seq_5: 2228
+  seq_1: 1982
+  seq_4: 1937
+  seq_11: 1829
+  seq_2: 1796
+  seq_14: 1474
+  seq_15: 1458
+  seq_3: 1434
+  seq_8: 1331
+  seq_9: 1329
+  seq_16: 1300
+  seq_12: 1067
+  seq_10: 998
+  seq_13: 728
+
+Chunk count per record distribution:
+  1 chunks/record: 127 records
+  2 chunks/record: 732 records
+  3 chunks/record: 12598 records
+  4 chunks/record: 8470 records
+  5 chunks/record: 1051 records
+  6 chunks/record: 375 records
+  7 chunks/record: 1460 records
+  8 chunks/record: 1570 records
+  9 chunks/record: 486 records
+  10 chunks/record: 164 records
+  11 chunks/record: 69 records
+  12 chunks/record: 71 records
+  13 chunks/record: 81 records
+  14 chunks/record: 105 records
+  15 chunks/record: 132 records
+  16 chunks/record: 101 records
+  17 chunks/record: 57 records
+  18 chunks/record: 39 records
+  19 chunks/record: 26 records
+  20 chunks/record: 17 records
+  21 chunks/record: 14 records
+  22 chunks/record: 9 records
+  23 chunks/record: 8 records
+  24 chunks/record: 8 records
+  25 chunks/record: 3 records
+  26 chunks/record: 4 records
+  27 chunks/record: 2 records
+  28 chunks/record: 2 records
+  29 chunks/record: 2 records
+  30 chunks/record: 2 records
+  32 chunks/record: 1 records
+  33 chunks/record: 1 records
+  41 chunks/record: 1 records
+  42 chunks/record: 1 records
+  59 chunks/record: 1 records
+====================================================================================================

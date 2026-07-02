@@ -1,0 +1,185 @@
+====================================================================================================
+base_sample_span_ref signal length max / mean summary
+====================================================================================================
+DATA_DIR: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split
+OUTPUT_SUMMARY: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/base_sample_span_ref_signal_length_max_mean_summary.txt
+SAVE_DETAIL_CSV: False
+
+----------------------------------------------------------------------------------------------------
+train: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/train.jsonl
+  total_lines: 27984
+  valid_json: 27984
+  valid_records_with_base_sample_span_ref: 27825
+  skipped reasons: {'no_valid_span': 159}
+
+  电信号长度统计 ordered_signal_length = last_span_end - first_span_start:
+    count : 27825
+    mean  : 2050.931
+    std   : 1017.564
+    median: 1708.000
+    min   : 7.000
+    max   : 23763.000
+
+  最长记录信息:
+    length: 23763
+    line_idx: 9481
+    read_id: 250F600084012_1_2533_47_812278_57470
+    label: seq_3
+    group: unknown
+    first_span_start: 472
+    last_span_end: 24235
+    base_sample_span_ref_len: 274
+    valid_span_count: 248
+    seq_len: 366
+    ref_len: 274
+    signal_len: 24265
+
+  group counts:
+    unknown: 27984
+
+  label counts:
+    seq_1: 1982
+    seq_2: 1796
+    seq_3: 1434
+    seq_4: 1937
+    seq_5: 2228
+    seq_6: 2473
+    seq_7: 2290
+    seq_8: 1331
+    seq_9: 1329
+    seq_10: 998
+    seq_11: 1829
+    seq_12: 1067
+    seq_13: 728
+    seq_14: 1474
+    seq_15: 1458
+    seq_16: 1300
+    seq_17: 2330
+----------------------------------------------------------------------------------------------------
+test: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/test.jsonl
+  total_lines: 3498
+  valid_json: 3498
+  valid_records_with_base_sample_span_ref: 3479
+  skipped reasons: {'no_valid_span': 19}
+
+  电信号长度统计 ordered_signal_length = last_span_end - first_span_start:
+    count : 3479
+    mean  : 2023.963
+    std   : 989.911
+    median: 1707.000
+    min   : 7.000
+    max   : 19923.000
+
+  最长记录信息:
+    length: 19923
+    line_idx: 551
+    read_id: 250F600084012_1_2518_188_3338162_52044
+    label: seq_6
+    group: unknown
+    first_span_start: 102
+    last_span_end: 20025
+    base_sample_span_ref_len: 274
+    valid_span_count: 261
+    seq_len: 492
+    ref_len: 274
+    signal_len: 20100
+
+  group counts:
+    unknown: 3498
+
+  label counts:
+    seq_1: 213
+    seq_2: 258
+    seq_3: 172
+    seq_4: 224
+    seq_5: 302
+    seq_6: 310
+    seq_7: 308
+    seq_8: 157
+    seq_9: 180
+    seq_10: 141
+    seq_11: 223
+    seq_12: 104
+    seq_13: 113
+    seq_14: 166
+    seq_15: 185
+    seq_16: 161
+    seq_17: 281
+----------------------------------------------------------------------------------------------------
+val: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/val.jsonl
+  total_lines: 3498
+  valid_json: 3498
+  valid_records_with_base_sample_span_ref: 3483
+  skipped reasons: {'no_valid_span': 15}
+
+  电信号长度统计 ordered_signal_length = last_span_end - first_span_start:
+    count : 3483
+    mean  : 2091.277
+    std   : 999.970
+    median: 1732.000
+    min   : 73.000
+    max   : 14755.000
+
+  最长记录信息:
+    length: 14755
+    line_idx: 2146
+    read_id: 250F600084012_1_2505_287_4775170_59780
+    label: seq_12
+    group: unknown
+    first_span_start: 160
+    last_span_end: 14915
+    base_sample_span_ref_len: 274
+    valid_span_count: 260
+    seq_len: 274
+    ref_len: 274
+    signal_len: 14950
+
+  group counts:
+    unknown: 3498
+
+  label counts:
+    seq_1: 188
+    seq_2: 141
+    seq_3: 116
+    seq_4: 106
+    seq_5: 163
+    seq_6: 411
+    seq_7: 325
+    seq_8: 122
+    seq_9: 225
+    seq_10: 169
+    seq_11: 166
+    seq_12: 134
+    seq_13: 145
+    seq_14: 331
+    seq_15: 244
+    seq_16: 144
+    seq_17: 368
+----------------------------------------------------------------------------------------------------
+整体 train + test + val:
+  total_valid_records: 34787
+  mean : 2052.274
+  std  : 1013.196
+  median: 1710.000
+  min  : 7.000
+  max  : 23763.000
+
+整体最长记录:
+  split: train
+  length: 23763
+  line_idx: 9481
+  read_id: 250F600084012_1_2533_47_812278_57470
+  label: seq_3
+  group: unknown
+  first_span_start: 472
+  last_span_end: 24235
+  base_sample_span_ref_len: 274
+  valid_span_count: 248
+  seq_len: 366
+  ref_len: 274
+  signal_len: 24265
+
+字段解释:
+  ordered_signal_length = base_sample_span_ref 最后一个有效 span 的 end - 第一个有效 span 的 start
+  这个值就是你要看的 base_sample_span_ref 覆盖的电信号长度
+====================================================================================================

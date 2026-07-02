@@ -38,20 +38,19 @@ from tqdm import tqdm
 # =============================================================================
 
 INPUT_DIR = (
-    "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/"
-    "/S0_HG002_UNMOD-35g/stage1_tokenizer/train"
+    "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage1_tokenzier_train/test"
 )
 
 OUTPUT_JSON = "shards.json"
 
-FILE_PATTERN = "*_chunks.npy"
+FILE_PATTERN = "*_overlap100.npy"
 
 # 是否允许覆盖已有 shards.json
 OVERWRITE = True
 
 # 如果你想强制检查 chunk_size 是否为 6000，就设为 True
 CHECK_EXPECTED_CHUNK_SIZE = True
-EXPECTED_CHUNK_SIZE = 6000
+EXPECTED_CHUNK_SIZE = 500
 
 
 # =============================================================================

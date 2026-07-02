@@ -1,0 +1,71 @@
+====================================================================================================
+Extract base_sample_span_ref signal and chunk summary
+====================================================================================================
+INPUT_JSONL: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/val.jsonl
+OUTPUT_DIR: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/chunk_ref_signal_500_overlap100
+OUTPUT_NPY: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/chunk_ref_signal_500_overlap100/val_ref_signal_chunks_500_overlap100.npy
+OUTPUT_META_JSONL: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/chunk_ref_signal_500_overlap100/val_ref_signal_chunks_500_overlap100_meta.jsonl
+
+CHUNK_SIZE: 500
+OVERLAP: 100
+STRIDE: 400
+SAVE_DTYPE: <class 'numpy.float16'>
+
+First pass:
+  total_records: 3498
+  valid_records: 3477
+  total_chunks: 15530
+  skipped reasons: {'extracted_signal_shorter_than_chunk_size': 6, 'no_valid_ref_spans': 15}
+
+Second pass:
+  total_records: 3498
+  valid_records: 3477
+  written_chunks: 15530
+  skipped reasons: {'extracted_signal_shorter_than_chunk_size': 6, 'no_valid_ref_spans': 15}
+
+Label counts in input:
+  seq_6: 411
+  seq_17: 368
+  seq_14: 331
+  seq_7: 325
+  seq_15: 244
+  seq_9: 225
+  seq_1: 188
+  seq_10: 169
+  seq_11: 166
+  seq_5: 163
+  seq_13: 145
+  seq_16: 144
+  seq_2: 141
+  seq_12: 134
+  seq_8: 122
+  seq_3: 116
+  seq_4: 106
+
+Chunk count per record distribution:
+  1 chunks/record: 15 records
+  2 chunks/record: 87 records
+  3 chunks/record: 1437 records
+  4 chunks/record: 1126 records
+  5 chunks/record: 138 records
+  6 chunks/record: 48 records
+  7 chunks/record: 189 records
+  8 chunks/record: 252 records
+  9 chunks/record: 67 records
+  10 chunks/record: 35 records
+  11 chunks/record: 10 records
+  12 chunks/record: 8 records
+  13 chunks/record: 14 records
+  14 chunks/record: 12 records
+  15 chunks/record: 16 records
+  16 chunks/record: 8 records
+  17 chunks/record: 3 records
+  18 chunks/record: 4 records
+  19 chunks/record: 2 records
+  20 chunks/record: 1 records
+  25 chunks/record: 1 records
+  28 chunks/record: 1 records
+  29 chunks/record: 1 records
+  33 chunks/record: 1 records
+  36 chunks/record: 1 records
+====================================================================================================

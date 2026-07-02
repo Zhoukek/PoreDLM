@@ -1,71 +1,71 @@
 # # 读取jsonl.gz文件
-import gzip
-import json
+# import gzip
+# import json
 
-# 文件路径
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/stage2_fullapple_token1600/validation/validation_fullapple_token1600_modlabel.jsonl.gz"
+# # 文件路径
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/stage2_fullapple_token1600/validation/validation_fullapple_token1600_modlabel.jsonl.gz"
 
-# 读取文件并收集所有的keys
-all_keys = set()
+# # 读取文件并收集所有的keys
+# all_keys = set()
 
-with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-    for line_num, line in enumerate(f, 1):
-        try:
-            data = json.loads(line.strip())
-            all_keys.update(data.keys())
-        except json.JSONDecodeError as e:
-            print(f"Line {line_num}: JSON decode error: {e}")
-        except Exception as e:
-            print(f"Line {line_num}: Error: {e}")
+# with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+#     for line_num, line in enumerate(f, 1):
+#         try:
+#             data = json.loads(line.strip())
+#             all_keys.update(data.keys())
+#         except json.JSONDecodeError as e:
+#             print(f"Line {line_num}: JSON decode error: {e}")
+#         except Exception as e:
+#             print(f"Line {line_num}: Error: {e}")
 
-def read_specific_line(file_path, line_number):
-    """读取指定行（从0开始计数）"""
-    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-        for idx, line in enumerate(f):
-            if idx == line_number:
-                return json.loads(line.strip())
-    return None
+# def read_specific_line(file_path, line_number):
+#     """读取指定行（从0开始计数）"""
+#     with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+#         for idx, line in enumerate(f):
+#             if idx == line_number:
+#                 return json.loads(line.strip())
+#     return None
 
-def truncate_value(value, max_length=100):
-    """截断过长的值"""
-    if isinstance(value, str):
-        if len(value) > max_length:
-            return value[:max_length] + "...(truncated)"
-        return value
-    elif isinstance(value, list):
-        if len(value) > 10:  # 列表只显示前10个元素
-            return [truncate_value(v, max_length) for v in value[:10]] + [f"...({len(value)-10} more)"]
-        return [truncate_value(v, max_length) for v in value]
-    elif isinstance(value, dict):
-        # 对于字典，限制显示的键值对数量
-        new_dict = {}
-        for i, (k, v) in enumerate(value.items()):
-            if i >= 20:  # 只显示前10个键值对
-                new_dict[f"...({len(value)-10} more keys)"] = "..."
-                break
-            new_dict[k] = truncate_value(v, max_length)
-        return new_dict
-    else:
-        return value
+# def truncate_value(value, max_length=100):
+#     """截断过长的值"""
+#     if isinstance(value, str):
+#         if len(value) > max_length:
+#             return value[:max_length] + "...(truncated)"
+#         return value
+#     elif isinstance(value, list):
+#         if len(value) > 10:  # 列表只显示前10个元素
+#             return [truncate_value(v, max_length) for v in value[:10]] + [f"...({len(value)-10} more)"]
+#         return [truncate_value(v, max_length) for v in value]
+#     elif isinstance(value, dict):
+#         # 对于字典，限制显示的键值对数量
+#         new_dict = {}
+#         for i, (k, v) in enumerate(value.items()):
+#             if i >= 20:  # 只显示前10个键值对
+#                 new_dict[f"...({len(value)-10} more keys)"] = "..."
+#                 break
+#             new_dict[k] = truncate_value(v, max_length)
+#         return new_dict
+#     else:
+#         return value
 
-def print_truncated_json(data, max_length=100, indent=2):
-    """打印截断后的JSON"""
-    truncated = truncate_value(data, max_length)
-    print(json.dumps(truncated, indent=indent, ensure_ascii=False))
+# def print_truncated_json(data, max_length=100, indent=2):
+#     """打印截断后的JSON"""
+#     truncated = truncate_value(data, max_length)
+#     print(json.dumps(truncated, indent=indent, ensure_ascii=False))
 
-# 输出结果
-print(f"文件: {file_path}")
-print(f"总行数: {line_num}")
-print(f"\n所有的keys:")
-for key in sorted(all_keys):
-    print(f"  - {key}")
+# # 输出结果
+# print(f"文件: {file_path}")
+# print(f"总行数: {line_num}")
+# print(f"\n所有的keys:")
+# for key in sorted(all_keys):
+#     print(f"  - {key}")
 
-# 显示第一行数据的示例（截断版）
-print("\n" + "="*50)
-print("第一行数据（截断版）:")
+# # 显示第一行数据的示例（截断版）
+# print("\n" + "="*50)
+# print("第一行数据（截断版）:")
 
-data = read_specific_line(file_path, 0)
-print_truncated_json(data, max_length=300)  # 可以调整这个长度
+# data = read_specific_line(file_path, 0)
+# print_truncated_json(data, max_length=300)  # 可以调整这个长度
 
 # data = read_specific_line(file_path, 1)  # 索引1表示第二行
 # print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
@@ -261,7 +261,7 @@ print_truncated_json(data, max_length=300)  # 可以调整这个长度
 #             print(json.dumps(sample_to_show, ensure_ascii=False, indent=2))
 
 # # 使用示例
-# analyze_jsonl("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/lb06_signal_none_selected.jsonl")
+# analyze_jsonl("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/val.jsonl")
 
 
 # import json
@@ -290,3 +290,157 @@ print_truncated_json(data, max_length=300)  # 可以调整这个长度
 
 # # 使用
 # print_signal("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB06/lb06_signal_none_selected.jsonl")
+
+
+
+import json
+import ast
+from pathlib import Path
+
+
+jsonl_path = Path("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split/val.jsonl")  # 修改成你的 jsonl 文件路径
+
+
+def parse_span(span_field):
+    if isinstance(span_field, list):
+        return span_field
+
+    if isinstance(span_field, str):
+        try:
+            return json.loads(span_field)
+        except Exception:
+            return ast.literal_eval(span_field)
+
+    raise TypeError(f"Unsupported span type: {type(span_field)}")
+
+
+def is_valid_span(x):
+    """
+    判断一个 span 是否是有效的 [start, end]
+    """
+    if not isinstance(x, (list, tuple)):
+        return False
+    if len(x) != 2:
+        return False
+    if x[0] is None or x[1] is None:
+        return False
+    return True
+
+
+def get_signal_length_from_span(span):
+    """
+    从 base_sample_span_ref 中计算有效电信号长度。
+
+    会跳过 None span，例如：
+    [[22, 35], [None, None], [35, 54]]
+    会按有效部分计算：
+    54 - 22 = 32
+    """
+    valid_spans = [x for x in span if is_valid_span(x)]
+
+    if len(valid_spans) == 0:
+        return None, None, None, 0
+
+    start = valid_spans[0][0]
+    end = valid_spans[-1][1]
+    signal_len = end - start
+
+    return signal_len, valid_spans[0], valid_spans[-1], len(valid_spans)
+
+
+max_info = None
+min_info = None
+total_len = 0
+valid_count = 0
+invalid_count = 0
+none_span_count = 0
+
+with open(jsonl_path, "r", encoding="utf-8") as f:
+    for line_idx, line in enumerate(f, start=1):
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            item = json.loads(line)
+
+            span = parse_span(item["base_sample_span_ref"])
+
+            raw_span_num = len(span)
+            valid_span_num = sum(1 for x in span if is_valid_span(x))
+
+            if valid_span_num < raw_span_num:
+                none_span_count += 1
+
+            signal_len, first_span, last_span, valid_ref_bases = get_signal_length_from_span(span)
+
+            if signal_len is None:
+                invalid_count += 1
+                read_id = item.get("read_id", f"line_{line_idx}")
+                label = item.get("label", "")
+                print(f"[Warning] line {line_idx} read_id={read_id} label={label} 没有任何有效 span，跳过")
+                continue
+
+            read_id = item.get("read_id", f"line_{line_idx}")
+            label = item.get("label", "")
+
+            info = {
+                "line_idx": line_idx,
+                "read_id": read_id,
+                "label": label,
+                "signal_length": signal_len,
+                "first_span": first_span,
+                "last_span": last_span,
+                "raw_ref_bases": raw_span_num,
+                "valid_ref_bases": valid_ref_bases,
+                "none_or_invalid_spans": raw_span_num - valid_ref_bases,
+            }
+
+            if max_info is None or signal_len > max_info["signal_length"]:
+                max_info = info
+
+            if min_info is None or signal_len < min_info["signal_length"]:
+                min_info = info
+
+            total_len += signal_len
+            valid_count += 1
+
+        except Exception as e:
+            invalid_count += 1
+            print(f"[Warning] line {line_idx} 解析失败: {e}")
+
+
+print("=" * 80)
+print(f"有效记录数: {valid_count}")
+print(f"无效/跳过记录数: {invalid_count}")
+print(f"存在 None 或非法 span 的记录数: {none_span_count}")
+
+if valid_count > 0:
+    avg_len = total_len / valid_count
+
+    print("\n最长电信号:")
+    print(f"  read_id: {max_info['read_id']}")
+    print(f"  label: {max_info['label']}")
+    print(f"  line_idx: {max_info['line_idx']}")
+    print(f"  signal_length: {max_info['signal_length']}")
+    print(f"  first_span: {max_info['first_span']}")
+    print(f"  last_span: {max_info['last_span']}")
+    print(f"  原始 ref span 数量: {max_info['raw_ref_bases']}")
+    print(f"  有效 ref span 数量: {max_info['valid_ref_bases']}")
+    print(f"  None/非法 span 数量: {max_info['none_or_invalid_spans']}")
+
+    print("\n最短电信号:")
+    print(f"  read_id: {min_info['read_id']}")
+    print(f"  label: {min_info['label']}")
+    print(f"  line_idx: {min_info['line_idx']}")
+    print(f"  signal_length: {min_info['signal_length']}")
+    print(f"  first_span: {min_info['first_span']}")
+    print(f"  last_span: {min_info['last_span']}")
+    print(f"  原始 ref span 数量: {min_info['raw_ref_bases']}")
+    print(f"  有效 ref span 数量: {min_info['valid_ref_bases']}")
+    print(f"  None/非法 span 数量: {min_info['none_or_invalid_spans']}")
+
+    print("\n平均电信号长度:")
+    print(f"  avg_signal_length: {avg_len:.2f}")
+else:
+    print("没有成功解析到任何有效记录。")

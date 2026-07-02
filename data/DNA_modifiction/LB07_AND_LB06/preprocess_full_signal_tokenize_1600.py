@@ -235,6 +235,7 @@ def process_one_jsonl(
                     "truncated": was_truncated,
                     "strategy": strategy,
                     "base_sample_spans_rel": obj.get("base_sample_spans_rel"),
+                    "pattern": obj.get("pattern"),
                 },
             }
             fout.write(json.dumps(out_item, ensure_ascii=False) + "\n")

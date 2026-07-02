@@ -9,7 +9,7 @@ export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/s
 export CUDA_VISIBLE_DEVICES=0,1
 export WANDB_API_KEY=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
 
-model_name_or_path="${project_root}/src/poredlm/training/stage3_OLMo_DLM/runs/LB07_AND_LB06/model/LB07_AND_LB06/hf_dlm"
+model_name_or_path="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/LB07_AND_LB06/model/hf_dlm_step40000"
 tokenizer_json="${model_name_or_path}/tokenizer.json"
 
 lb07_jsonl="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/LB07/stage2_fullapple_token1600/validation/validation_fullapple_token1600.jsonl.gz"
@@ -25,7 +25,7 @@ backbone_chunk_size=1600
 elf_ode_steps=4
 elf_ode_start_t=0.85
 elf_self_cond_cfg_scale=1.0
-top_k=20
+top_k=30
 
 mkdir -p "${outdir}"
 
