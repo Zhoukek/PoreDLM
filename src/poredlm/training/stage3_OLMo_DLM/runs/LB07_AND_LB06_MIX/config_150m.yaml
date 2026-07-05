@@ -4,7 +4,7 @@ dry_run: false
 
 # Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
 dlm:
-  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/LB07_AND_LB06/models/step_best
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage2_BERT_Encoder/runs/LB07_AND_LB06_MIX/models/step_best
   freeze_context_encoder: true
   max_length: 2000
   # Encoder
@@ -188,7 +188,7 @@ model:
   # 焦帅: 因为崖州湾模型班训练olmo20m是为了学习模型训练过程，所以焦帅名下的组,都会把max_seqence_length设置为512, 同时
   # 焦帅在之前已经将预训练数据最大化对齐到500个token。PAD填充率已经降到最低。
   # 这么做是为了让20M训练能尽快结束，不要走的时间太长。
-  max_sequence_length: 1280
+  max_sequence_length: 2000
 
   # 词表大小（vocabulary size）
   # 表示模型能识别的不同 token 数量
@@ -317,10 +317,10 @@ save_num_unsharded_checkpoints_to_keep: 5
 load_path: null
 
 # 这个是控制训练轮数的
-max_duration: 10ep
+max_duration: 50ep
 #stop_at: 406_934
 global_train_batch_size: 32
-device_train_microbatch_size: 8
+device_train_microbatch_size: 4
 
 precision: amp_bf16
 

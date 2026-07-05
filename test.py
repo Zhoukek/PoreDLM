@@ -1,71 +1,71 @@
 # # 读取jsonl.gz文件
-# import gzip
-# import json
+import gzip
+import json
 
-# # 文件路径
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage2_bert_train/validation/validation_preprocessed_signal_token2000.jsonl.gz"
+# 文件路径
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage4_modification/validation_seq1_to_seq17_ref_target_cropped_token_c_modlabel.jsonl.gz"
 
-# # 读取文件并收集所有的keys
-# all_keys = set()
+# 读取文件并收集所有的keys
+all_keys = set()
 
-# with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-#     for line_num, line in enumerate(f, 1):
-#         try:
-#             data = json.loads(line.strip())
-#             all_keys.update(data.keys())
-#         except json.JSONDecodeError as e:
-#             print(f"Line {line_num}: JSON decode error: {e}")
-#         except Exception as e:
-#             print(f"Line {line_num}: Error: {e}")
+with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+    for line_num, line in enumerate(f, 1):
+        try:
+            data = json.loads(line.strip())
+            all_keys.update(data.keys())
+        except json.JSONDecodeError as e:
+            print(f"Line {line_num}: JSON decode error: {e}")
+        except Exception as e:
+            print(f"Line {line_num}: Error: {e}")
 
-# def read_specific_line(file_path, line_number):
-#     """读取指定行（从0开始计数）"""
-#     with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-#         for idx, line in enumerate(f):
-#             if idx == line_number:
-#                 return json.loads(line.strip())
-#     return None
+def read_specific_line(file_path, line_number):
+    """读取指定行（从0开始计数）"""
+    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+        for idx, line in enumerate(f):
+            if idx == line_number:
+                return json.loads(line.strip())
+    return None
 
-# def truncate_value(value, max_length=100):
-#     """截断过长的值"""
-#     if isinstance(value, str):
-#         if len(value) > max_length:
-#             return value[:max_length] + "...(truncated)"
-#         return value
-#     elif isinstance(value, list):
-#         if len(value) > 10:  # 列表只显示前10个元素
-#             return [truncate_value(v, max_length) for v in value[:10]] + [f"...({len(value)-10} more)"]
-#         return [truncate_value(v, max_length) for v in value]
-#     elif isinstance(value, dict):
-#         # 对于字典，限制显示的键值对数量
-#         new_dict = {}
-#         for i, (k, v) in enumerate(value.items()):
-#             if i >= 20:  # 只显示前10个键值对
-#                 new_dict[f"...({len(value)-10} more keys)"] = "..."
-#                 break
-#             new_dict[k] = truncate_value(v, max_length)
-#         return new_dict
-#     else:
-#         return value
+def truncate_value(value, max_length=100):
+    """截断过长的值"""
+    if isinstance(value, str):
+        if len(value) > max_length:
+            return value[:max_length] + "...(truncated)"
+        return value
+    elif isinstance(value, list):
+        if len(value) > 10:  # 列表只显示前10个元素
+            return [truncate_value(v, max_length) for v in value[:10]] + [f"...({len(value)-10} more)"]
+        return [truncate_value(v, max_length) for v in value]
+    elif isinstance(value, dict):
+        # 对于字典，限制显示的键值对数量
+        new_dict = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= 20:  # 只显示前10个键值对
+                new_dict[f"...({len(value)-10} more keys)"] = "..."
+                break
+            new_dict[k] = truncate_value(v, max_length)
+        return new_dict
+    else:
+        return value
 
-# def print_truncated_json(data, max_length=100, indent=2):
-#     """打印截断后的JSON"""
-#     truncated = truncate_value(data, max_length)
-#     print(json.dumps(truncated, indent=indent, ensure_ascii=False))
+def print_truncated_json(data, max_length=100, indent=2):
+    """打印截断后的JSON"""
+    truncated = truncate_value(data, max_length)
+    print(json.dumps(truncated, indent=indent, ensure_ascii=False))
 
-# # 输出结果
-# print(f"文件: {file_path}")
-# print(f"总行数: {line_num}")
-# print(f"\n所有的keys:")
-# for key in sorted(all_keys):
-#     print(f"  - {key}")
+# 输出结果
+print(f"文件: {file_path}")
+print(f"总行数: {line_num}")
+print(f"\n所有的keys:")
+for key in sorted(all_keys):
+    print(f"  - {key}")
 
-# # 显示第一行数据的示例（截断版）
-# print("\n" + "="*50)
-# print("第一行数据（截断版）:")
+# 显示第一行数据的示例（截断版）
+print("\n" + "="*50)
+print("第一行数据（截断版）:")
 
-# data = read_specific_line(file_path, 0)
-# print_truncated_json(data, max_length=300)  # 可以调整这个长度
+data = read_specific_line(file_path, 0)
+print_truncated_json(data, max_length=300)  # 可以调整这个长度
 
 # data = read_specific_line(file_path, 1)  # 索引1表示第二行
 # print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
@@ -160,108 +160,108 @@
 ##################
 # 读取jsonl文件
 
-import json
+# import json
 
-def truncate_value(value, max_len=500):
-    """截断过长的值"""
-    s = json.dumps(value, ensure_ascii=False)
-    if len(s) > max_len:
-        return s[:max_len] + "...(截断)"
-    return s
+# def truncate_value(value, max_len=500):
+#     """截断过长的值"""
+#     s = json.dumps(value, ensure_ascii=False)
+#     if len(s) > max_len:
+#         return s[:max_len] + "...(截断)"
+#     return s
 
-def analyze_jsonl(file_path, max_value_len=500, show_signal_full=True):
-    all_keys = set()
-    data_samples = []
-    valid_count = 0
-    total_lines = 0
-    error_lines = []
+# def analyze_jsonl(file_path, max_value_len=500, show_signal_full=True):
+#     all_keys = set()
+#     data_samples = []
+#     valid_count = 0
+#     total_lines = 0
+#     error_lines = []
     
-    # 用于统计 signal 的长度
-    signal_lengths = []
+#     # 用于统计 signal 的长度
+#     signal_lengths = []
     
-    with open(file_path, 'r', encoding='utf-8') as f:
-        for i, line in enumerate(f, 1):
-            total_lines += 1
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                valid_count += 1
-                all_keys.update(data.keys())
+#     with open(file_path, 'r', encoding='utf-8') as f:
+#         for i, line in enumerate(f, 1):
+#             total_lines += 1
+#             line = line.strip()
+#             if not line:
+#                 continue
+#             try:
+#                 data = json.loads(line)
+#                 valid_count += 1
+#                 all_keys.update(data.keys())
                 
-                # 统计 signal 长度
-                if 'signal' in data:
-                    signal = data['signal']
-                    if isinstance(signal, list):
-                        signal_lengths.append(len(signal))
-                    else:
-                        signal_lengths.append(len(str(signal)))
+#                 # 统计 signal 长度
+#                 if 'signal' in data:
+#                     signal = data['signal']
+#                     if isinstance(signal, list):
+#                         signal_lengths.append(len(signal))
+#                     else:
+#                         signal_lengths.append(len(str(signal)))
                 
-                # 保存示例数据（前5条）
-                if len(data_samples) < 5:
-                    truncated = {}
-                    for k, v in data.items():
-                        # 对 signal 特殊处理：完整保留或显示真实长度
-                        if k == 'signal' and show_signal_full:
-                            # 完整保留 signal
-                            truncated[k] = v
-                        elif k == 'signal' and not show_signal_full:
-                            # 显示 signal 的摘要信息
-                            if isinstance(v, list):
-                                truncated[k] = f"[signal列表，长度: {len(v)}，前10个值: {v[:10]}...]"
-                            else:
-                                truncated[k] = f"[signal，长度: {len(str(v))}]"
-                        elif isinstance(v, str) and len(v) > max_value_len:
-                            truncated[k] = v[:max_value_len] + "...(截断)"
-                        elif isinstance(v, (list, dict)) and len(json.dumps(v)) > max_value_len:
-                            truncated[k] = f"[数据过长，长度: {len(json.dumps(v))}]"
-                        else:
-                            truncated[k] = v
-                    data_samples.append(truncated)
+#                 # 保存示例数据（前5条）
+#                 if len(data_samples) < 5:
+#                     truncated = {}
+#                     for k, v in data.items():
+#                         # 对 signal 特殊处理：完整保留或显示真实长度
+#                         if k == 'signal' and show_signal_full:
+#                             # 完整保留 signal
+#                             truncated[k] = v
+#                         elif k == 'signal' and not show_signal_full:
+#                             # 显示 signal 的摘要信息
+#                             if isinstance(v, list):
+#                                 truncated[k] = f"[signal列表，长度: {len(v)}，前10个值: {v[:10]}...]"
+#                             else:
+#                                 truncated[k] = f"[signal，长度: {len(str(v))}]"
+#                         elif isinstance(v, str) and len(v) > max_value_len:
+#                             truncated[k] = v[:max_value_len] + "...(截断)"
+#                         elif isinstance(v, (list, dict)) and len(json.dumps(v)) > max_value_len:
+#                             truncated[k] = f"[数据过长，长度: {len(json.dumps(v))}]"
+#                         else:
+#                             truncated[k] = v
+#                     data_samples.append(truncated)
                     
-            except json.JSONDecodeError as e:
-                error_lines.append(i)
+#             except json.JSONDecodeError as e:
+#                 error_lines.append(i)
     
-    print("=" * 60)
-    print(f"📊 文件总行数: {total_lines}")
-    print(f"✅ 有效 JSON 数据条数: {valid_count}")
-    if error_lines:
-        print(f"❌ 解析失败的行号: {error_lines}")
-    print("=" * 60)
+#     print("=" * 60)
+#     print(f"📊 文件总行数: {total_lines}")
+#     print(f"✅ 有效 JSON 数据条数: {valid_count}")
+#     if error_lines:
+#         print(f"❌ 解析失败的行号: {error_lines}")
+#     print("=" * 60)
     
-    print(f"\n🔑 所有 Key（去重后，共 {len(all_keys)} 个）:")
-    print(sorted(all_keys))
+#     print(f"\n🔑 所有 Key（去重后，共 {len(all_keys)} 个）:")
+#     print(sorted(all_keys))
     
-    # 打印 signal 长度统计
-    if signal_lengths:
-        print(f"\n📊 Signal 字段长度统计（共 {len(signal_lengths)} 条）:")
-        print(f"  最小长度: {min(signal_lengths)}")
-        print(f"  最大长度: {max(signal_lengths)}")
-        print(f"  平均长度: {sum(signal_lengths)/len(signal_lengths):.2f}")
-        print(f"  第1条长度: {signal_lengths[0] if signal_lengths else 'N/A'}")
-        print(f"  第3条长度: {signal_lengths[2] if len(signal_lengths) > 2 else 'N/A'}")
+#     # 打印 signal 长度统计
+#     if signal_lengths:
+#         print(f"\n📊 Signal 字段长度统计（共 {len(signal_lengths)} 条）:")
+#         print(f"  最小长度: {min(signal_lengths)}")
+#         print(f"  最大长度: {max(signal_lengths)}")
+#         print(f"  平均长度: {sum(signal_lengths)/len(signal_lengths):.2f}")
+#         print(f"  第1条长度: {signal_lengths[0] if signal_lengths else 'N/A'}")
+#         print(f"  第3条长度: {signal_lengths[2] if len(signal_lengths) > 2 else 'N/A'}")
     
-    if data_samples:
-        print("\n📝 示例数据（signal字段完整显示）:")
-        # 显示第1条数据（索引0）而不是第3条（索引2）
-        sample_to_show = data_samples[1]
+#     if data_samples:
+#         print("\n📝 示例数据（signal字段完整显示）:")
+#         # 显示第1条数据（索引0）而不是第3条（索引2）
+#         sample_to_show = data_samples[1]
         
-        # 如果 signal 太长，只显示部分
-        if 'signal' in sample_to_show and isinstance(sample_to_show['signal'], list):
-            signal = sample_to_show['signal']
-            print(f"signal 长度: {len(signal)}")
-            print(f"signal 前20个值: {signal[:20]}")
-            print(f"signal 后20个值: {signal[-20:]}")
-            # 创建显示用的副本，将signal替换为摘要
-            display_sample = sample_to_show.copy()
-            display_sample['signal'] = f"[signal列表，长度: {len(signal)}，显示前20个值]"
-            print(json.dumps(display_sample, ensure_ascii=False, indent=2))
-        else:
-            print(json.dumps(sample_to_show, ensure_ascii=False, indent=2))
+#         # 如果 signal 太长，只显示部分
+#         if 'signal' in sample_to_show and isinstance(sample_to_show['signal'], list):
+#             signal = sample_to_show['signal']
+#             print(f"signal 长度: {len(signal)}")
+#             print(f"signal 前20个值: {signal[:20]}")
+#             print(f"signal 后20个值: {signal[-20:]}")
+#             # 创建显示用的副本，将signal替换为摘要
+#             display_sample = sample_to_show.copy()
+#             display_sample['signal'] = f"[signal列表，长度: {len(signal)}，显示前20个值]"
+#             print(json.dumps(display_sample, ensure_ascii=False, indent=2))
+#         else:
+#             print(json.dumps(sample_to_show, ensure_ascii=False, indent=2))
 
-# 使用示例
-analyze_jsonl("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage2_bert_train/validation/validation_signal_cropped.jsonl")
+# # 使用示例
+# analyze_jsonl("/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage4_modification/validation_seq1_to_seq17_ref_target_cropped.jsonl")
 
 
 # import json

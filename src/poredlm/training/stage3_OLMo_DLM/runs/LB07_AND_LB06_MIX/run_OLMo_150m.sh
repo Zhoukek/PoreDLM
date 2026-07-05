@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM
 OLMO_ROOT=${PROJECT_ROOT}/src/poredlm/training/stage3_OLMo_DLM/OLMo
-RUN_ROOT=${PROJECT_ROOT}/src/poredlm/training/stage3_OLMo_DLM/runs/LB07_AND_LB06
+RUN_ROOT=${PROJECT_ROOT}/src/poredlm/training/stage3_OLMo_DLM/runs/LB07_AND_LB06_MIX
 
 source ${PROJECT_ROOT}/src/poredlm/training/set_env.sh
 
@@ -15,8 +15,8 @@ cd ${OLMO_ROOT}
 
 nohup torchrun --nproc_per_node=2 --rdzv_endpoint=localhost:29509 \
     scripts/train_DLM.py ${RUN_ROOT}/config_150m.yaml \
-    --run_name="poredlm-stage3-olmo-150m-dlm_02_150m_LB07_AND_LB06" \
+    --run_name="poredlm-stage3-olmo-150m-dlm_02_150m_LB07_AND_LB06_MIX" \
     --wandb.entity="zhoukek-zhejiang-university" \
     --wandb.project="poredlm-stage3" \
-    --save_folder="${RUN_ROOT}/model/LB07_AND_LB06" \
+    --save_folder="${RUN_ROOT}/model/LB07_AND_LB06_MIX" \
     > "${RUN_ROOT}/nohup.out" 2>&1 &
