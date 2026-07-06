@@ -1,0 +1,42 @@
+====================================================================================================
+LB07-only train/test/val split summary
+====================================================================================================
+RANDOM_SEED: 42
+TRAIN_RATIO: 0.8
+TEST_RATIO: 0.1
+VAL_RATIO: 0.1
+Constraint: only LB07 records are used
+
+Input files:
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl
+  - /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl
+
+Input source line counts:
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 9603
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 9716
+
+Total records: 19319
+
+Split counts:
+  train: 15455 (0.799990)
+  test : 1932 (0.100005)
+  val  : 1932 (0.100005)
+
+Train source counts:
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 7769
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 7686
+
+Test source counts:
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 955
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 977
+
+Val source counts:
+  LB07-250F600084012_2_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 992
+  LB07-250F600084012_0_1_0_0_seq_1_to_seq_17_merge_adjust.jsonl: 940
+
+Output files:
+  train: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/train.jsonl
+  test : /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/test.jsonl
+  val  : /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/val.jsonl
+  summary: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/split_train_test_val_summary.txt
+====================================================================================================

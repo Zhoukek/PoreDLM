@@ -11,13 +11,11 @@ from collections import Counter, defaultdict
 # ============================================================
 
 INPUT_JSONL = Path(
-    "/mnt/zzbnew/rnamodel/shenhaojie/PoreDLM/data/DNA_modifiction/"
-    "LB07_AND_LB06/all-data/validation_signal_cropped.jsonl"
+    "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/validation_signal_cropped.jsonl"
 )
 
 OUTPUT_DIR = Path(
-    "/mnt/zzbnew/rnamodel/shenhaojie/PoreDLM/data/DNA_modifiction/"
-    "LB07_AND_LB06/all-data"
+    "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only"
 )
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

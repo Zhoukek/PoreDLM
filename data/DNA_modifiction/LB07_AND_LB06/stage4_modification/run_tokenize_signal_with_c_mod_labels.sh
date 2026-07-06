@@ -11,8 +11,8 @@ project_root="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM"
 
 python_script="${project_root}/data/DNA_modifiction/LB07_AND_LB06/stage4_modification/tokenize_signal_with_c_mod_labels.py"
 
-split_dir="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage4_modification"
-output_dir="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/stage4_modification"
+split_dir="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only"
+output_dir="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only"
 splits="validation_seq1_to_seq17_ref_target_cropped"
 
 model_ckpt="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/LB07_AND_LB06_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple_mix/models/porepgt_vqe_tokenizer.final.pth"

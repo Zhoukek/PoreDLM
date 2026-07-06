@@ -5,7 +5,7 @@ set -euo pipefail
 source /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh
 
 export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm:/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training:${PYTHONPATH:-}
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0,1
 
 project_root="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM"
 
@@ -28,16 +28,16 @@ limit_reads=500
 # embedding_source:
 #   bert = context_hidden，BERT/context encoder 输出
 #   dlm  = ode_hidden，DLM/ELF ODE refinement 后输出
-embedding_source="bert"
+embedding_source="dlm"
 
-device="cuda:0"
+device="cuda:1"
 dtype="auto"
-batch_size=4
+batch_size=32
 max_length=2000
 pad_token_id=1
 backbone_chunk_size=2000
-elf_ode_steps=4
-elf_ode_start_t=0.95
+elf_ode_steps=16
+elf_ode_start_t=0.5
 elf_self_cond_cfg_scale=1.0
 
 # 点太多时可以抽样；0 表示不抽样

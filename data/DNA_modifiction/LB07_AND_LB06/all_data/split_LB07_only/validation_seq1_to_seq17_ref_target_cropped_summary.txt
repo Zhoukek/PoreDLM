@@ -1,0 +1,108 @@
+====================================================================================================
+crop validation seq_1 to seq_17 target ref summary
+====================================================================================================
+INPUT_JSONL: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/validation_signal_cropped.jsonl
+OUTPUT_JSONL: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/LB07_AND_LB06/all_data/split_LB07_only/validation_seq1_to_seq17_ref_target_cropped.jsonl
+target labels: seq_1 ~ seq_17
+
+total non-empty lines: 1918
+valid json lines: 1918
+saved records: 734
+skipped records: 1184
+saved ratio over valid json: 0.382690
+
+target ref length by label:
+  seq_1: 137
+  seq_2: 137
+  seq_3: 137
+  seq_4: 137
+  seq_5: 137
+  seq_6: 137
+  seq_7: 137
+  seq_8: 137
+  seq_9: 137
+  seq_10: 137
+  seq_11: 137
+  seq_12: 137
+  seq_13: 137
+  seq_14: 137
+  seq_15: 137
+  seq_16: 137
+  seq_17: 137
+
+input label counts:
+  seq_1: 171
+  seq_2: 145
+  seq_3: 109
+  seq_4: 171
+  seq_5: 190
+  seq_6: 104
+  seq_7: 151
+  seq_8: 120
+  seq_9: 68
+  seq_10: 66
+  seq_11: 146
+  seq_12: 65
+  seq_13: 43
+  seq_14: 45
+  seq_15: 96
+  seq_16: 93
+  seq_17: 135
+
+saved label counts and cropped signal length:
+  seq_1: saved=70, signal_len_mean=1598.429, min=1278, max=2130
+  seq_2: saved=62, signal_len_mean=1758.581, min=1294, max=4178
+  seq_3: saved=36, signal_len_mean=1685.889, min=1318, max=3712
+  seq_4: saved=60, signal_len_mean=1751.983, min=1367, max=4294
+  seq_5: saved=70, signal_len_mean=1747.700, min=1325, max=4149
+  seq_6: saved=50, signal_len_mean=1723.720, min=1357, max=3425
+  seq_7: saved=74, signal_len_mean=1646.554, min=1123, max=4860
+  seq_8: saved=51, signal_len_mean=1764.745, min=1145, max=8213
+  seq_9: saved=24, signal_len_mean=1772.167, min=1403, max=3183
+  seq_10: saved=24, signal_len_mean=2076.250, min=1433, max=7805
+  seq_11: saved=44, signal_len_mean=1637.977, min=1350, max=2232
+  seq_12: saved=22, signal_len_mean=1733.409, min=1475, max=2462
+  seq_13: saved=8, signal_len_mean=1673.125, min=1490, max=2108
+  seq_14: saved=21, signal_len_mean=1729.619, min=1367, max=2277
+  seq_15: saved=23, signal_len_mean=1615.609, min=1443, max=1835
+  seq_16: saved=43, signal_len_mean=1693.628, min=1373, max=3213
+  seq_17: saved=52, signal_len_mean=1733.788, min=1385, max=4969
+
+ref crop start distribution by label:
+  seq_1: 137:28, 0:25, 1:17
+  seq_2: 0:34, 1:21, 137:7
+  seq_3: 0:17, 137:11, 1:8
+  seq_4: 0:24, 1:23, 137:11, 13:1, 3:1
+  seq_5: 0:32, 1:26, 137:12
+  seq_6: 0:22, 1:14, 137:14
+  seq_7: 0:30, 1:26, 137:18
+  seq_8: 0:23, 1:16, 137:10, 4:1, 5:1
+  seq_9: 137:9, 0:8, 1:7
+  seq_10: 0:13, 137:8, 1:3
+  seq_11: 0:22, 137:11, 1:10, 2:1
+  seq_12: 0:11, 1:6, 137:5
+  seq_13: 1:5, 0:2, 137:1
+  seq_14: 0:9, 1:7, 137:5
+  seq_15: 1:12, 0:7, 137:3, 2:1
+  seq_16: 0:22, 1:14, 137:7
+  seq_17: 0:27, 1:13, 137:12
+
+skip reasons:
+  target_ref_not_found_for_seq_5: 120
+  target_ref_not_found_for_seq_4: 111
+  target_ref_not_found_for_seq_11: 102
+  target_ref_not_found_for_seq_1: 101
+  target_ref_not_found_for_seq_17: 83
+  target_ref_not_found_for_seq_2: 83
+  target_ref_not_found_for_seq_7: 77
+  target_ref_not_found_for_seq_3: 73
+  target_ref_not_found_for_seq_15: 73
+  target_ref_not_found_for_seq_8: 69
+  target_ref_not_found_for_seq_6: 54
+  target_ref_not_found_for_seq_16: 50
+  target_ref_not_found_for_seq_9: 44
+  target_ref_not_found_for_seq_12: 43
+  target_ref_not_found_for_seq_10: 42
+  target_ref_not_found_for_seq_13: 35
+  target_ref_not_found_for_seq_14: 24
+====================================================================================================
