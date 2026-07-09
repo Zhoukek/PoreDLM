@@ -1,0 +1,72 @@
+# ===========================================================================
+# 🌍 全局基础实验控制 (BERT 迁移版)
+# ===========================================================================
+run_name: "PoreBERT_${model.bert_model_type}_lr${optimizer.learning_rate}"
+seed: 6198
+dry_run: false
+
+# ===========================================================================
+# 🚀 模型架构：从 Codec 切换为 BERT 骨干 (BERT Architecture)
+# ===========================================================================
+model:
+  # 切换模式：明确这是 BERT 训练任务
+  model_type: "bert" 
+  bert_model_type: "bert-base-uncased" # 或者你自定义的 PoreBERT 配置路径
+  
+  # 注入式配置：BERT 不需要 FSQ 相关的 codebook 参数，改为词表与层数
+  vocab_size: 2401        # 与你训练好的 Tokenizer 词表大小一致
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  max_position_embeddings: 512
+  
+  # 如果依然需要 Tokenizer 作为 Embedding 层，保留相关的引用
+  tokenizer_path: "save/porecodec_output/best_model" 
+
+# ===========================================================================
+# ⚖️ BERT 训练策略 (Masking Strategy)
+# ===========================================================================
+mlm_config:
+  mlm_probability: 0.15   # BERT 标准掩码比例
+  special_tokens_mask: null
+
+# ===========================================================================
+# 🛠️ 优化器配置 (BERT 训练通常需要更大的热身)
+# ===========================================================================
+optimizer:
+  name: "adamw"
+  learning_rate: 1.0e-4   # BERT 训练通常比 Codec 训练学习率稍高
+  weight_decay: 0.01
+  eps: 1.0e-8
+
+scheduler:
+  name: "cosine"
+  t_warmup: 1000          # 增加热身步数，BERT 训练收敛更依赖稳定的起始
+  warmup_start_factor: 0.0
+  warmup_end_factor: 1.0
+  main_scheduler_end_factor: 0.0
+
+# ===========================================================================
+# 📦 数据管线 (Data Pipelines)
+# ===========================================================================
+train_data:
+  # 注意：BERT 训练需要的是 Token ID 序列，而不是原始电信号矩阵
+  paths: ["/path/to/tokenized_sequences_train"]
+  chunk_size: 1024        # 这里的 chunk_size 应匹配序列长度
+  num_workers: 4
+  
+eval_data:
+  paths: ["/path/to/tokenized_sequences_eval"]
+  num_workers: 2
+
+# ===========================================================================
+# 💾 保存与 Batch (Batch 矩阵)
+# ===========================================================================
+save_folder: "save/porebert_output"
+# BERT 任务通常受限于 GPU 内存，建议适当降低单卡 Batch 提升序列长度兼容性
+global_train_batch_size: 256 
+device_train_microbatch_size: 32
+
+precision: "amp_bf16"
+max_grad_norm: 1.0

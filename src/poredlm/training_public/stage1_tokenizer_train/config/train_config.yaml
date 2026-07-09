@@ -1,0 +1,134 @@
+# ===========================================================================
+# 🌍 全局基础实验控制 (Global Experiment Control)
+# ===========================================================================
+run_name: "PoreCodec_V12_Multitask_Run" # 本次训练实验的唯一标识名称（用于标识保存目录与 WandB）
+seed: 6198                              # 全局随机种子，锁定可重复性（包括数据洗牌缓冲区、Subset 抽样和权重初始化）
+dry_run: false                          # 试运行模式开关。若为 true，则仅初始化模型和数据集，不执行实际前向反向计算
+
+# ===========================================================================
+# 📊 实验观测看板配置 (Weights & Biases Tracking)
+# ===========================================================================
+wandb:
+  entity: "YourWandbEntity"             # WandB 的空间/团队空间名称
+  project: "nanopore_vq"                # 归属的项目看板名称
+  name: ${run_name}                     # 动态引用顶层的运行名称，保持看板和本地实验名称严格一致
+
+# ===========================================================================
+# 🚀 模型与多态量化架构参数 (Model Architecture & Polymorphic Quantizer)
+# ===========================================================================
+model:
+  # 🌟 核心多态路由：model_type 现在作为字符串，明确宣告当前激活哪一个量化器分支
+  # 可选值："rsq", "rvq", "svq", "w2v"
+  model_type: "rsq"
+
+  # -------------------------------------------------------------------------
+  # [分支 1] RSQ 特化参数空间 (仅在 model_type == "rsq" 时生效)
+  # -------------------------------------------------------------------------
+  rsq:
+    cnn_type: 12                        # 下放到分支：RSQ 算法特化的 1D 电信号特征抽取 CNN 骨干网络类型
+    levels: [5, 5, 5, 5]                # 各个标量维度的量化阶数列表
+    num_quantizers: 2                   # 残差级联量化器层数
+
+  # -------------------------------------------------------------------------
+  # [通用量化参数] 无论激活哪种量化器，都必须消费的共享基础参数
+  # -------------------------------------------------------------------------
+  codebook_size: 625                    # 量化器理论最大离散词表容量（Tokenizer 的 Vocab Size 空间）
+  codebook_dim: 4                       # 每一个离散量化 Token 对应的连续隐藏层特征向量维度
+  codebook_nqtz: 2                      # 多组独立量化头数量（对标多头注意力机制的多头量化设计）
+
+# ===========================================================================
+# ⚖️ 纳米孔特化损失函数加权策略 (Loss Coefficients)
+# ===========================================================================
+loss_weights:
+  commitment_weight: 0.25               # 经典向量量化损失（Commitment Loss）的初始权重系数
+  commitment_weight_lr: 0.01            # 动态调整量化权重时的元学习率
+  use_dynamic_commitment_weight: true   # 是否开启自适应 Loss 平衡，防止量化塌陷或 CNN 梯度过早饱和
+  commitment_weight_freeze_steps: 20000 # 在前 20000 步内锁定 Commitment 权重，等待 CNN 提取出稳定的基频信号
+  commitment_weight_rpc: 1              # 动态倒数调整的物理间隔比率
+  codebook_diversity_loss_weight: 0.0   # 码本多样性（熵）损失权重。0.0 表示依靠 FSQ/EMA 隐式维持词表利用率
+  orthogonal_reg_weight: 0.0            # 码本向量间正交正则化惩罚项，用于榨干码本空间的表征上限
+  update_loss_weight_every: 10          # 物理 Step 层面每隔多少步重新计算一次复合 Loss 的平衡配比
+
+# ===========================================================================
+# 🛠️ 工业级优化器配置 (Optimizer Settings)
+# ===========================================================================
+optimizer:
+  name: "adamw"                         # 使用解耦权重衰减的 AdamW 优化器
+  learning_rate: 3.0e-4                 # 基础全局最大学习率
+  weight_decay: 0.01                    # 权重衰减（L2 正则化）系数，不包括 Norm 层和 Bias
+  eps: 1.0e-8                           # 防止分母除零的极小数值稳定性因子
+
+# ===========================================================================
+# 📈 学习率调节器与热身配置 (Scheduler Settings)
+# ===========================================================================
+scheduler:
+  name: "cosine_with_warmup"            # 使用带余弦退火的学习率调度策略
+  t_warmup: 100                         # 预热步数（Warmup Steps），在前 100 步内线性将学习率从极小值拉升至最大值
+  warmup_start_factor: 1.0e-5           # 热身启动时的初始缩放倍率
+  warmup_end_factor: 1.0                # 热身结束时的目标目标倍率
+  main_scheduler_end_factor: 1.0e-5     # 训练至最终最大 Step 时，学习率允许跌落到的最低下限比例
+
+# ===========================================================================
+# 📦 完美解耦、混合洗牌型内存映射数据管线 (Pure Memmap Data Pipelines)
+# ===========================================================================
+
+# 🔥 🚀 训练集特化管线：大块顺序 I/O 保护磁盘，内存滑窗二次洗牌
+train_data:
+  paths:
+    - "/mnt/nvme0/train_signal_shards_part1"
+    - "/mnt/nvme1/train_signal_shards_part2"
+    - "/mnt/nvme2/train_signal_shards_part3"
+  chunk_size: 6000
+  memmap_dtype: "float32"
+  
+  # 🌟 核心混合洗牌：底层顺序读大分片，依赖此 20000 缓冲区在内存中二次打散样本
+  buffer_size: 20000
+
+  # 训练集高性能加速参数 (重负载)
+  num_workers: 8                        # 8 个 CPU 子进程全力以赴流式加载二进制矩阵并填充 Buffer
+  drop_last: true                       # 训练集锁死丢弃尾巴，保证分布式梯度梯度对称
+  pin_memory: true                      # 锁页内存，加速 DMA 砸进 GPU 显存
+  prefetch_factor: 8                    # 配合大 Buffer 设定，预加载深度设为 8 足够，严防物理内存叠加爆掉
+  persistent_workers: true              # 锁死进程，跨 Epoch 绝不销毁分片句柄
+
+# 🧪 🔬 验证集特化管线：轻量化、按需加载、精准评估（移除所有被污染的训练参数）
+eval_data:
+  paths:
+    - "/mnt/data/eval_signal_shards"     # 🛠️ 修正：应指向独立的物理验证分片路径，不应与训练路径重合
+  chunk_size: 6000
+  val_ratio: 0.1
+  memmap_dtype: "float32"
+  
+  # 验证集通常不需要二次 Shuffle，设为 0 释放物理内存
+  buffer_size: 0
+
+  # 验证集特化加速参数 (轻负载、测完即走)
+  num_workers: 2                        # 2 个进程专职指针偏移读取即可，严防进程过多引起死锁
+  drop_last: false                      # 验证集绝对不能 drop_last，必须完整评估所有样本的真实 Loss
+  pin_memory: true
+  prefetch_factor: 2                    # 验证集不需要疯狂超前加载，2 足够
+  persistent_workers: false             # 测完立即退场并销毁子进程，把内存和算力全部还给训练主线
+
+# ===========================================================================
+# 💾 检查点、流控与分布式 Batch 矩阵 (Checkpointer & Distributed Batch Matrix)
+# ===========================================================================
+save_folder: "save/porecodec_output"    # 物理模型的输出检查点（Checkpoint）目录
+save_overwrite: true                    # 是否允许无视警告、强行覆盖已有配置
+
+save_interval: 10                       # 物理层面的保存间隔（此处对应原模型每 10 个 Epoch 强制持久化一个 Checkpoint）
+eval_interval: 10                       # 物理层面的验证间隔（此处对应原模型每 10 个 Epoch 强制执行一次验证集全量评估）
+
+max_duration: 100000                    # 全局最大迭代步数（Max Training Steps），达到此步数后管线自动安全退场
+
+global_train_batch_size: 256            # 全局宏观总批次大小（守恒 Batch 尺寸底座）
+device_train_microbatch_size: 16        # 单张显卡上的微观单批次大小（根据显存大小可动态调大，如 16 / 32 / 64）
+device_eval_batch_size: ${device_train_microbatch_size} # 动态引用训练单卡 Batch 设定，维持显存边界安全
+
+precision: "amp_bf16"                   # 混合精度策略：可选 "amp_bf16" (A100/A40 特化原生硬件加速) 或 "amp_fp16"
+max_grad_norm: 1.0                      # 梯度裁剪最大范数阈值，强行压制纳米孔极端噪声引起的梯度爆炸
+
+# ===========================================================================
+# 🔄 细粒度断点续训/权重注入机制 (Fine-grained Resume Control)
+# ===========================================================================
+load_path: null                         # 恢复续训的检查点物理路径
+reset_optimizer_state: false            # 是否重置优化器状态。false 代表完全断点续训，true 代表仅加载模型权重。
