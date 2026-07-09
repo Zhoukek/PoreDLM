@@ -343,13 +343,13 @@ def train(cfg: TrainConfig):
 
 
     if rank == 0:
-        logger.info("🚀 Starting production-ready memmap pipeline via StreamRSQTrainer...")
+        logger.info("🚀 Starting production-ready memmap pipeline via StreamVQTrainer...")
 
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Nanopore VQ Tokenizer via StreamRSQTrainer")
+    parser = argparse.ArgumentParser(description="Train Nanopore VQ Tokenizer via StreamVQTrainer")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML configuration file")
     args = parser.parse_args()
 

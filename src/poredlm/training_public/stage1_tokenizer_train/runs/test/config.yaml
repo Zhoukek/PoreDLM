@@ -3,8 +3,8 @@ seed: 6198
 dry_run: false
 
 wandb:
-  entity: "YourWandbEntity"
-  project: "nanopore_vq"
+  entity: "zhoukek-zhejiang-university"
+  project: "stage1_tokenizer_public"
   name: ${run_name}
 
 model:
@@ -19,25 +19,25 @@ model:
     cnn_type: 0
     codebook_decay: 0.99
     codebook_emadc: 2
-    learnable_codebook: true
+    learnable_codebook: false
     init_codebook_path: null
     cnn_checkpoint_path: null
     freeze_cnn: false
-    teacher_model_path: "/path/to/bonito_teacher_model"
-    distill_loss_weight: 1.0
+    teacher_model_path: "/mnt/si002562jbsc/rnamodel/model/bonito/dna_basic_0121"
+    distill_loss_weight: 0.1
 
-  codebook_size: 8192
+  codebook_size: 65536
   codebook_dim: 768
   codebook_nqtz: 1
 
 loss_weights:
-  commitment_weight: 1.0
-  commitment_weight_lr: 0.01
-  use_dynamic_commitment_weight: false
-  commitment_weight_freeze_steps: 20000
-  commitment_weight_rpc: 1
-  codebook_diversity_loss_weight: 1.0
-  orthogonal_reg_weight: 1.0
+  commitment_weight: 9.0
+  commitment_weight_lr: 0.001
+  use_dynamic_commitment_weight: true
+  commitment_weight_freeze_steps: 1000
+  commitment_weight_rpc: 10
+  codebook_diversity_loss_weight: 0.0
+  orthogonal_reg_weight: 0.0
   update_loss_weight_every: 10
 
 optimizer:
@@ -55,7 +55,13 @@ scheduler:
 
 train_data:
   paths:
-    - "/path/to/train_signal_shards"
+    # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_HEK293T_MIX_250NC02303011/trank_appleq50/train"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/trank_appleq50/train"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_UMD_250F601844011/trank_appleq50/train"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586012/trank_appleq50/train"
+    # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_HEK293T_MIX_250NC02106021/trank_appleq50/train"
+    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train"
+    # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_MOUSE00_MIX_250NC02165011/trank_appleq50/train"
   chunk_size: 6000
   memmap_dtype: "float32"
   buffer_size: 20000
@@ -67,7 +73,13 @@ train_data:
 
 eval_data:
   paths:
-    - "/path/to/eval_signal_shards"
+    # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_HEK293T_MIX_250NC02303011/trank_appleq50/eval"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/trank_appleq50/eval"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_UMD_250F601844011/trank_appleq50/eval"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586012/trank_appleq50/eval"
+    # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_HEK293T_MIX_250NC02106021/trank_appleq50/eval"
+    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/eval"
+    # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_MOUSE00_MIX_250NC02165011/trank_appleq50/eval"
   chunk_size: 6000
   val_ratio: 0.1
   memmap_dtype: "float32"
@@ -80,11 +92,11 @@ eval_data:
 
 save_folder: "outputs/test_PoreCodec_VQ_Distill_8k_cnn0"
 save_overwrite: true
-save_interval: 1000
+save_interval: 10000
 eval_interval: 1000
-max_duration: 100000
+max_duration: 1000000
 
-global_train_batch_size: 256
+global_train_batch_size: 64
 device_train_microbatch_size: 16
 device_eval_batch_size: ${device_train_microbatch_size}
 

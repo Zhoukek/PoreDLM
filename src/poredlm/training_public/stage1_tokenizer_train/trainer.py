@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import Trainer, AutoConfig, AutoModel
-from modeling_pore_codec import PoreRSQCodec, PoreRSQCodecConfig
 from config.train_config import TrainConfig
 from collections import deque
 logger = logging.getLogger(__name__)
@@ -29,6 +28,8 @@ class PoreTrainer(Trainer):
         self.loss_std_multiplier = getattr(cfg, "loss_std_multiplier", 3.0)   # 5倍标准差触发
         self.loss_min_steps = getattr(cfg, "loss_min_steps", 10)              # 至少积累 10 步才开始动态计算
         self._loss_history = deque(maxlen=self.loss_window_size)              # 环形队列自动淘汰旧数据
+        self._latest_train_scalars = {}
+        self._eval_accumulators = None
 
     # ===========================================================================
     # 核心拦截器 & 损失计算引擎 (Compute Loss Engine)
@@ -108,6 +109,11 @@ class PoreTrainer(Trainer):
         if loss.dim() > 0:
             loss = loss.mean()
 
+        if is_training and isinstance(outputs, dict):
+            self._capture_train_scalars(outputs)
+        elif isinstance(outputs, dict):
+            self._accumulate_eval_metrics(model, outputs)
+
         # 探针仅在训练阶段激活 (Eval 阶段 Loss 大通常是因为没训好，不需要物理级告警)
         # -----------------------------------------------------------------------
         # [阶段 5] 工业级动态异常 Loss 追溯探针 (Dynamic Anomaly Loss Probe)
@@ -168,6 +174,141 @@ class PoreTrainer(Trainer):
         # -----------------------------------------------------------------------
         return (loss, outputs) if return_outputs else loss
 
+    def _capture_train_scalars(self, outputs):
+        """Cache scalar training losses so the next HF logging event sends them to WandB."""
+        scalar_keys = (
+            "recon_loss",
+            "distill_loss",
+            "commitment_loss",
+            "vq_loss",
+        )
+        latest = {}
+        for key in scalar_keys:
+            value = outputs.get(key)
+            if value is None:
+                continue
+            if isinstance(value, torch.Tensor):
+                if value.numel() != 1:
+                    value = value.mean()
+                latest[f"train/{key}"] = float(value.detach().cpu().item())
+            else:
+                latest[f"train/{key}"] = float(value)
+        self._latest_train_scalars = latest
+
+    def log(self, logs, *args, **kwargs):
+        if isinstance(logs, dict) and "loss" in logs and self._latest_train_scalars:
+            logs = {**logs, **self._latest_train_scalars}
+        return super().log(logs, *args, **kwargs)
+
+    def _unwrap_model(self, model):
+        return model.module if hasattr(model, "module") else model
+
+    def _reset_eval_accumulators(self):
+        self._eval_accumulators = None
+
+    def _init_eval_accumulators(self, model, device):
+        model_to_call = self._unwrap_model(model)
+        codebook_size = int(getattr(getattr(model_to_call, "codec", None), "codebook_size", 0))
+        if codebook_size <= 0:
+            codebook_size = int(getattr(model_to_call, "codebook_size", 0))
+
+        self._eval_accumulators = {
+            "codebook_size": codebook_size,
+            "used_mask": torch.zeros(codebook_size, dtype=torch.int64, device=device) if codebook_size > 0 else None,
+            "total_tokens": torch.tensor(0.0, device=device),
+            "signal_power_sum": torch.tensor(0.0, device=device),
+            "noise_power_sum": torch.tensor(0.0, device=device),
+            "numel": torch.tensor(0.0, device=device),
+            "sample_count": torch.tensor(0.0, device=device),
+            "recon_loss_sum": torch.tensor(0.0, device=device),
+            "distill_loss_sum": torch.tensor(0.0, device=device),
+            "commitment_loss_sum": torch.tensor(0.0, device=device),
+            "vq_loss_sum": torch.tensor(0.0, device=device),
+        }
+
+    def _accumulate_eval_metrics(self, model, outputs):
+        model_to_call = self._unwrap_model(model)
+        target = getattr(model_to_call, "last_target", None)
+        device = target.device if isinstance(target, torch.Tensor) else next(model.parameters()).device
+        if self._eval_accumulators is None:
+            self._init_eval_accumulators(model_to_call, device)
+
+        acc = self._eval_accumulators
+        batch_size = 1.0
+        if isinstance(target, torch.Tensor) and target.ndim > 0:
+            batch_size = float(target.shape[0])
+        batch_size_t = torch.tensor(batch_size, device=device)
+        acc["sample_count"] += batch_size_t
+
+        indices = getattr(model_to_call, "last_indices", None)
+        if isinstance(indices, torch.Tensor):
+            flat_indices = indices.detach().to(device=device, dtype=torch.long).flatten()
+            acc["total_tokens"] += torch.tensor(float(flat_indices.numel()), device=device)
+            used_mask = acc.get("used_mask")
+            if used_mask is not None and flat_indices.numel() > 0:
+                valid = flat_indices[(flat_indices >= 0) & (flat_indices < used_mask.numel())]
+                if valid.numel() > 0:
+                    used_mask[valid.unique()] = 1
+
+        recon = getattr(model_to_call, "last_recon", None)
+        if isinstance(recon, torch.Tensor) and isinstance(target, torch.Tensor):
+            target_f = target.detach().float()
+            recon_f = recon.detach().float()
+            diff = recon_f - target_f
+            acc["signal_power_sum"] += torch.sum(target_f ** 2)
+            acc["noise_power_sum"] += torch.sum(diff ** 2)
+            acc["numel"] += torch.tensor(float(target_f.numel()), device=device)
+
+        for key in ("recon_loss", "distill_loss", "commitment_loss", "vq_loss"):
+            value = outputs.get(key)
+            if value is None:
+                continue
+            if isinstance(value, torch.Tensor):
+                value = value.detach()
+                if value.numel() != 1:
+                    value = value.mean()
+                value = value.to(device=device, dtype=torch.float32)
+            else:
+                value = torch.tensor(float(value), device=device)
+            acc[f"{key}_sum"] += value * batch_size_t
+
+    def _reduce_eval_tensor(self, tensor):
+        if tensor is None:
+            return None
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.all_reduce(tensor, op=torch.distributed.ReduceOp.SUM)
+        return tensor
+
+    def _finalize_eval_metrics(self, metric_key_prefix):
+        acc = self._eval_accumulators
+        if not acc:
+            return {}
+
+        sample_count = self._reduce_eval_tensor(acc["sample_count"]).clamp_min(1.0)
+        signal_power_sum = self._reduce_eval_tensor(acc["signal_power_sum"])
+        noise_power_sum = self._reduce_eval_tensor(acc["noise_power_sum"])
+        numel = self._reduce_eval_tensor(acc["numel"]).clamp_min(1.0)
+        total_tokens = self._reduce_eval_tensor(acc["total_tokens"])
+        used_mask = self._reduce_eval_tensor(acc["used_mask"])
+
+        metrics = {}
+        if used_mask is not None and acc["codebook_size"] > 0:
+            used_codes = used_mask.clamp_max(1).sum()
+            metrics[f"{metric_key_prefix}_codebook_usage"] = float((used_codes / acc["codebook_size"]).item())
+            metrics[f"{metric_key_prefix}_codebook_used_codes"] = float(used_codes.item())
+            metrics[f"{metric_key_prefix}_codebook_total_tokens"] = float(total_tokens.item())
+
+        if signal_power_sum is not None and noise_power_sum is not None:
+            snr = 10 * torch.log10(signal_power_sum / (noise_power_sum + 1e-8))
+            metrics[f"{metric_key_prefix}_snr_loss"] = float(snr.item())
+            metrics[f"{metric_key_prefix}_recon_mse"] = float((noise_power_sum / numel).item())
+
+        for key in ("recon_loss", "distill_loss", "commitment_loss", "vq_loss"):
+            value_sum = self._reduce_eval_tensor(acc[f"{key}_sum"])
+            metrics[f"{metric_key_prefix}_{key}"] = float((value_sum / sample_count).item())
+
+        return metrics
+
     # ===========================================================================
     # 精简版评估引擎：直接通过基类进行标准的验证集 Loss 收集
     # 在 trainer.py 的 train() 方法中，evaluation 并不是随机触发的，而是通过 args（TrainingArguments）中定义的策略进行调度。
@@ -221,33 +362,24 @@ class PoreTrainer(Trainer):
         # 
         if f"{metric_key_prefix}_loss" in metrics:
             raw_eval_loss = metrics[f"{metric_key_prefix}_loss"]
-            metrics[f"{metric_key_prefix}_recon_loss"] = raw_eval_loss
+            metrics.setdefault(f"{metric_key_prefix}_recon_loss", raw_eval_loss)
 
             # 同时也保留一个占位符以对齐老代码行为（防止其他回调因找不到字段而溃散）
-            metrics[f"{metric_key_prefix}_snr_loss"] = 0.0
-            metrics[f"{metric_key_prefix}_codebook_max_entropy"] = 0.0
+            metrics.setdefault(f"{metric_key_prefix}_snr_loss", 0.0)
+            metrics.setdefault(f"{metric_key_prefix}_codebook_max_entropy", 0.0)
 
         # 这里 return 的字典，只是为了给最后的主进程终端打印用的。
         return metrics
     
     def evaluation_loop(self, dataloader, *args, **kwargs):
+        metric_key_prefix = kwargs.get("metric_key_prefix", "eval")
+        if len(args) >= 4:
+            metric_key_prefix = args[3]
+
+        self._reset_eval_accumulators()
         output = super().evaluation_loop(dataloader, *args, **kwargs)
-        
-        # 错误做法
-        # 只在 rank 0 进行指标收集和更新，避免重复计算或冲突
-        # if self.is_world_process_zero():
-        # Hugging Face Trainer 的多卡评估机制采用的是 分布式全收集（All-Gather） 策略：
-        # 分工计算: 4张显卡（Rank 0, 1, 2, 3）各自平分验证集的数据，并各自在内部跑完前向传播。
-        # 局部统计: 每张卡跑完后，都会生成一个属于自己这部分数据的 EvalLoopOutput 对象，里面包含各自卡的 metrics 字典。
-        # 全局聚合 (Reduce): Trainer 在 evaluation_loop 的最后阶段（也就是 return output 之后，在 evaluate 函数内部），会调用分布式通信命令（如 all_gather），把所有卡的 metrics 字典收集起来做均值或汇总
-        # 1. 执行原生评估循环
-        # 2. ⚠️ 移除 self.is_world_process_zero() 限制！
-        # 让每张卡都算出自己那部分数据的指标，确保所有卡的 output.metrics 字典结构完全一致
-        model_to_call = self.model.module if hasattr(self.model, "module") else self.model
-        if hasattr(model_to_call, "get_metrics"):
-            extra_metrics = model_to_call.get_metrics()
-            # 将额外指标更新到输出字典中
-            output.metrics.update({f"eval_{k}": v for k, v in extra_metrics.items()})
+        output.metrics.update(self._finalize_eval_metrics(metric_key_prefix))
+        self._reset_eval_accumulators()
         return output
 
 
