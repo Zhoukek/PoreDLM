@@ -14,10 +14,23 @@ class RSQConfig:
     num_quantizers: int = 2
 
 @dataclass
+class VQConfig:
+    cnn_type: int = 0
+    codebook_decay: float = 0.99
+    codebook_emadc: int = 2
+    learnable_codebook: bool = True
+    init_codebook_path: Optional[str] = None
+    cnn_checkpoint_path: Optional[str] = None
+    freeze_cnn: bool = False
+    teacher_model_path: Optional[str] = None
+    distill_loss_weight: float = 0.0
+
+@dataclass
 class ModelConfig:
     model_type: str = "rsq"
     # 将分支特化参数聚合进来
     rsq: RSQConfig = field(default_factory=RSQConfig)
+    vq: VQConfig = field(default_factory=VQConfig)
     
     # 通用量化底座参数
     codebook_size: int = 625

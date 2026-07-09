@@ -18,7 +18,7 @@ wandb:
 # ===========================================================================
 model:
   # 🌟 核心多态路由：model_type 现在作为字符串，明确宣告当前激活哪一个量化器分支
-  # 可选值："rsq", "rvq", "svq", "w2v"
+  # 可选值："rsq", "vq", "vq_distill", "rvq", "svq", "w2v"
   model_type: "rsq"
 
   # -------------------------------------------------------------------------
@@ -28,6 +28,20 @@ model:
     cnn_type: 12                        # 下放到分支：RSQ 算法特化的 1D 电信号特征抽取 CNN 骨干网络类型
     levels: [5, 5, 5, 5]                # 各个标量维度的量化阶数列表
     num_quantizers: 2                   # 残差级联量化器层数
+
+  # -------------------------------------------------------------------------
+  # [分支 2] VQ 特化参数空间 (仅在 model_type == "vq" 时生效)
+  # -------------------------------------------------------------------------
+  vq:
+    cnn_type: 0                         # 复用原 stage1 VQ 的 SignalCNN(cnn_type=0)，stride=5, hidden=768
+    codebook_decay: 0.99                # EMA codebook decay；learnable_codebook=true 时不启用 EMA 更新
+    codebook_emadc: 2                   # dead-code EMA 触发阈值
+    learnable_codebook: true            # 对齐原 VQ 默认可学习 codebook
+    init_codebook_path: null            # 可选：从 .npy 初始化 codebook
+    cnn_checkpoint_path: null           # 可选：从旧 CNN encoder checkpoint 注入权重
+    freeze_cnn: false                   # 是否冻结注入后的 CNN encoder
+    teacher_model_path: null            # 可选：Bonito teacher 模型目录；model_type=vq_distill 时必须提供
+    distill_loss_weight: 0.0            # teacher cosine distillation loss 权重；普通 vq 建议保持 0.0
 
   # -------------------------------------------------------------------------
   # [通用量化参数] 无论激活哪种量化器，都必须消费的共享基础参数

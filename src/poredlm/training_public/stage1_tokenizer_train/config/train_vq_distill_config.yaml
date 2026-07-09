@@ -1,0 +1,96 @@
+# VQ tokenizer with Bonito-teacher distillation.
+# Fill model.vq.teacher_model_path and data paths before launching.
+run_name: "PoreCodec_VQ_Distill_8k_cnn0"
+seed: 6198
+dry_run: false
+
+wandb:
+  entity: "YourWandbEntity"
+  project: "nanopore_vq"
+  name: ${run_name}
+
+model:
+  model_type: "vq_distill"
+
+  rsq:
+    cnn_type: 12
+    levels: [5, 5, 5, 5]
+    num_quantizers: 2
+
+  vq:
+    cnn_type: 0
+    codebook_decay: 0.99
+    codebook_emadc: 2
+    learnable_codebook: true
+    init_codebook_path: null
+    cnn_checkpoint_path: null
+    freeze_cnn: false
+    teacher_model_path: "/path/to/bonito_teacher_model"
+    distill_loss_weight: 1.0
+
+  codebook_size: 8192
+  codebook_dim: 768
+  codebook_nqtz: 1
+
+loss_weights:
+  commitment_weight: 1.0
+  commitment_weight_lr: 0.01
+  use_dynamic_commitment_weight: false
+  commitment_weight_freeze_steps: 20000
+  commitment_weight_rpc: 1
+  codebook_diversity_loss_weight: 1.0
+  orthogonal_reg_weight: 1.0
+  update_loss_weight_every: 10
+
+optimizer:
+  name: "adamw"
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  eps: 1.0e-8
+
+scheduler:
+  name: "cosine"
+  t_warmup: 500
+  warmup_start_factor: 1.0e-6
+  warmup_end_factor: 1.0
+  main_scheduler_end_factor: 1.0e-6
+
+train_data:
+  paths:
+    - "/path/to/train_signal_shards"
+  chunk_size: 6000
+  memmap_dtype: "float32"
+  buffer_size: 20000
+  num_workers: 8
+  drop_last: true
+  pin_memory: true
+  prefetch_factor: 8
+  persistent_workers: true
+
+eval_data:
+  paths:
+    - "/path/to/eval_signal_shards"
+  chunk_size: 6000
+  val_ratio: 0.1
+  memmap_dtype: "float32"
+  buffer_size: 0
+  num_workers: 2
+  drop_last: false
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: false
+
+save_folder: "save/porecodec_vq_distill_output"
+save_overwrite: true
+save_interval: 1000
+eval_interval: 1000
+max_duration: 100000
+
+global_train_batch_size: 256
+device_train_microbatch_size: 16
+device_eval_batch_size: ${device_train_microbatch_size}
+
+precision: "bf16"
+max_grad_norm: 1.0
+load_path: null
+reset_optimizer_state: false

@@ -25,11 +25,13 @@ from config.train_config import TrainConfig
 from trainer import PoreTrainer
 from dataset import PoreSignalDataset  # 🌟 名字对齐最终版类名
 from wrappers.pore_rsq_wrapper import PoreRSQWrapper
+from wrappers.pore_vq_wrapper import PoreVQWrapper
 from monitor.codebook_monitor import CodebookMonitor
 from callbacks.codebook_callback import CodebookCallback
 
 # 找到你的 import 区域，添加这一行：
 from modeling_pore_codec import PoreRSQCodec, PoreRSQCodecConfig
+from modeling_pore_vq_codec import PoreVQCodec, PoreVQCodecConfig
 
 # 初始化全局日志
 logging.basicConfig(level=logging.INFO)
@@ -232,6 +234,7 @@ def train(cfg: TrainConfig):
     # [6] 模仿 OLMo: 显式 load_path 检查点控制与细粒度状态恢复
     # ===========================================================================
     resume_from_checkpoint = None
+    weight_only_load_path = None
     load_path = getattr(cfg, "load_path", None)
 
     if load_path and str(load_path).strip():
@@ -242,24 +245,7 @@ def train(cfg: TrainConfig):
         reset_optimizer = getattr(cfg, "reset_optimizer_state", False)
         if reset_optimizer:
             logger.info(f"🔄 [WEIGHT_ONLY_LOAD] Loading model weights from '{load_path}' but RESETTING optimizer/scheduler states.")
-            possible_weight_paths = [
-                os.path.join(load_path, "pytorch_model.bin"),
-                os.path.join(load_path, "model.safetensors")
-            ]
-            loaded = False
-            for p_path in possible_weight_paths:
-                if os.path.exists(p_path):
-                    if p_path.endswith(".bin"):
-                        state_dict = torch.load(p_path, map_location="cpu")
-                    else:
-                        from safetensors.torch import load_file
-                        state_dict = load_file(p_path, device="cpu")
-                    model.load_state_dict(state_dict, strict=True)
-                    logger.info(f"✅ Successfully injected weights into model from {p_path}")
-                    loaded = True
-                    break
-            if not loaded:
-                raise FileNotFoundError(f"❌ Could not find model weights file inside {load_path} to perform weight-only resume.")
+            weight_only_load_path = load_path
             resume_from_checkpoint = None
         else:
             logger.info(f"🔄 [FULL_RESUME] OLMo-style explicit resume triggered. Full pipeline recovery from: '{load_path}'")
@@ -292,9 +278,57 @@ def train(cfg: TrainConfig):
         codebook_cb = CodebookCallback(monitor=monitor, target_layer=model.codec.vq)
 
         #callbacks = [codebook_cb]
+    elif cfg.model.model_type in ("vq", "vq_distill"):
+        teacher_model_path = cfg.model.vq.teacher_model_path
+        if cfg.model.model_type == "vq_distill" and not teacher_model_path:
+            raise ValueError("❌ `model_type: vq_distill` requires `model.vq.teacher_model_path`.")
+
+        codec_config = PoreVQCodecConfig(
+            codebook_size=cfg.model.codebook_size,
+            codebook_decay=cfg.model.vq.codebook_decay,
+            codebook_emadc=cfg.model.vq.codebook_emadc,
+            commitment_weight=cfg.loss_weights.commitment_weight,
+            codebook_diversity_loss_weight=cfg.loss_weights.codebook_diversity_loss_weight,
+            orthogonal_reg_weight=cfg.loss_weights.orthogonal_reg_weight,
+            cnn_type=cfg.model.vq.cnn_type,
+            learnable_codebook=cfg.model.vq.learnable_codebook,
+            init_codebook_path=cfg.model.vq.init_codebook_path,
+            cnn_checkpoint_path=cfg.model.vq.cnn_checkpoint_path,
+            freeze_cnn=cfg.model.vq.freeze_cnn,
+            teacher_model_path=teacher_model_path,
+        )
+        raw_codec = PoreVQCodec(codec_config)
+        model = PoreVQWrapper(
+            raw_codec,
+            commitment_weight=cfg.loss_weights.commitment_weight,
+            codebook_diversity_loss_weight=cfg.loss_weights.codebook_diversity_loss_weight,
+            orthogonal_reg_weight=cfg.loss_weights.orthogonal_reg_weight,
+            distill_loss_weight=cfg.model.vq.distill_loss_weight,
+        )
     else:
         raise ValueError(f"❌ Unsupported model architecture type: {cfg.model.model_type}")
 
+    if weight_only_load_path:
+        possible_weight_paths = [
+            os.path.join(weight_only_load_path, "pytorch_model.bin"),
+            os.path.join(weight_only_load_path, "model.safetensors"),
+        ]
+        loaded = False
+        target_model = model.codec if hasattr(model, "codec") else model
+        for p_path in possible_weight_paths:
+            if os.path.exists(p_path):
+                if p_path.endswith(".bin"):
+                    state_dict = torch.load(p_path, map_location="cpu")
+                else:
+                    from safetensors.torch import load_file
+
+                    state_dict = load_file(p_path, device="cpu")
+                target_model.load_state_dict(state_dict, strict=True)
+                logger.info(f"✅ Successfully injected weights into model from {p_path}")
+                loaded = True
+                break
+        if not loaded:
+            raise FileNotFoundError(f"❌ Could not find model weights file inside {weight_only_load_path} to perform weight-only resume.")
 
 
 
