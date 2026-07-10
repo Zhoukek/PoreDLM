@@ -1,0 +1,125 @@
+# ===========================================================================
+# 🌍 全局基础实验控制 (BERT 迁移版)
+# ===========================================================================
+run_name: "PoreBERT_${model.bert_model_type}_lr${optimizer.learning_rate}_vocab${model.vocab_size}_dim${model.hidden_size}_layer${model.num_hidden_layers}_atn${model.num_attention_heads}_intm${model.intermediate_size}_heads${model.num_attention_heads}_buf${train_data.buffer_size}"
+seed: 6198
+dry_run: false
+
+# ===========================================================================
+# 📊 实验观测看板配置 (Weights & Biases Tracking)
+# ===========================================================================
+wandb:
+  entity: "jiaoshuaihit-hit"             # WandB 的空间/团队空间名称
+  project: "pore_bert"                # 归属的项目看板名称
+  name: ${run_name}                     # 动态引用顶层的运行名称，保持看板和本地实验名称严格一致
+
+
+# ===========================================================================
+# 🚀 模型架构：从 Codec 切换为 BERT 骨干 (BERT Architecture)
+# ===========================================================================
+model:
+  # 切换模式：明确这是 BERT 训练任务
+  model_type: "bert" 
+  #bert_model_type: "bert-base-uncased" # 或者你自定义的 PoreBERT 配置路径
+  #bert_model_type: "deberta-v3" # 或者你自定义的 PoreBERT 配置路径
+  bert_model_type: "simple" # 或者你自定义的 PoreBERT 配置路径
+  #bert_model_type: "electra" # 或者你自定义的 PoreBERT 配置路径
+  
+  # 注入式配置：BERT 不需要 FSQ 相关的 codebook 参数，改为词表与层数
+  # vocab_size: 2401        # 与你训练好的 Tokenizer 词表大小一致
+  # hidden_size: 768
+  # num_hidden_layers: 12
+  # num_attention_heads: 12
+  # intermediate_size: 3072
+  # max_position_embeddings: 512
+ 
+  # 🚨 针对 8层、256宽 严格对齐数学比例的配置
+  vocab_size: 2560              # 保持不变，与你的 Tokenizer 词表一致,128+2401再对齐256
+  hidden_size: 256              # 修改：从 768 降到 256
+  num_hidden_layers: 8          # 修改：从 12 层横砍到 8 层
+  num_attention_heads: 8        # 修改：必须能被 256 整除，推荐设为 8（每个头维度 32）
+  intermediate_size: 1024       # 修改：FFN膨胀宽，必须是 hidden_size 的 4 倍 (256 * 4)
+  max_position_embeddings: 1536 # 保持 512（若文本较短，改为 256 或 128 显存会更省）
+  # hidden_size: 512              # 修改：从 768 降到 256
+  # num_hidden_layers: 16          # 修改：从 12 层横砍到 8 层
+  # num_attention_heads: 16        # 修改：必须能被 256 整除，推荐设为 8（每个头维度 32）
+  # intermediate_size: 2048       # 修改：FFN膨胀宽，必须是 hidden_size 的 4 倍 (256 * 4)
+  # max_position_embeddings: 2048 # 保持 512（若文本较短，改为 256 或 128 显存会更省）
+
+
+  
+  # 如果依然需要 Tokenizer 作为 Embedding 层，保留相关的引用
+  tokenizer_path: "save" 
+
+# ===========================================================================
+# ⚖️ BERT 训练策略 (Masking Strategy)
+# ===========================================================================
+mlm_config:
+  mlm_probability: 0.15   # BERT 标准掩码比例
+  special_tokens_mask: null
+
+# ===========================================================================
+# 🛠️ 优化器配置 (BERT 训练通常需要更大的热身)
+# ===========================================================================
+optimizer:
+  name: "adamw"
+  learning_rate: 5.0e-4   # BERT 训练通常比 Codec 训练学习率稍高
+  weight_decay: 0.01
+  eps: 1.0e-8
+
+scheduler:
+  name: "cosine"
+  t_warmup: 1000          # 增加热身步数，BERT 训练收敛更依赖稳定的起始
+  warmup_start_factor: 0.0
+  warmup_end_factor: 1.0
+  main_scheduler_end_factor: 0.0
+
+# ===========================================================================
+# 📦 数据管线 (Data Pipelines)
+# ===========================================================================
+train_data:
+  # 注意：BERT 训练需要的是 Token ID 序列，而不是原始电信号矩阵
+  paths:
+    #- "/mnt/si003067jezr/default/poregpt/dataset/HG002_S1_MOD_595G/token_appleq50/test" # 2.1T memap bin data
+    - "demo_data" # 2.1T memap bin data
+  chunk_size: 1502        # 这里的 chunk_size 应匹配序列长度
+  num_workers: 4
+  memmap_dtype: "uint16"
+  data_name: "data"
+  prefetch_factor: 4 
+  #buffer_size: 1048576 # 1*1024*1024
+  buffer_size: 4194304 # 4*1024*1024
+  #buffer_size: 16777216 # 16*1024*1024
+  #buffer_size: 8126464 # 64*1024*1024
+  #buffer_size: 262144 # 256*1024
+  #buffer_size: 65536 # 1024*1024*1024
+  
+eval_data:
+  paths:
+    - "/mnt/si003067jezr/default/poregpt/dataset/HG002_S1_MOD_595G/token_appleq50/eval"
+  chunk_size: 1502        # 这里的 chunk_size 应匹配序列长度
+  num_workers: 2
+  memmap_dtype: "uint16"
+  data_name: "data" 
+
+# ===========================================================================
+# 💾 保存与 Batch (Batch 矩阵)
+# ===========================================================================
+save_folder: "save"
+
+save_interval: 1000                       # 物理层面的保存间隔（此处对应原模型每 10 个 Epoch 强制持久化一个 Checkpoint）
+eval_interval: 1000                      # 物理层面的验证间隔（此处对应原模型每 10 个 Epoch 强制执行一次验证集全量评估）
+
+max_duration: 100000                    # 全局最大迭代步数（Max Training Steps），达到此步数后管线自动安全退场
+
+
+
+  
+  # BERT 任务通常受限于 GPU 内存，建议适当降低单卡 Batch 提升序列长度兼容性
+global_train_batch_size: 1024 
+device_train_microbatch_size: 128
+#device_eval_batch_size: ${device_train_microbatch_size} # 动态引用训练单卡 Batch 设定，维持显存边界安全
+device_eval_batch_size: 64 # 动态引用训练单卡 Batch 设定，维持显存边界安全
+
+precision: "amp_bf16"
+max_grad_norm: 1.0

@@ -27,16 +27,16 @@ def main():
     # 4: <mask>
     vocab["<|mask|>"] = 4
 
-    # # 4–127: phonemes
-    # for i in range(124):
-    #     vocab[f"<|ph_{i}|>"] = 5 + i
+    # 4–127: phonemes
+    for i in range(123):
+        vocab[f"<|ph_{i}|>"] = 5 + i
 
     # 128 onward: bwav tokens
     for i in range(K):
-        vocab[f"<|bwav:{i}|>"] = 5 + i
+        vocab[f"<|bwav:{i}|>"] = 128 + i
 
     total_vocab_size = len(vocab)
-    assert total_vocab_size == 5 + K, f"Vocab size mismatch: expected {5 + K}, got {total_vocab_size}"
+    assert total_vocab_size == 128 + K, f"Vocab size mismatch: expected {128 + K}, got {total_vocab_size}"
 
     # added_tokens: ONLY bos, eos, pad — exactly as in your original file
     # Note: unk is NOT in added_tokens in your example!
@@ -124,8 +124,8 @@ def main():
     print(f"✅ Generated tokenizer.json with K={K}")
     print(f"   Vocab size: {total_vocab_size}")
     print(f"   Special token IDs: unk=0, pad=1, bos=2, eos=3, mask=4")
-    print(f"   Phonemes: <|ph_0|> (ID=5) to <|ph_123|> (ID=128)")
-    print(f"   Bwav tokens: <|bwav:0|> (ID=129) to <|bwav:{K-1}|> (ID={128 + K})")
+    print(f"   Phonemes: <|ph_0|> (ID=5) to <|ph_123|> (ID=127)")
+    print(f"   Bwav tokens: <|bwav:0|> (ID=128) to <|bwav:{K-1}|> (ID={127 + K})")
     print(f"   Output: {args.output}")
 
 if __name__ == "__main__":

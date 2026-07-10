@@ -249,7 +249,7 @@ class PoreVQCodec(PreTrainedModel):
 
         return recon, indices.to(device=signal.device, dtype=torch.long), vq_loss, loss_breakdown, distill_loss
 
-    def encode_signal(self, signal: torch.Tensor) -> torch.Tensor:
+    def encode_signal(self, signal: torch.Tensor, layer: int = 0) -> torch.Tensor:
         self.eval()
         device = next(self.parameters()).device
         if signal.device != device:
