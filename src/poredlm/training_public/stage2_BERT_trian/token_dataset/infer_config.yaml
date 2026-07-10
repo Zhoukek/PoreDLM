@@ -9,9 +9,9 @@ model:
 dataset:
   # -------------------- 基础 I/O 航道配置 --------------------
   input_data_paths:                                    # 原始电信号文件/目录列表
-    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/eval"
+    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train"
   
-  save_folder: "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/token_dataset/eval"                  # 转换后标准 Dolma 格式存放目录
+  save_folder: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train"                  # 转换后标准 Dolma 格式存放目录
   output_prefix: "pore_tokens"                         # 输出文件名前缀
 
   # 🌟 ----------------- 🚀 新增：内存流式蓄水池控制 -----------------
@@ -23,7 +23,7 @@ dataset:
   shuffle_buffer: false                               # 推理/tokenize 阶段建议关闭 shuffle，保持输出顺序稳定
 
   # -------------------- 核心算力与批处理控制 --------------------
-  batch_size: 16                                       # 批处理大小
+  batch_size: 32                                       # 批处理大小
   feature_extraction: false                            # 是否启用前置特征提取器
 
   # -------------------- 高性能 DataLoader 流式加速参数 --------------------

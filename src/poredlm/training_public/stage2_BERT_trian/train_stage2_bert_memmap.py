@@ -7,6 +7,7 @@ import math
 import os
 import random
 import shutil
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +40,16 @@ def mask_token_ids(
     mask_probability: float,
     random_token_min_id: int,
     random_token_max_id: int,
+    special_token_ids: set[int] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     labels = input_ids.clone()
     probability = torch.full(labels.shape, float(mask_probability), device=input_ids.device)
     probability = probability.masked_fill(attention_mask == 0, 0.0)
+    if special_token_ids:
+        special_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+        for token_id in special_token_ids:
+            special_mask |= input_ids == int(token_id)
+        probability = probability.masked_fill(special_mask, 0.0)
     masked_indices = torch.bernoulli(probability).bool()
     labels[~masked_indices] = -100
 
@@ -65,6 +72,99 @@ def mask_token_ids(
     )
     corrupted[replace_with_random] = random_ids[replace_with_random]
     return corrupted, labels
+
+
+def normalize_flowmap_sample(sample: torch.Tensor, data_cfg: dict[str, Any], model_cfg: dict[str, Any]) -> torch.Tensor:
+    raw = torch.as_tensor(sample, dtype=torch.long).flatten()
+    pad_token_id = int(model_cfg.get("pad_token_id", 0))
+    bos_token_id = int(model_cfg.get("bos_token_id", 2))
+    eos_token_id = int(model_cfg.get("eos_token_id", 3))
+    cls_token_id = int(model_cfg.get("cls_token_id", 4))
+    token_offset = int(data_cfg.get("token_offset", 128))
+    max_length = int(model_cfg.get("max_position_embeddings", 1280))
+    input_has_special_tokens = bool(data_cfg.get("input_has_special_tokens", True))
+    tokens_are_shifted = bool(data_cfg.get("tokens_are_shifted", True))
+    add_cls_token = bool(data_cfg.get("add_cls_token", True))
+    strict_special_tokens = bool(data_cfg.get("strict_special_tokens", True))
+
+    if raw.numel() == 0:
+        content = raw
+    elif input_has_special_tokens:
+        if raw.numel() < 2:
+            raise ValueError("FlowMap token sample is too short to contain BOS/EOS.")
+        if strict_special_tokens and (int(raw[0]) != bos_token_id or int(raw[-1]) != eos_token_id):
+            raise ValueError(
+                f"FlowMap sample boundary mismatch: expected BOS/EOS={bos_token_id}/{eos_token_id}, "
+                f"got {int(raw[0])}/{int(raw[-1])}."
+            )
+        content = raw[1:-1]
+    else:
+        content = raw
+
+    if not tokens_are_shifted:
+        content = content + token_offset
+
+    reserve = 2 + (1 if add_cls_token else 0)
+    if max_length < reserve:
+        raise ValueError(f"max_position_embeddings={max_length} is too short for special tokens.")
+    content = content[: max_length - reserve]
+
+    pieces = []
+    if add_cls_token:
+        pieces.append(torch.tensor([cls_token_id], dtype=torch.long))
+    pieces.append(torch.tensor([bos_token_id], dtype=torch.long))
+    pieces.append(content)
+    pieces.append(torch.tensor([eos_token_id], dtype=torch.long))
+    sequence = torch.cat(pieces)
+
+    if sequence.numel() < max_length:
+        sequence = torch.nn.functional.pad(
+            sequence,
+            (0, max_length - sequence.numel()),
+            value=pad_token_id,
+        )
+    return sequence
+
+
+def flowmap_collate_fn(batch: list[dict[str, Any]], data_cfg: dict[str, Any], model_cfg: dict[str, Any]) -> dict[str, torch.Tensor]:
+    data_name = str(data_cfg.get("data_name", "data"))
+    input_ids = []
+    ids = []
+    for item in batch:
+        if data_name in item:
+            raw = item[data_name]
+        elif "data" in item:
+            raw = item["data"]
+        elif "signal" in item:
+            raw = item["signal"]
+        else:
+            raise KeyError(f"FlowMap sample does not contain {data_name!r}, 'data', or 'signal'. Keys={list(item)}")
+        input_ids.append(normalize_flowmap_sample(raw, data_cfg=data_cfg, model_cfg=model_cfg))
+        if "id" in item:
+            ids.append(torch.as_tensor(item["id"], dtype=torch.long).reshape(()))
+
+    token_ids = torch.stack(input_ids, dim=0)
+    vocab_size = int(model_cfg["vocab_size"])
+    max_id = int(token_ids.max().item())
+    if max_id >= vocab_size:
+        raise ValueError(f"Token id out of range after FlowMap collate: max_id={max_id}, vocab_size={vocab_size}.")
+    output = {
+        "input_ids": token_ids,
+        "attention_mask": (token_ids != int(model_cfg.get("pad_token_id", 0))).long(),
+    }
+    if ids:
+        output["id"] = torch.stack(ids)
+    return output
+
+
+def get_special_token_ids(model_cfg: dict[str, Any]) -> set[int]:
+    return {
+        int(model_cfg.get("pad_token_id", 0)),
+        int(model_cfg.get("mask_token_id", 1)),
+        int(model_cfg.get("bos_token_id", 2)),
+        int(model_cfg.get("eos_token_id", 3)),
+        int(model_cfg.get("cls_token_id", 4)),
+    }
 
 
 def build_scheduler(optimizer: torch.optim.Optimizer, name: str, warmup_steps: int, total_steps: int) -> LambdaLR:
@@ -92,19 +192,51 @@ def build_loader(config: dict[str, Any], split: str) -> DataLoader:
     data_cfg = config["data"]
     model_cfg = config["model"]
     training_cfg = config["training"]
-    data_dir = data_cfg.get(f"{split}_dir")
-    if not data_dir:
-        raise ValueError(f"Missing data.{split}_dir.")
-    dataset = TokenMemmapIterableDataset(
-        data_dir=data_dir,
-        pattern=str(data_cfg.get("file_pattern", "*.npy")),
-        token_dtype=str(data_cfg.get("token_dtype", "uint32")),
-        max_length=int(model_cfg.get("max_position_embeddings", 1280)),
-        pad_token_id=int(model_cfg.get("pad_token_id", 0)),
-        shuffle_files=bool(data_cfg.get(f"{split}_shuffle_files", split == "train")),
-        seed=int(config.get("reproducibility", {}).get("seed", config.get("seed", 42))),
-        repeat=(split == "train"),
-    )
+    dataset_type = str(data_cfg.get("dataset_type", "flowmap")).lower()
+    if dataset_type == "flowmap":
+        from flowmap import FlowMapDataset
+
+        paths = data_cfg.get(f"{split}_paths")
+        if paths is None:
+            data_dir = data_cfg.get(f"{split}_dir")
+            paths = [data_dir] if data_dir else None
+        if not paths:
+            raise ValueError(f"Missing data.{split}_paths or data.{split}_dir for FlowMapDataset.")
+
+        rank = int(os.environ.get("RANK", "0"))
+        world_size = max(1, int(os.environ.get("WORLD_SIZE", "1")))
+        flowmap_kwargs: dict[str, Any] = {
+            "shard_paths": paths,
+            "buffer_size": int(data_cfg.get(f"{split}_buffer_size", data_cfg.get("buffer_size", 0 if split != "train" else 4194304))),
+            "memmap_dtype": str(data_cfg.get("token_dtype", data_cfg.get("memmap_dtype", "uint32"))),
+            "shuffle_buffer": bool(data_cfg.get(f"{split}_shuffle_buffer", split == "train" and data_cfg.get("shuffle_buffer", False))),
+            "rank": rank,
+            "world_size": world_size,
+            "seed": int(config.get("reproducibility", {}).get("seed", config.get("seed", 42))),
+            "data_name": str(data_cfg.get("data_name", "data")),
+            "memmap_cache_capacity": int(data_cfg.get("memmap_cache_capacity", 1024 if split == "train" else 16)),
+        }
+        if split != "train":
+            flowmap_kwargs["is_repeat"] = False
+        if "verbose" in data_cfg:
+            flowmap_kwargs["verbose"] = bool(data_cfg["verbose"])
+        dataset = FlowMapDataset(**flowmap_kwargs)
+        collate_fn = partial(flowmap_collate_fn, data_cfg=data_cfg, model_cfg=model_cfg)
+    else:
+        data_dir = data_cfg.get(f"{split}_dir")
+        if not data_dir:
+            raise ValueError(f"Missing data.{split}_dir.")
+        dataset = TokenMemmapIterableDataset(
+            data_dir=data_dir,
+            pattern=str(data_cfg.get("file_pattern", "*.npy")),
+            token_dtype=str(data_cfg.get("token_dtype", "uint32")),
+            max_length=int(model_cfg.get("max_position_embeddings", 1280)),
+            pad_token_id=int(model_cfg.get("pad_token_id", 0)),
+            shuffle_files=bool(data_cfg.get(f"{split}_shuffle_files", split == "train")),
+            seed=int(config.get("reproducibility", {}).get("seed", config.get("seed", 42))),
+            repeat=(split == "train"),
+        )
+        collate_fn = None
     num_workers = int(data_cfg.get("num_workers", 4))
     loader_kwargs: dict[str, Any] = {
         "batch_size": int(training_cfg.get("device_micro_batch_size", 8)),
@@ -112,6 +244,7 @@ def build_loader(config: dict[str, Any], split: str) -> DataLoader:
         "num_workers": num_workers,
         "pin_memory": bool(data_cfg.get("pin_memory", True)),
         "drop_last": split == "train",
+        "collate_fn": collate_fn,
     }
     if num_workers > 0:
         loader_kwargs["prefetch_factor"] = int(data_cfg.get("prefetch_factor", 2))
@@ -136,6 +269,9 @@ def build_model(config: dict[str, Any]) -> Stage2MaskedSignalLM:
         max_position_embeddings=int(model_cfg.get("max_position_embeddings", 1280)),
         pad_token_id=int(model_cfg.get("pad_token_id", 0)),
         mask_token_id=int(model_cfg.get("mask_token_id", 1)),
+        bos_token_id=int(model_cfg.get("bos_token_id", 2)),
+        eos_token_id=int(model_cfg.get("eos_token_id", 3)),
+        cls_token_id=int(model_cfg.get("cls_token_id", 4)),
     )
     return Stage2MaskedSignalLM(hf_config)
 
@@ -207,6 +343,7 @@ def evaluate(
                 mask_probability=float(model_cfg.get("mask_probability", 0.15)),
                 random_token_min_id=int(model_cfg.get("random_token_min_id", 4)),
                 random_token_max_id=int(model_cfg.get("random_token_max_id", model_cfg["vocab_size"])),
+                special_token_ids=get_special_token_ids(model_cfg),
             )
             outputs = model(input_ids=corrupted, attention_mask=attention_mask, labels=labels)
             masked = labels != -100
@@ -300,6 +437,7 @@ def train(config: dict[str, Any]) -> None:
                     mask_probability=float(model_cfg.get("mask_probability", 0.15)),
                     random_token_min_id=int(model_cfg.get("random_token_min_id", 4)),
                     random_token_max_id=int(model_cfg.get("random_token_max_id", model_cfg["vocab_size"])),
+                    special_token_ids=get_special_token_ids(model_cfg),
                 )
                 outputs = model(input_ids=corrupted, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss

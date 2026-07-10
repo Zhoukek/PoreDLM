@@ -221,7 +221,15 @@ def main():
                     end_pos = start_pos + seq_length
 
                     token_buffer.extend(full_sequence)
-                    meta_buffer.append([start_pos, end_pos, raw_id_str])
+                    # meta_buffer.append([start_pos, end_pos, raw_id_str])
+                    meta_buffer.append([
+                        start_pos,
+                        end_pos,
+                        seq_length,
+                        "token",
+                        raw_id_str,
+                        raw_id_str,
+                    ])
 
                     current_pointer = end_pos
                     global_item_count += 1

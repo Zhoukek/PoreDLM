@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 from transformers import AutoConfig, AutoModel, AutoModelForMaskedLM, PreTrainedModel, PretrainedConfig
-from transformers.modeling_outputs import MaskedLMOutput
+from transformers.utils import ModelOutput
+
+
+@dataclass
+class Stage2MaskedLMOutput(ModelOutput):
+    loss: Optional[torch.FloatTensor] = None
+    logits: Optional[torch.FloatTensor] = None
+    last_hidden_state: Optional[torch.FloatTensor] = None
+    hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
 
 
 class Stage2BertConfig(PretrainedConfig):
@@ -26,6 +35,9 @@ class Stage2BertConfig(PretrainedConfig):
         max_position_embeddings: int = 1280,
         pad_token_id: int = 0,
         mask_token_id: int = 1,
+        bos_token_id: int = 2,
+        eos_token_id: int = 3,
+        cls_token_id: int = 4,
         layer_norm_eps: float = 1e-5,
         **kwargs,
     ) -> None:
@@ -38,6 +50,9 @@ class Stage2BertConfig(PretrainedConfig):
         self.hidden_dropout_prob = float(hidden_dropout_prob)
         self.attention_probs_dropout_prob = float(attention_probs_dropout_prob)
         self.max_position_embeddings = int(max_position_embeddings)
+        self.bos_token_id = int(bos_token_id)
+        self.eos_token_id = int(eos_token_id)
+        self.cls_token_id = int(cls_token_id)
         self.layer_norm_eps = float(layer_norm_eps)
 
 
@@ -45,6 +60,8 @@ class Stage2MaskedSignalLM(PreTrainedModel):
     config_class = Stage2BertConfig
     base_model_prefix = "stage2_bert"
     supports_gradient_checkpointing = False
+    _tied_weights_keys = ["lm_head.weight"]
+
 
     def __init__(self, config: Stage2BertConfig) -> None:
         super().__init__(config)
@@ -80,6 +97,12 @@ class Stage2MaskedSignalLM(PreTrainedModel):
     def set_input_embeddings(self, value: nn.Embedding) -> None:
         self.token_embeddings = value
 
+    def get_output_embeddings(self) -> nn.Linear:
+        return self.lm_head
+
+    def set_output_embeddings(self, value: nn.Linear) -> None:
+        self.lm_head = value
+
     def _encode(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         if input_ids.ndim != 2:
             raise ValueError(f"input_ids must have shape [batch, seq_len], got {tuple(input_ids.shape)}.")
@@ -103,13 +126,17 @@ class Stage2MaskedSignalLM(PreTrainedModel):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
+        input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         **kwargs,
-    ) -> MaskedLMOutput | Tuple[torch.Tensor, ...]:
+    ) -> Stage2MaskedLMOutput | Tuple[torch.Tensor, ...]:
+        if input_ids is None and "data" in kwargs:
+            input_ids = kwargs.pop("data")
+        if input_ids is None:
+            raise ValueError("Stage2MaskedSignalLM.forward requires input_ids or data.")
         del kwargs
         return_dict = self.config.use_return_dict if return_dict is None else return_dict
         output_hidden_states = bool(output_hidden_states)
@@ -130,9 +157,10 @@ class Stage2MaskedSignalLM(PreTrainedModel):
                 output = output + ((hidden,),)
             return ((loss,) + output) if loss is not None else output
 
-        return MaskedLMOutput(
+        return Stage2MaskedLMOutput(
             loss=loss,
             logits=logits,
+            last_hidden_state=hidden,
             hidden_states=(hidden,) if output_hidden_states else None,
         )
 
