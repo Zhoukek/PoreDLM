@@ -3,8 +3,8 @@
 # ==============================================================================
 
 model:
-  model_dir: "ShuaiAnwo/pore-codec-rsq742c12a-511"    # 量化编码器模型路径
-  target_layer: 1                                      # 目标 VQ/RSQ 量化层级
+  model_dir: "ShuaiAnwo/pore-codec-rsq742c12a-511"    # 量化编码器模型路径；可替换为本地 VQ/VQ-distill save_pretrained 输出目录
+  target_layer: 1                                      # RSQ 使用目标量化层级；VQ/VQ-distill 会兼容该字段但实际忽略
 
 dataset:
   # -------------------- 基础 I/O 航道配置 --------------------
@@ -18,6 +18,9 @@ dataset:
   # 1GB (1024*1024*1024 Bytes) 内存缓冲区。
   # 作用：保护磁盘进行大块顺序 I/O 预读；若在训练集管线中，则作为滑窗二次洗牌池。
   buffer_size: 65536 
+  logic_chunk_size: 6000                              # 输入 tokenizer 的 signal 固定长度，需和 stage1 训练 chunk_size 对齐
+  memmap_dtype: "float32"                             # 原始 signal memmap dtype
+  shuffle_buffer: false                               # 推理/tokenize 阶段建议关闭 shuffle，保持输出顺序稳定
 
   # -------------------- 核心算力与批处理控制 --------------------
   batch_size: 1024                                       # 批处理大小
@@ -32,6 +35,7 @@ dataset:
 dolma_spec:
   # -------------------- Dolma 标准落盘规范 --------------------
   items_per_file: 262144                                # 每累积 256k条序列，强制打包落盘
-  memmap_dtype: "uint16"                               # 离散 Token 存储精度
+  memmap_dtype: "uint32"                               # 离散 Token 存储精度；64K codebook + token_offset=128 不能用 uint16
+  token_offset: 128                                    # 输出 token 偏移；若下游不需要 bwav 128 偏移，可设为 0
   bos_token_id: 2                                      # 序列起始守卫 Token
   eos_token_id: 3                                      # 序列结束守卫 Token

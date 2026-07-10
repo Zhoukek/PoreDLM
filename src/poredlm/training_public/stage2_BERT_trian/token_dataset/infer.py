@@ -10,6 +10,9 @@ from transformers import AutoFeatureExtractor, AutoModel
 import traceback
 from tqdm import tqdm  # 🚀 新增：引入进度条
 
+import modeling_pore_vq_codec  # noqa: F401
+
+
 # 保持你原有的导入路径
 from dataset import PoreSignalDataset
 
@@ -61,7 +64,7 @@ def main():
         raise ValueError(f"配置文件中的 input_data_paths 必须是列表格式")
 
     model_dir = cfg['model']['model_dir']
-    target_layer = cfg['model']['target_layer']
+    target_layer = cfg['model'].get('target_layer', 0)
 
     feature_extraction = cfg['dataset']['feature_extraction']
     batch_size = cfg['dataset'].get('batch_size', 1)
@@ -72,12 +75,14 @@ def main():
     memmap_dtype_str = cfg['dolma_spec']['memmap_dtype']
     bos_token_id = cfg['dolma_spec']['bos_token_id']
     eos_token_id = cfg['dolma_spec']['eos_token_id']
+    token_offset = int(cfg['dolma_spec'].get('token_offset', 128))
 
     # 类型映射
     dtype_map = {"uint8": np.uint8, "uint16": np.uint16, "uint32": np.uint32}
     if memmap_dtype_str not in dtype_map:
         raise ValueError(f"不支持的 memmap_dtype: {memmap_dtype_str}")
     dtype_np = dtype_map[memmap_dtype_str]
+    dtype_max = np.iinfo(dtype_np).max
 
     os.makedirs(save_folder, exist_ok=True)
 
@@ -112,9 +117,15 @@ def main():
     # 3. 构建分布式数据集并进行单次遍历 (融合 YAML 新参数)
     # ---------------------------------------------------------
     config_buffer_size = cfg['dataset'].get('buffer_size', 1073741824)
+    logic_chunk_size = cfg['dataset'].get('logic_chunk_size', 6000)
+    memmap_dtype = cfg['dataset'].get('memmap_dtype', 'float32')
+    shuffle_buffer = cfg['dataset'].get('shuffle_buffer', False)
 
     dataset = PoreSignalDataset(
         shard_paths=input_data_paths,
+        logic_chunk_size=logic_chunk_size,
+        memmap_dtype=memmap_dtype,
+        shuffle_buffer=shuffle_buffer,
         rank=local_rank,
         world_size=world_size,
         buffer_size=config_buffer_size,
@@ -194,8 +205,13 @@ def main():
                     else:
                         raw_id_str = f"unknown_{global_item_count}"
                     
-                    # 🚀 在转为 list 之前，直接利用 NumPy 让所有 token 统一增加 128
-                    shifted_tokens = token_npy[i].flatten() + 128
+                    shifted_tokens = token_npy[i].flatten() + token_offset
+                    if shifted_tokens.size > 0 and shifted_tokens.max() > dtype_max:
+                        raise ValueError(
+                            f"Token id overflow: max shifted token={int(shifted_tokens.max())} "
+                            f"exceeds {memmap_dtype_str} max={dtype_max}. "
+                            "Use dolma_spec.memmap_dtype: uint32 or lower dolma_spec.token_offset."
+                        )
                     token_list = shifted_tokens.tolist()
                     full_sequence = [bos_token_id] + token_list + [eos_token_id]
                     
