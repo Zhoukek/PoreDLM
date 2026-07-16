@@ -8,8 +8,8 @@ export WANDB_API_KEY=wandb_v1_V6Q1FUhi4P8Rd364ANJpff5XQF4_AgyhQlAJZx1sdHQVfTrq5F
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_PATH="${CONFIG_PATH:-${SCRIPT_DIR}/train_config.yaml}"
-NPROC_PER_NODE="2"
-MASTER_PORT="29500"
+NPROC_PER_NODE="4"
+MASTER_PORT="29501"
 
 cd "${SCRIPT_DIR}"
 

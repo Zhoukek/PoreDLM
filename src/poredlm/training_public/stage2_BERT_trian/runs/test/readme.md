@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import modeling_stage2_bert
 from transformers import AutoFeatureExtractor, AutoModel
 
 codec_name = "/path/to/stage1_codec"

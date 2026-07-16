@@ -5,12 +5,12 @@ set -euo pipefail
 source /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh
 
 export PYTHONPATH=/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune:/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src:${PYTHONPATH:-}
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1
 export WANDB_API_KEY=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
 
-nproc_per_node=4
-batch_size=16
-num_epochs=500
+nproc_per_node=2
+batch_size=8
+num_epochs=100
 lr="1e-4"
 weight_decay="1e-5"
 warmup_ratio="0.1"
@@ -34,10 +34,10 @@ ddp_backend="nccl"
 
 
 wandb_project="stage4_finetune"
-wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_mx_basecall_validation"
+wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_mx_28000_chunks"
 
 base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/02_150m_no_cond_8k_vq_context_1200/hf_dlm"
-data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/basecall_validation"
+data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp"
 outdir="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage4_finetune/runs/S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test"
 
 mkdir -p "${outdir}"

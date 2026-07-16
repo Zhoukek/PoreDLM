@@ -23,6 +23,7 @@ def ctc_label_smoothing_loss(
     input_lengths: Optional[torch.Tensor] = None,
     blank_idx: int = 0,
     weights: Optional[torch.Tensor] = None,
+    label_smooth_weight: float = 1.0,
 ) -> dict:
     """
     Bonito-style CTC + label smoothing loss.
@@ -59,10 +60,12 @@ def ctc_label_smoothing_loss(
         reduction="mean",
     )
     label_smooth_loss = -((log_probs * weights.to(log_probs.device)).mean())
+    weighted_label_smooth_loss = float(label_smooth_weight) * label_smooth_loss
     return {
-        "total_loss": base_loss + label_smooth_loss,
+        "total_loss": base_loss + weighted_label_smooth_loss,
         "loss": base_loss,
         "label_smooth_loss": label_smooth_loss,
+        "weighted_label_smooth_loss": weighted_label_smooth_loss,
     }
 
 

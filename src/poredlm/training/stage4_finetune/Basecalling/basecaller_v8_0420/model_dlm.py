@@ -146,6 +146,7 @@ class BasecallModel(nn.Module):
             hidden_size=hidden_size,
             transformer_nhead=pre_head_transformer_nhead,
         )
+        self.token_prediction_head = nn.Linear(self.pre_head.output_dim, len(self.tokenizer))
 
         if self.head_type == "ctc_crf":
             n_base = head_crf_n_base if head_crf_n_base is not None else (len(ID2BASE) - 1)
@@ -324,7 +325,8 @@ class BasecallModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        return_token_logits: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if self.backbone_chunk_size > 0 and input_ids.shape[1] > self.backbone_chunk_size:
             hidden_parts = []
             for start in range(0, input_ids.shape[1], self.backbone_chunk_size):
@@ -349,6 +351,9 @@ class BasecallModel(nn.Module):
 
         hidden = self.pre_head(hidden)
         logits_btc = self.base_head(hidden)
+        if return_token_logits:
+            token_logits = self.token_prediction_head(hidden)
+            return logits_btc, token_logits
         return logits_btc
 
     def _forward_backbone_hidden(

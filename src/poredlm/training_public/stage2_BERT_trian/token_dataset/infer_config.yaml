@@ -9,9 +9,9 @@ model:
 dataset:
   # -------------------- 基础 I/O 航道配置 --------------------
   input_data_paths:                                    # 原始电信号文件/目录列表
-    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train"
+    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/eval"
   
-  save_folder: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train"                  # 转换后标准 Dolma 格式存放目录
+  save_folder: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval"                  # 转换后标准 Dolma 格式存放目录
   output_prefix: "pore_tokens"                         # 输出文件名前缀
 
   # 🌟 ----------------- 🚀 新增：内存流式蓄水池控制 -----------------

@@ -32,6 +32,7 @@ import numpy as np
 
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 from accelerate import Accelerator
 from accelerate.utils import DistributedDataParallelKwargs, InitProcessGroupKwargs
 from torch.utils.data import DataLoader, Subset
@@ -145,6 +146,28 @@ def reduce_min(accelerator: Accelerator, value: int, device: torch.device) -> bo
     return bool(accelerator.gather(tensor.unsqueeze(0)).min().item())
 
 
+def apply_input_token_mask(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor | None,
+    mask_ratio: float,
+    mask_token_id: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """BERT-style input corruption for downstream basecalling training."""
+    ratio = float(mask_ratio)
+    if ratio <= 0.0:
+        return input_ids, torch.zeros_like(input_ids, dtype=torch.bool)
+    valid_positions = torch.ones_like(input_ids, dtype=torch.bool)
+    if attention_mask is not None:
+        valid_positions = attention_mask.to(device=input_ids.device, dtype=torch.bool)
+    random_positions = torch.rand(input_ids.shape, device=input_ids.device) < ratio
+    mask_positions = random_positions & valid_positions
+    if not bool(mask_positions.any().item()):
+        return input_ids, mask_positions
+    masked_input_ids = input_ids.clone()
+    masked_input_ids[mask_positions] = int(mask_token_id)
+    return masked_input_ids, mask_positions
+
+
 def setup_logger(log_file: str, accelerator: Accelerator) -> logging.Logger:
     logger = logging.getLogger("basecaller_ddp_multifolder")
     logger.setLevel(logging.INFO)
@@ -170,21 +193,37 @@ def setup_logger(log_file: str, accelerator: Accelerator) -> logging.Logger:
 
 # -------------------- optimizer/scheduler --------------------
 
-def build_adamw_with_no_decay(named_params, lr: float, weight_decay: float) -> torch.optim.Optimizer:
+def build_adamw_with_no_decay(
+    named_params,
+    lr: float,
+    weight_decay: float,
+    backbone_lr: float | None = None,
+    head_lr: float | None = None,
+) -> torch.optim.Optimizer:
     no_decay_keywords = ("bias", "LayerNorm.weight", "layer_norm.weight", "norm.weight")
-    decay_params, no_decay_params = [], []
+    default_lr = float(lr)
+    backbone_lr = default_lr if backbone_lr is None else float(backbone_lr)
+    head_lr = default_lr if head_lr is None else float(head_lr)
+    grouped_params = {
+        "backbone_decay": {"params": [], "weight_decay": weight_decay, "lr": backbone_lr},
+        "backbone_no_decay": {"params": [], "weight_decay": 0.0, "lr": backbone_lr},
+        "head_decay": {"params": [], "weight_decay": weight_decay, "lr": head_lr},
+        "head_no_decay": {"params": [], "weight_decay": 0.0, "lr": head_lr},
+    }
     for n, p in named_params:
         if not p.requires_grad:
             continue
-        if any(k in n for k in no_decay_keywords):
-            no_decay_params.append(p)
-        else:
-            decay_params.append(p)
-    return torch.optim.AdamW(
-        [{"params": decay_params, "weight_decay": weight_decay},
-         {"params": no_decay_params, "weight_decay": 0.0}],
-        lr=lr,
-    )
+        module_group = "backbone" if n.startswith("backbone.") else "head"
+        decay_group = "no_decay" if any(k in n for k in no_decay_keywords) else "decay"
+        grouped_params[f"{module_group}_{decay_group}"]["params"].append(p)
+
+    param_groups = []
+    for group_name, group in grouped_params.items():
+        if not group["params"]:
+            continue
+        group["name"] = group_name
+        param_groups.append(group)
+    return torch.optim.AdamW(param_groups, lr=default_lr)
 
 
 def build_scheduler(optimizer, total_steps: int, warmup_steps: int, min_lr: float,
@@ -196,26 +235,40 @@ def build_scheduler(optimizer, total_steps: int, warmup_steps: int, min_lr: floa
     total_steps = max(int(total_steps), 1)
     warmup_steps = max(0, min(int(warmup_steps), total_steps - 1))
 
-    base_lr = float(optimizer.param_groups[0]["lr"])
-    if base_lr <= 0:
-        base_lr = 1e-8
+    base_lrs = [float(group["lr"]) for group in optimizer.param_groups]
+    safe_base_lrs = [lr if lr > 0 else 1e-8 for lr in base_lrs]
     min_lr = max(0.0, float(min_lr))
-    min_ratio = min(min_lr / base_lr, 1.0)
 
-    def lr_lambda(current_step: int) -> float:
-        step = min(max(int(current_step), 0), total_steps)
-        if warmup_steps > 0 and step < warmup_steps:
-            return float(step) / float(max(1, warmup_steps))
-        if total_steps <= warmup_steps:
-            return 1.0
-        progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
-        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
-        return min_ratio + (1.0 - min_ratio) * cosine
+    def make_lr_lambda(base_lr: float):
+        min_ratio = min(min_lr / base_lr, 1.0)
 
-    sched = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        def lr_lambda(current_step: int) -> float:
+            step = min(max(int(current_step), 0), total_steps)
+            if warmup_steps > 0 and step < warmup_steps:
+                return float(step) / float(max(1, warmup_steps))
+            if total_steps <= warmup_steps:
+                return 1.0
+            progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_ratio + (1.0 - min_ratio) * cosine
+
+        return lr_lambda
+
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=[make_lr_lambda(base_lr) for base_lr in safe_base_lrs],
+    )
     if logger is not None and is_main_process(accelerator):
-        logger.info(f"[Scheduler] Using LambdaLR linear_warmup+cosine with min_lr floor (base_lr={base_lr:.6g}, min_lr={min_lr:.6g})")
+        lr_summary = ", ".join(
+            f"{group.get('name', idx)}={base_lrs[idx]:.6g}"
+            for idx, group in enumerate(optimizer.param_groups)
+        )
+        logger.info(
+            "[Scheduler] Using LambdaLR linear_warmup+cosine with min_lr floor "
+            f"(base_lrs=[{lr_summary}], min_lr={min_lr:.6g})"
+        )
     return sched, "lambda_warmup_cosine_minlr"
+
 
 
 # -------------------- checkpoint helpers --------------------
@@ -284,9 +337,13 @@ def load_checkpoint(path: str,
             logger.info(f"[Resume] unexpected keys (first 20): {unexpected[:20]}")
 
     if optimizer is not None and "optimizer_state_dict" in ckpt:
-        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        if logger is not None:
-            logger.info("[Resume] optimizer state loaded")
+        try:
+            optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            if logger is not None:
+                logger.info("[Resume] optimizer state loaded")
+        except ValueError as e:
+            if logger is not None:
+                logger.warning(f"[Resume] optimizer state skipped because param groups changed: {e}")
 
     if scheduler is not None and "scheduler_state_dict" in ckpt and hasattr(scheduler, "load_state_dict"):
         try:
@@ -321,6 +378,11 @@ def train_one_epoch(
     acc_min_coverage: float,
     decoder_mode: str,
     head_type: str,
+    input_mask_ratio: float,
+    input_mask_token_id: int,
+    label_smooth_weight: float,
+    masked_token_ce_weight: float,
+    masked_token_ce_active: bool,
 ) -> Tuple[float, float, float, float, float, float]:
     model.train()
     total_loss, n_batches = 0.0, 0
@@ -348,8 +410,23 @@ def train_one_epoch(
         attention_mask = batch.get("attention_mask", None)
         if attention_mask is not None:
             attention_mask = attention_mask.to(device)
+        use_masked_token_ce = bool(masked_token_ce_active) and float(masked_token_ce_weight) > 0.0
+        model_input_ids, input_mask_positions = apply_input_token_mask(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            mask_ratio=input_mask_ratio if use_masked_token_ce else 0.0,
+            mask_token_id=input_mask_token_id,
+        )
         with accelerator.autocast() if use_amp else nullcontext():
-            logits_btc = model(input_ids, attention_mask=attention_mask)
+            if use_masked_token_ce:
+                logits_btc, token_logits = model(
+                    model_input_ids,
+                    attention_mask=attention_mask,
+                    return_token_logits=True,
+                )
+            else:
+                logits_btc = model(model_input_ids, attention_mask=attention_mask)
+                token_logits = None
             logits_tbc = logits_btc.transpose(0, 1)    # [T,B,C]
             if head_type == "ctc_crf":
                 loss = ctc_crf_loss(
@@ -366,8 +443,17 @@ def train_one_epoch(
                     target_lengths,
                     input_lengths=input_lengths,
                     blank_idx=BLANK_IDX,
+                    label_smooth_weight=label_smooth_weight,
                 )
                 loss = ctc_loss_dict["total_loss"]
+            masked_token_ce_loss = logits_btc.new_zeros(())
+            masked_token_count = int(input_mask_positions.sum().item())
+            if use_masked_token_ce and masked_token_count > 0:
+                masked_token_ce_loss = F.cross_entropy(
+                    token_logits[input_mask_positions].to(torch.float32),
+                    input_ids[input_mask_positions].to(torch.long),
+                )
+                loss = loss + float(masked_token_ce_weight) * masked_token_ce_loss
         local_finite = torch.tensor(
             1 if torch.isfinite(loss).item() else 0,
             device=device,
@@ -445,6 +531,10 @@ def train_one_epoch(
 
         if is_main_process(accelerator) and (step % log_interval == 0):
             lr = optimizer.param_groups[0]["lr"]
+            group_lrs = {
+                f"lr/{group.get('name', idx)}": float(group["lr"])
+                for idx, group in enumerate(optimizer.param_groups)
+            }
             batch_coverage = float(np.mean(batch_cov)) if batch_cov else 0.0
             batch_blank_ratio = float(np.mean(batch_blank)) if batch_blank else 0.0
             batch_nonzero = float(np.mean(batch_nonzero_len)) if batch_nonzero_len else 0.0
@@ -461,9 +551,13 @@ def train_one_epoch(
                     "train/coverage": batch_coverage,
                     "train/blank": batch_blank_ratio,
                     "train/nonzero_len": batch_nonzero,
+                    "train/masked_token_ce_loss": float(masked_token_ce_loss.item()),
+                    "train/masked_token_count": float(masked_token_count),
+                    "train/masked_token_ce_active": float(use_masked_token_ce),
                     "lr": float(lr),
                     "step": step,
                 }
+                payload.update(group_lrs)
                 if decoder_mode == "ctc_crf":
                     payload["train/crf_acc"] = float(acc)
                 wandb.log(payload)
@@ -499,6 +593,7 @@ def eval_one_epoch(
     use_amp: bool,
     decoder_mode: str,
     head_type: str,
+    label_smooth_weight: float,
 ) -> Tuple[float, float, float, float, float, float]:
     model.eval()
     total_loss, n_batches = 0.0, 0
@@ -545,6 +640,7 @@ def eval_one_epoch(
                 target_lengths,
                 input_lengths=input_lengths,
                 blank_idx=BLANK_IDX,
+                label_smooth_weight=label_smooth_weight,
             )
             loss = ctc_loss_dict["total_loss"]
         
@@ -701,6 +797,14 @@ def parse_args():
                    help="Scan subfolders for .jsonl.gz or tokens/reference .npy inputs.")
     p.add_argument("--token_offset", type=int, default=0,
                    help="Add this offset to each <|bwav:ID|> token in input signal_str (e.g. 0->128).")
+    p.add_argument("--input_mask_ratio", type=float, default=0.0,
+                   help="Training-only BERT-style input token mask ratio. 0 disables masking.")
+    p.add_argument("--input_mask_token_id", type=int, default=4,
+                   help="Token id used by --input_mask_ratio. Defaults to the PoreDLM <|mask|> id.")
+    p.add_argument("--masked_token_ce_weight", type=float, default=0.0,
+                   help="Weight for auxiliary CE loss that predicts original token ids at masked input positions. 0 disables it.")
+    p.add_argument("--masked_token_ce_epochs", type=int, default=0,
+                   help="Use masked-token CE only for the first N epochs. 0 means no epoch limit.")
 
     p.add_argument("--train_ratio", type=float, default=0.8)
     p.add_argument("--val_ratio", type=float, default=0.1)
@@ -738,9 +842,15 @@ def parse_args():
                    help="Quick mode alias: freeze backbone + ctc_crf_state_len=5 + ctc_crf_blank_score=0 + head_output_scale=5 + head_output_activation=tanh + head_type=ctc_crf + pre_ctc_module=none.")
 
     p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--head_lr", type=float, default=None,
+                   help="Learning rate for non-backbone parameters. Defaults to --lr.")
+    p.add_argument("--backbone_lr", type=float, default=None,
+                   help="Learning rate for trainable backbone parameters. Defaults to --lr.")
     p.add_argument("--weight_decay", type=float, default=1e-3)
     p.add_argument("--warmup_ratio", type=float, default=0.02)
     p.add_argument("--min_lr", type=float, default=1e-5)
+    p.add_argument("--label_smooth_weight", type=float, default=1.0,
+                   help="Weight for the smooth term in plain CTC loss. Existing behavior is 1.0; use 0 to disable.")
 
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--log_interval", type=int, default=100)
@@ -848,6 +958,20 @@ def main():
     args = parse_args()
     if args.token_offset < 0:
         raise ValueError("--token_offset must be >= 0")
+    if not 0.0 <= float(args.input_mask_ratio) <= 1.0:
+        raise ValueError("--input_mask_ratio must be in [0, 1].")
+    if int(args.input_mask_token_id) < 0:
+        raise ValueError("--input_mask_token_id must be >= 0.")
+    if float(args.masked_token_ce_weight) < 0:
+        raise ValueError("--masked_token_ce_weight must be >= 0.")
+    if int(args.masked_token_ce_epochs) < 0:
+        raise ValueError("--masked_token_ce_epochs must be >= 0.")
+    if args.head_lr is not None and float(args.head_lr) <= 0:
+        raise ValueError("--head_lr must be > 0 when provided.")
+    if args.backbone_lr is not None and float(args.backbone_lr) <= 0:
+        raise ValueError("--backbone_lr must be > 0 when provided.")
+    if float(args.label_smooth_weight) < 0:
+        raise ValueError("--label_smooth_weight must be >= 0.")
     apply_quick_overrides(args)
     backend, backend_note = resolve_distributed_backend(args)
     ddp_kwargs = DistributedDataParallelKwargs(
@@ -896,6 +1020,19 @@ def main():
                 f"[ELF-ODE] no_noise=True steps={args.elf_ode_steps} "
                 f"start_t={args.elf_ode_start_t} self_cond_cfg_scale={args.elf_self_cond_cfg_scale}"
             )
+        logger.info(
+            f"[InputMask] train_only=True ratio={args.input_mask_ratio} "
+            f"mask_token_id={args.input_mask_token_id}"
+        )
+        logger.info(
+            f"[MaskedTokenCE] weight={args.masked_token_ce_weight} "
+            f"epochs={args.masked_token_ce_epochs if args.masked_token_ce_epochs > 0 else 'all'}"
+        )
+        logger.info(
+            f"[LR] default={args.lr} head={args.head_lr if args.head_lr is not None else args.lr} "
+            f"backbone={args.backbone_lr if args.backbone_lr is not None else args.lr}"
+        )
+        logger.info(f"[CTC] label_smooth_weight={args.label_smooth_weight}")
         if args.quick:
             logger.info("[Quick] enabled: freeze_backbone=True, ctc_crf_state_len=5, ctc_crf_blank_score=0, head_output_scale=5, head_output_activation=tanh, head_type=ctc_crf, pre_ctc_module=none")
 
@@ -1087,7 +1224,13 @@ def main():
         )
 
     # ---- optimizer/scheduler/loss ----
-    optimizer = build_adamw_with_no_decay(model.named_parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = build_adamw_with_no_decay(
+        model.named_parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        backbone_lr=args.backbone_lr,
+        head_lr=args.head_lr,
+    )
     steps_per_epoch = len(train_loader)
     total_steps = steps_per_epoch * args.num_epochs
     warmup_steps = int(total_steps * args.warmup_ratio)
@@ -1175,6 +1318,15 @@ def main():
         logger.info(f"[Decoder] mode={decoder_mode} use_amp={use_amp}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
+        masked_token_ce_active = (
+            float(args.masked_token_ce_weight) > 0.0
+            and (int(args.masked_token_ce_epochs) == 0 or epoch <= int(args.masked_token_ce_epochs))
+        )
+        if is_main_process(accelerator) and float(args.masked_token_ce_weight) > 0.0:
+            logger.info(
+                f"[MaskedTokenCE] epoch={epoch} active={masked_token_ce_active} "
+                f"limit={args.masked_token_ce_epochs if args.masked_token_ce_epochs > 0 else 'all'}"
+            )
         tr_loss, tr_acc, tr_crf_acc, tr_cov, tr_blank, tr_nonzero_len = train_one_epoch(
             accelerator,
             model,
@@ -1192,6 +1344,11 @@ def main():
             args.acc_min_coverage,
             decoder_mode,
             args.head_type,
+            args.input_mask_ratio,
+            args.input_mask_token_id,
+            args.label_smooth_weight,
+            args.masked_token_ce_weight,
+            masked_token_ce_active,
         )
         train_losses.append(tr_loss)
 
@@ -1216,6 +1373,7 @@ def main():
                 use_amp,
                 decoder_mode,
                 args.head_type,
+                args.label_smooth_weight,
             )
             val_losses.append(val_loss)
             val_accs.append(val_acc)
@@ -1314,6 +1472,7 @@ def main():
             use_amp,
             decoder_mode,
             args.head_type,
+            args.label_smooth_weight,
         )
         if is_main_process(accelerator):
             if decoder_mode == "ctc_crf":
