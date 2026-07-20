@@ -115,9 +115,9 @@ with torch.no_grad():
         attention_mask=attention_mask,
         return_context=True,
         return_ode_hidden=True,
-        ode_steps=4,
-        ode_start_t=0.85,
-        ode_self_cond_cfg_scale=1.0,
+        ode_steps=2,
+        ode_start_t=0.95,
+        ode_self_cond_cfg_scale=0.0,
     )
 
 hidden = outputs["last_hidden_state"]
