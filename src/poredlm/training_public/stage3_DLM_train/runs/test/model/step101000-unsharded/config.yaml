@@ -229,7 +229,7 @@ early_stopping_factor: null
 save_data_indices: true
 python_profiling: false
 torch_profiling: false
-stop_at: null
+stop_at: 5699765
 stop_after: null
 activation_checkpointing: null
 fused_loss: null

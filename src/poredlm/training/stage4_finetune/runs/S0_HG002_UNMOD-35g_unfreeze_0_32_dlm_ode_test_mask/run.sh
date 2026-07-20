@@ -17,12 +17,12 @@ backbone_lr="${lr}"
 weight_decay="1e-5"
 warmup_ratio="0.1"
 min_lr="1e-6"
-label_smooth_weight="0.0"
+label_smooth_weight="1.0"
 hidden_layer=-1
 unfreeze_last_n_layers=0
 unfreeze_target="auto"
 unfreeze_context_last_n_layers=0
-unfreeze_elf_last_n_layers=4
+unfreeze_elf_last_n_layers=0
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="none"
@@ -41,7 +41,7 @@ ddp_backend="nccl"
 
 
 wandb_project="stage4_finetune"
-wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_label_smooth_0.0_28000_chunks"
+wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_head_only_28000_chunks"
 
 base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/02_150m_no_cond_8k_vq_context_1200/hf_dlm"
 data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp"

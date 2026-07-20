@@ -285,6 +285,43 @@ def count_parameters(model: torch.nn.Module) -> Tuple[int, int]:
     return total, trainable
 
 
+def snapshot_trainable_param_names(model: torch.nn.Module) -> set[str]:
+    return {name for name, param in model.named_parameters() if param.requires_grad}
+
+
+def apply_head_only_schedule(
+    accelerator: Accelerator,
+    model,
+    intended_trainable_names: set[str],
+    epoch: int,
+    head_only_epochs: int,
+    logger: Optional[logging.Logger] = None,
+) -> bool:
+    """Temporarily freeze intended backbone params for a head-first warmup stage."""
+    raw_model = accelerator.unwrap_model(model)
+    head_only_active = int(head_only_epochs) > 0 and int(epoch) <= int(head_only_epochs)
+    for name, param in raw_model.named_parameters():
+        intended_trainable = name in intended_trainable_names
+        if head_only_active and name.startswith("backbone."):
+            param.requires_grad = False
+        else:
+            param.requires_grad = intended_trainable
+
+    if logger is not None and is_main_process(accelerator):
+        total_params, trainable_params = count_parameters(raw_model)
+        backbone_trainable = sum(
+            p.numel()
+            for name, p in raw_model.named_parameters()
+            if name.startswith("backbone.") and p.requires_grad
+        )
+        logger.info(
+            f"[HeadOnlySchedule] epoch={epoch} active={head_only_active} "
+            f"head_only_epochs={head_only_epochs} trainable_params={trainable_params:,}/{total_params:,} "
+            f"backbone_trainable={backbone_trainable:,}"
+        )
+    return head_only_active
+
+
 def save_checkpoint(path: str,
                     accelerator: Accelerator,
                     model,
@@ -898,6 +935,8 @@ def parse_args():
                    help="Unfreeze backbone layers in [start, end). Optional finer control.")
     p.add_argument("--unfreeze_layer_end", type=int, default=None,
                    help="Unfreeze backbone layers in [start, end). Optional finer control.")
+    p.add_argument("--head_only_epochs", type=int, default=0,
+                   help="Train only pre_head/base_head for the first N epochs, then restore the configured backbone/ODE unfreeze settings.")
 
     p.add_argument("--head_output_activation", choices=["tanh", "relu"], default=None,
                    help="Optional activation applied to head output logits.")
@@ -1079,12 +1118,24 @@ def main():
     )
 
     model = base_model
+    intended_trainable_names = snapshot_trainable_param_names(model)
 
     if is_main_process(accelerator):
         raw_model = accelerator.unwrap_model(model)
         total_params, trainable_params = count_parameters(raw_model)
         logger.info(f"[Model] total_params={total_params:,} trainable_params={trainable_params:,}")
         logger.info(f"[Model] architecture:\n{raw_model}")
+        if int(args.head_only_epochs) > 0:
+            intended_backbone_params = sum(
+                p.numel()
+                for name, p in raw_model.named_parameters()
+                if name in intended_trainable_names and name.startswith("backbone.")
+            )
+            logger.info(
+                f"[HeadOnlySchedule] enabled first_epochs={args.head_only_epochs}; "
+                f"intended_backbone_trainable={intended_backbone_params:,}. "
+                "Optimizer is built with the final intended trainable params, then backbone is temporarily frozen."
+            )
 
     tokenizer = model.tokenizer
 
@@ -1318,6 +1369,22 @@ def main():
         logger.info(f"[Decoder] mode={decoder_mode} use_amp={use_amp}")
 
     for epoch in range(start_epoch, args.num_epochs + 1):
+        head_only_active = apply_head_only_schedule(
+            accelerator,
+            model,
+            intended_trainable_names,
+            epoch,
+            args.head_only_epochs,
+            logger if is_main_process(accelerator) else None,
+        )
+        if use_wandb:
+            wandb.log(
+                {
+                    "train/head_only_active": float(head_only_active),
+                    "train/head_only_epochs": int(args.head_only_epochs),
+                },
+                step=None,
+            )
         masked_token_ce_active = (
             float(args.masked_token_ce_weight) > 0.0
             and (int(args.masked_token_ce_epochs) == 0 or epoch <= int(args.masked_token_ce_epochs))

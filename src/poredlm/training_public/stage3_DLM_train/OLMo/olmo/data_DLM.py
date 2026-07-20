@@ -16,6 +16,30 @@ from .torch_util import barrier, get_global_rank
 log = logging.getLogger(__name__)
 
 
+def _expand_token_paths(paths: Sequence[str]) -> List[str]:
+    expanded: List[str] = []
+    for path in paths:
+        path_obj = Path(path).expanduser()
+        if path_obj.is_dir():
+            matched = sorted(
+                candidate
+                for pattern in ("*.npy", "*.bin", "*.dat", "*.memmap")
+                for candidate in path_obj.glob(pattern)
+                if candidate.is_file()
+            )
+            if not matched:
+                raise OLMoConfigurationError(
+                    f"DLM data directory {str(path_obj)!r} does not contain any .npy/.bin/.dat/.memmap token files"
+                )
+            expanded.extend(str(candidate) for candidate in matched)
+        else:
+            expanded.append(str(path_obj))
+
+    if not expanded:
+        raise OLMoConfigurationError("DLM data requires at least one file in cfg.data.paths")
+    return expanded
+
+
 def _build_self_attn_cond_masks(is_cond: np.ndarray, is_valid: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     encoder_attention_mask = (
         (is_cond[:, :, None] & is_cond[:, None, :]) | (~is_cond[:, :, None] & is_valid[:, None, :])
@@ -60,7 +84,7 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
     ) -> None:
         if not paths:
             raise OLMoConfigurationError("DLM data requires at least one path in cfg.data.paths")
-        self.paths = [str(path) for path in paths]
+        self.paths = _expand_token_paths(paths)
         self.chunk_size = chunk_size
         self.memmap_dtype = memmap_dtype
         self.pad_token_id = pad_token_id

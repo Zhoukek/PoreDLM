@@ -10,19 +10,20 @@ export WANDB_API_KEY=wandb_v1_V6Q1FUhi4P8Rd364ANJpff5XQF4_AgyhQlAJZx1sdHQVfTrq5F
 
 nproc_per_node=2
 batch_size=8
-num_epochs=200
-lr="1e-5"
+num_epochs=100
+lr="1e-4"
 head_lr="${lr}"
 backbone_lr="${lr}"
-weight_decay="1e-6"
+weight_decay="1e-5"
 warmup_ratio="0.1"
-min_lr="1e-7"
-label_smooth_weight="0.0"
+min_lr="1e-6"
+label_smooth_weight="1.0"
 hidden_layer=-1
 unfreeze_last_n_layers=0
 unfreeze_target="auto"
 unfreeze_context_last_n_layers=0
 unfreeze_elf_last_n_layers=4
+head_only_epochs=10
 head_type="ctc"
 train_decode="ctc_viterbi"
 pre_head_type="none"
@@ -41,7 +42,7 @@ ddp_backend="nccl"
 
 
 wandb_project="stage4_finetune"
-wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_label_smooth_0.0_lr_1e-5_28000_chunks"
+wandb_run_name="S0_HG002_UNMOD-35g_unfreeze_0_32_dlm_ode_test_head_only_epochs_10_28000_chunks"
 
 base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage3_OLMo_DLM/runs/02_150m_no_cond_8k_vq_context_1200/hf_dlm"
 data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage4_finetune/temp"
@@ -73,6 +74,7 @@ nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port 295
   --unfreeze_target "${unfreeze_target}" \
   --unfreeze_context_last_n_layers "${unfreeze_context_last_n_layers}" \
   --unfreeze_elf_last_n_layers "${unfreeze_elf_last_n_layers}" \
+  --head_only_epochs "${head_only_epochs}" \
   --feature_source "${feature_source}" \
   --elf_ode_steps "${elf_ode_steps}" \
   --elf_ode_start_t "${elf_ode_start_t}" \

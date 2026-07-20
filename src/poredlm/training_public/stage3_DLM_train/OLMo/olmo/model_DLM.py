@@ -35,7 +35,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import OmegaConf as om
 from torch import einsum
-from transformers import BertForMaskedLM
+from transformers import AutoModel, BertForMaskedLM
 
 _ELF_SRC = Path(__file__).resolve().parents[2] / "ELF-pytorch-port" / "src"
 if _ELF_SRC.is_dir() and str(_ELF_SRC) not in sys.path:
@@ -2159,6 +2159,47 @@ class _MaskedSignalContextEncoder(nn.Module):
         return (hidden,)
 
 
+class _HFContextEncoderAdapter(nn.Module):
+    """Adapts HF Stage2 context encoders to the DLM mask/output contract."""
+
+    def __init__(self, model: nn.Module) -> None:
+        super().__init__()
+        self.model = model
+        self.config = model.config
+
+    @staticmethod
+    def _to_key_padding_attention_mask(attention_mask: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+        if attention_mask is not None and attention_mask.dim() == 3:
+            return attention_mask.to(dtype=torch.bool).any(dim=1).to(dtype=attention_mask.dtype)
+        return attention_mask
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        attention_mask = self._to_key_padding_attention_mask(attention_mask)
+        output = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True,
+            **kwargs,
+        )
+        if hasattr(output, "last_hidden_state"):
+            hidden = output.last_hidden_state
+        elif isinstance(output, (tuple, list)) and output:
+            hidden = output[0]
+        else:
+            raise OLMoConfigurationError(
+                f"HF context encoder {self.model.__class__.__name__} did not return last_hidden_state."
+            )
+        if return_dict:
+            return SimpleNamespace(last_hidden_state=hidden)
+        return (hidden,)
+
+
 def _strip_state_dict_prefixes(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     prefixes = ("module.", "_orig_mod.")
     out = {}
@@ -2184,12 +2225,16 @@ def _resolve_stage2_pt_paths(context_encoder_path: str) -> Tuple[Optional[Path],
             return weight_path, trainer_state_path if trainer_state_path.exists() else None
         if trainer_state_path.exists():
             trainer_state = torch.load(trainer_state_path, map_location="cpu", weights_only=False)
+            if trainer_state.get("model_format") == "hf_pretrained" and "model_state_path" not in trainer_state:
+                return None, trainer_state_path
             model_state_path = trainer_state.get("model_state_path", "model_state.pt")
             return path / model_state_path, trainer_state_path
         return None, None
 
     if path.is_file() and path.name == "trainer_state.pt":
         trainer_state = torch.load(path, map_location="cpu", weights_only=False)
+        if trainer_state.get("model_format") == "hf_pretrained" and "model_state_path" not in trainer_state:
+            return None, path
         model_state_path = trainer_state.get("model_state_path", "model_state.pt")
         return path.parent / model_state_path, path
 
@@ -2243,7 +2288,17 @@ def _build_masked_signal_context_encoder(config: Dict[str, Any]) -> _MaskedSigna
 def _load_context_encoder(context_encoder_path: str) -> nn.Module:
     weight_path, trainer_state_path = _resolve_stage2_pt_paths(context_encoder_path)
     if weight_path is None:
-        bert_mlm = BertForMaskedLM.from_pretrained(context_encoder_path)
+        try:
+            return _HFContextEncoderAdapter(AutoModel.from_pretrained(context_encoder_path, trust_remote_code=True))
+        except Exception as auto_exc:
+            try:
+                bert_mlm = BertForMaskedLM.from_pretrained(context_encoder_path)
+            except Exception as bert_exc:
+                raise OLMoConfigurationError(
+                    f"Could not load context encoder from {context_encoder_path!r} as either a "
+                    "HF AutoModel with trust_remote_code=True or a BertForMaskedLM checkpoint. "
+                    f"AutoModel error: {auto_exc!r}; BertForMaskedLM error: {bert_exc!r}"
+                ) from bert_exc
         return bert_mlm.bert
     if not weight_path.exists():
         raise FileNotFoundError(f"Could not find stage2 PT context encoder weights: {weight_path}")

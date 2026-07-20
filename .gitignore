@@ -115,3 +115,4 @@ dorado_models/
 *.tsv.gz
 /src/poredlm/training_public/stage2_BERT_trian/LB07_AND_LB06_figure
 /src/poredlm/training/stage4_finetune/Basecalling/test
+/src/poredlm/training_public/stage3_DLM_train/OLMo/transformers

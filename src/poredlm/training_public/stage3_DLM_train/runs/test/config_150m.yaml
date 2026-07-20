@@ -4,9 +4,9 @@ dry_run: false
 
 # Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/test/models/step_235000
+  context_encoder_path: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/HF_BERT_part
   freeze_context_encoder: true
-  max_length: 1500
+  max_length: 1536
   # Encoder
   latent_mean: 0.0
   latent_std: 0.2
@@ -188,7 +188,7 @@ model:
   # 焦帅: 因为崖州湾模型班训练olmo20m是为了学习模型训练过程，所以焦帅名下的组,都会把max_seqence_length设置为512, 同时
   # 焦帅在之前已经将预训练数据最大化对齐到500个token。PAD填充率已经降到最低。
   # 这么做是为了让20M训练能尽快结束，不要走的时间太长。
-  max_sequence_length: 1500
+  max_sequence_length: 1536
 
   # 词表大小（vocabulary size）
   # 表示模型能识别的不同 token 数量
@@ -319,8 +319,8 @@ load_path: null
 # 这个是控制训练轮数的
 max_duration: 5ep
 #stop_at: 406_934
-global_train_batch_size: 128
-device_train_microbatch_size: 16
+global_train_batch_size: 64
+device_train_microbatch_size: 8
 
 precision: amp_bf16
 
@@ -346,10 +346,13 @@ evaluators:
      num_workers: 0
      drop_last: true
      # generate_doc_lengths: true
-     memmap_dtype: uint16
+     memmap_dtype: uint32
      datasets:
        small_eval:
         - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank0_0000.npy
+        - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank1_0000.npy
+        - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank2_0000.npy
+        - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank3_0000.npy
 
 
   ##########################
@@ -360,16 +363,16 @@ evaluators:
 data:
   pad_direction: right
   # generate_doc_lengths: true
-  num_workers: 8
+  num_workers: 0
   drop_last: true
-  pin_memory: true
+  pin_memory: false
   prefetch_factor: 4
   persistent_workers: true
-  memmap_dtype: uint16
+  memmap_dtype: uint32
   timeout: 0
   instance_filter:
     repetition_max_period: 13
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train/pore_tokens_rank0_0000.npy
+    - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train
