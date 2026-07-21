@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--figure-stem", default="figure_multiread_site_level_separation")
     parser.add_argument("--model-label", default="DLM")
     parser.add_argument("--bootstraps", type=int, default=1000)
-    parser.add_argument("--seed", type=int, default=20260715)
+    parser.add_argument("--seed", type=int, default=20260717)
     return parser.parse_args()
 
 

@@ -1,71 +1,71 @@
 # # 读取jsonl.gz文件
-import gzip
-import json
+# import gzip
+# import json
 
-# 文件路径
-file_path = "/mnt/si002562jbsc/poregpt/models/HF_RSQ742C12A511_DNAOLMO_V600/basecall_DNA_S1_HG002_MOD/eval/validation_00001_bwav.jsonl.gz"
+# # 文件路径
+# file_path = "/mnt/si002562jbsc/poregpt/models/HF_RSQ742C12A511_DNAOLMO_V600/basecall_DNA_S1_HG002_MOD/eval/validation_00001_bwav.jsonl.gz"
 
-# 读取文件并收集所有的keys
-all_keys = set()
+# # 读取文件并收集所有的keys
+# all_keys = set()
 
-with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-    for line_num, line in enumerate(f, 1):
-        try:
-            data = json.loads(line.strip())
-            all_keys.update(data.keys())
-        except json.JSONDecodeError as e:
-            print(f"Line {line_num}: JSON decode error: {e}")
-        except Exception as e:
-            print(f"Line {line_num}: Error: {e}")
+# with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+#     for line_num, line in enumerate(f, 1):
+#         try:
+#             data = json.loads(line.strip())
+#             all_keys.update(data.keys())
+#         except json.JSONDecodeError as e:
+#             print(f"Line {line_num}: JSON decode error: {e}")
+#         except Exception as e:
+#             print(f"Line {line_num}: Error: {e}")
 
-def read_specific_line(file_path, line_number):
-    """读取指定行（从0开始计数）"""
-    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-        for idx, line in enumerate(f):
-            if idx == line_number:
-                return json.loads(line.strip())
-    return None
+# def read_specific_line(file_path, line_number):
+#     """读取指定行（从0开始计数）"""
+#     with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+#         for idx, line in enumerate(f):
+#             if idx == line_number:
+#                 return json.loads(line.strip())
+#     return None
 
-def truncate_value(value, max_length=100):
-    """截断过长的值"""
-    if isinstance(value, str):
-        if len(value) > max_length:
-            return value[:max_length] + "...(truncated)"
-        return value
-    elif isinstance(value, list):
-        if len(value) > 30:  # 列表只显示前10个元素
-            return [truncate_value(v, max_length) for v in value[:40]] + [f"...({len(value)-40} more)"]
-        return [truncate_value(v, max_length) for v in value]
-    elif isinstance(value, dict):
-        # 对于字典，限制显示的键值对数量
-        new_dict = {}
-        for i, (k, v) in enumerate(value.items()):
-            if i >= 50:  # 只显示前10个键值对
-                new_dict[f"...({len(value)-30} more keys)"] = "..."
-                break
-            new_dict[k] = truncate_value(v, max_length)
-        return new_dict
-    else:
-        return value
+# def truncate_value(value, max_length=100):
+#     """截断过长的值"""
+#     if isinstance(value, str):
+#         if len(value) > max_length:
+#             return value[:max_length] + "...(truncated)"
+#         return value
+#     elif isinstance(value, list):
+#         if len(value) > 30:  # 列表只显示前10个元素
+#             return [truncate_value(v, max_length) for v in value[:40]] + [f"...({len(value)-40} more)"]
+#         return [truncate_value(v, max_length) for v in value]
+#     elif isinstance(value, dict):
+#         # 对于字典，限制显示的键值对数量
+#         new_dict = {}
+#         for i, (k, v) in enumerate(value.items()):
+#             if i >= 50:  # 只显示前10个键值对
+#                 new_dict[f"...({len(value)-30} more keys)"] = "..."
+#                 break
+#             new_dict[k] = truncate_value(v, max_length)
+#         return new_dict
+#     else:
+#         return value
 
-def print_truncated_json(data, max_length=100, indent=2):
-    """打印截断后的JSON"""
-    truncated = truncate_value(data, max_length)
-    print(json.dumps(truncated, indent=indent, ensure_ascii=False))
+# def print_truncated_json(data, max_length=100, indent=2):
+#     """打印截断后的JSON"""
+#     truncated = truncate_value(data, max_length)
+#     print(json.dumps(truncated, indent=indent, ensure_ascii=False))
 
-# 输出结果
-print(f"文件: {file_path}")
-print(f"总行数: {line_num}")
-print(f"\n所有的keys:")
-for key in sorted(all_keys):
-    print(f"  - {key}")
+# # 输出结果
+# print(f"文件: {file_path}")
+# print(f"总行数: {line_num}")
+# print(f"\n所有的keys:")
+# for key in sorted(all_keys):
+#     print(f"  - {key}")
 
-# 显示第一行数据的示例（截断版）
-print("\n" + "="*50)
-print("第一行数据（截断版）:")
+# # 显示第一行数据的示例（截断版）
+# print("\n" + "="*50)
+# print("第一行数据（截断版）:")
 
-data = read_specific_line(file_path, 0)
-print_truncated_json(data, max_length=100000)  # 可以调整这个长度
+# data = read_specific_line(file_path, 0)
+# print_truncated_json(data, max_length=100000)  # 可以调整这个长度
 
 # data = read_specific_line(file_path, 1)  # 索引1表示第二行
 # print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
@@ -73,34 +73,34 @@ print_truncated_json(data, max_length=100000)  # 可以调整这个长度
 # # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 # # 读取npy文件
-# import numpy as np
+import numpy as np
 
-# # 读取 npy 文件
-# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
-# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
-# file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train/hash_0001_part0.npy"
+# 读取 npy 文件
+file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
+file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
+file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/basecall/validation/validation_00003/chunks.npy"
 
-# data = np.load(file_path, allow_pickle=True)
+data = np.load(file_path, allow_pickle=True)
 
-# # 输出基本信息
-# print("=" * 50)
-# print("文件信息:")
-# print(f"文件路径: {file_path}")
-# print(f"数据类型: {data.dtype}")
-# print(f"数组形状: {data.shape}")
-# print(f"数组维度: {data.ndim}")
-# print(f"总元素数: {data.size}")
-# print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
-# print("=" * 50)
+# 输出基本信息
+print("=" * 50)
+print("文件信息:")
+print(f"文件路径: {file_path}")
+print(f"数据类型: {data.dtype}")
+print(f"数组形状: {data.shape}")
+print(f"数组维度: {data.ndim}")
+print(f"总元素数: {data.size}")
+print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
+print("=" * 50)
 
-# # 输出内容
-# # print("\n数组内容:")
-# # print(data)
+# 输出内容
+# print("\n数组内容:")
+# print(data)
 
-# # 如果是高维数组，输出部分内容
-# if data.ndim >= 2:
-#     print(f"\n前5行（如果有）:")
-#     print(data[1] if data.shape[0] > 5 else data)
+# 如果是高维数组，输出部分内容
+if data.ndim >= 2:
+    print(f"\n前5行（如果有）:")
+    print(data[1] if data.shape[0] > 5 else data)
 
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————

@@ -75,6 +75,10 @@ MODEL_DIR=/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_pub
 TOKEN_IDS="2,129,130,131,3" \
 ODE_STEPS=4 \
 ODE_START_T=0.85 \
+SDE_STEPS=4 \
+SDE_START_T=0.85 \
+SDE_GAMMA=0.1 \
+SDE_SEED=6198 \
 DEVICE=cuda \
 bash /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/OLMo_to_HF/run_test_load_hf_dlm.sh
 ```
@@ -85,6 +89,7 @@ bash /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/s
 last_hidden_state
 context_hidden_state
 ode_hidden_state
+sde_hidden_state
 ```
 
 ## 5. Python 调用示例
@@ -118,15 +123,22 @@ with torch.no_grad():
         ode_steps=2,
         ode_start_t=0.95,
         ode_self_cond_cfg_scale=0.0,
+        return_sde_hidden=True,
+        sde_steps=2,
+        sde_start_t=0.95,
+        sde_gamma=0.1,
+        sde_seed=6198,
     )
 
 hidden = outputs["last_hidden_state"]
 context_hidden = outputs["context_hidden_state"]
 ode_hidden = outputs["ode_hidden_state"]
+sde_hidden = outputs["sde_hidden_state"]
 
 print(hidden.shape)
 print(context_hidden.shape)
 print(ode_hidden.shape)
+print(sde_hidden.shape)
 ```
 
 输出含义：
@@ -134,5 +146,8 @@ print(ode_hidden.shape)
 - `last_hidden_state`: 单次 ELF denoiser forward 输出，默认 `t=1`。
 - `context_hidden_state`: Stage2 BERT/context encoder 输出，需要 `return_context=True`。
 - `ode_hidden_state`: 从 `context_hidden_state` 出发，经过 deterministic no-noise ELF ODE refinement 后的输出，需要 `return_ode_hidden=True`。
+- `sde_hidden_state`: 从 `context_hidden_state` 出发，经过 stochastic/noisy ELF SDE-style refinement 后的输出，需要 `return_sde_hidden=True`。
 
 `ode_steps` 控制 ODE 更新步数；`ode_start_t` 控制起始时间点，常用 `0.85` 或 `0.95`。步数越多，计算越慢，显存和时间开销也越大。
+
+`sde_steps` 和 `sde_start_t` 控制 SDE 更新步数和起始时间点；`sde_gamma` 控制每一步额外注入噪声的强度，`0.0` 会退化成接近 ODE 的确定性更新；`sde_seed` 用于固定随机噪声，方便复现实验。

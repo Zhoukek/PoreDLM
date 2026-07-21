@@ -6,6 +6,7 @@ This version processes files sequentially, one after another.
 """
 
 import os
+import sys
 import gzip
 import json
 import numpy as np
@@ -14,6 +15,117 @@ from tqdm import tqdm
 import argparse
 from vqe_tokenizer import VQETokenizer
 import torch
+
+
+def _setup_public_stage1_imports():
+    public_stage1_dir = Path(__file__).resolve().parents[2] / "training_public" / "stage1_tokenizer_train"
+    if public_stage1_dir.exists():
+        sys.path.insert(0, str(public_stage1_dir))
+
+
+def _load_yaml(path):
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError(
+            f"PyYAML is required to resolve run directory {path}. "
+            "Pass the actual HF model directory containing config.json instead."
+        ) from exc
+
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def _resolve_model_path(model_path):
+    path = Path(model_path).expanduser()
+    if (path / "config.json").exists():
+        return path
+
+    run_config = path / "config.yaml"
+    if run_config.exists():
+        cfg = _load_yaml(run_config)
+        save_folder = cfg.get("save_folder")
+        if not save_folder:
+            raise ValueError(f"`save_folder` is missing in {run_config}")
+
+        save_path = Path(save_folder).expanduser()
+        if not save_path.is_absolute():
+            save_path = path / save_path
+        if (save_path / "config.json").exists():
+            return save_path
+
+        raise FileNotFoundError(
+            f"Resolved HF model path from {run_config} to {save_path}, "
+            "but config.json was not found there. Make sure training/export has finished."
+        )
+
+    return path
+
+
+class LegacyVQTokenizerAdapter:
+    def __init__(self, model_ckpt, device):
+        self.tokenizer = VQETokenizer(model_ckpt=model_ckpt, device=device)
+        self.device = self.tokenizer.device
+
+    def tokenize_batch(self, signal_batch):
+        with torch.no_grad():
+            if self.tokenizer.model_type == 0:
+                _, tokens_tensor, _, _ = self.tokenizer.model(signal_batch)
+            elif self.tokenizer.model_type == 1:
+                _, tokens_tensor, _, _, _ = self.tokenizer.model(signal_batch)
+            else:
+                raise RuntimeError(f"Unexpected legacy model type: {self.tokenizer.model_type}")
+        return tokens_tensor
+
+
+class HFCodecTokenizerAdapter:
+    def __init__(self, model_dir, device):
+        _setup_public_stage1_imports()
+
+        # These imports register the local HF model classes for AutoModel.
+        import modeling_pore_codec  # noqa: F401
+        import modeling_pore_vq_codec  # noqa: F401
+        from transformers import AutoModel
+
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            device = device.strip()
+            if device.startswith("cuda") and not torch.cuda.is_available():
+                print("⚠️ CUDA not available, falling back to CPU.")
+                self.device = "cpu"
+            else:
+                self.device = device
+
+        self.model_dir = _resolve_model_path(model_dir)
+        print(f"📂 Loading HF codec: {self.model_dir}")
+        self.model = AutoModel.from_pretrained(
+            str(self.model_dir),
+            trust_remote_code=True,
+        ).to(self.device)
+        self.model.eval()
+        print(f"✅ HF codec initialized on {self.device}")
+
+    def tokenize_batch(self, signal_batch):
+        with torch.no_grad():
+            if hasattr(self.model, "encode_signal"):
+                return self.model.encode_signal(signal_batch).long()
+
+            outputs = self.model(signal_batch)
+            if isinstance(outputs, tuple) and len(outputs) >= 2:
+                return outputs[1].long()
+            if hasattr(outputs, "indices"):
+                return outputs.indices.long()
+            if hasattr(outputs, "codebook_ids"):
+                return outputs.codebook_ids.long()
+            raise RuntimeError(f"Cannot extract token ids from HF codec output type: {type(outputs)}")
+
+
+def load_signal_tokenizer(model_ckpt, device):
+    resolved_path = _resolve_model_path(model_ckpt)
+    if resolved_path.is_dir() and (resolved_path / "config.json").exists():
+        return HFCodecTokenizerAdapter(str(resolved_path), device)
+    return LegacyVQTokenizerAdapter(model_ckpt, device)
 
 
 def process_npy_file(npy_file_path,  output_path, tokenizer,max_batch_size):
@@ -78,12 +190,7 @@ def process_npy_file(npy_file_path,  output_path, tokenizer,max_batch_size):
             x = torch.from_numpy(batch_signal_np).float().unsqueeze(1).to(tokenizer.device) # Shape: (B, 1, L_chunk)
 
             # Perform batched inference
-            with torch.no_grad():
-                # reconstructed_signals, level_tokens_tensor, loss, tokens_tensor = tokenizer.model(x) # tokens_tensor shape: (B, T_tokens) or (B, T_tokens, C)
-                if tokenizer.model_type == 0:
-                    reconstructed_signals, tokens_tensor, loss, loss_breakdown = tokenizer.model(x)
-                elif tokenizer.model_type == 1: # 
-                    reconstructed_signals, tokens_tensor, loss, loss_breakdown, distill_loss = tokenizer.model(x) # tokens_tensor shape: (B, T_tokens) or (B, T_tokens, C)
+            tokens_tensor = tokenizer.tokenize_batch(x) # Shape: (B, T_tokens) or (B, T_tokens, C)
 
 
             # Move tokens to CPU and convert to numpy
@@ -137,7 +244,7 @@ def main():
     parser.add_argument('-o', '--output-file', type=str, required=True,
                         help='Output .jsonl.gz file to save tokens.')
     parser.add_argument('--model-ckpt', type=str, required=True,
-                        help='Path to the VQ tokenizer model checkpoint (.pth file).')
+                        help='Path to the VQ tokenizer checkpoint, HF model directory, or public Stage1 run directory.')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to run the model on (default: cuda). Use "cpu" if CUDA is unavailable.')
     parser.add_argument('--batch-size', type=int, default=32,help='Batch size for tokenization (default: 32).')
@@ -171,7 +278,7 @@ def main():
     print("-" * 60)
 
     # Initialize the tokenizer once
-    tokenizer = VQETokenizer(model_ckpt=model_ckpt, device=device)
+    tokenizer = load_signal_tokenizer(model_ckpt, device)
 
     # Process the single file
     # Note: process_npy_file likely needs to be adapted or replaced

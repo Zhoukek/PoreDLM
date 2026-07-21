@@ -431,6 +431,75 @@ class PoreDLMForDiffusion(PreTrainedModel):
 
         return z
 
+    def sde_from_context_hidden(
+        self,
+        context: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        *,
+        sde_steps: int = 4,
+        sde_start_t: float = 0.85,
+        sde_gamma: float = 0.1,
+        self_cond_cfg_scale: float = 1.0,
+        seed: Optional[int] = None,
+    ) -> torch.Tensor:
+        sde_steps = max(1, int(sde_steps))
+        sde_start_t = float(sde_start_t)
+        sde_gamma = float(sde_gamma)
+        if not 0.0 < sde_start_t <= 1.0:
+            raise ValueError("sde_start_t must be in (0, 1].")
+        if sde_gamma < 0.0:
+            raise ValueError("sde_gamma must be >= 0.")
+
+        context_dtype = next(self.elf_denoiser.parameters()).dtype
+        context = context.to(dtype=context_dtype)
+        z = context
+        x_pred = torch.zeros_like(z)
+        t_steps = torch.linspace(
+            sde_start_t,
+            1.0,
+            sde_steps + 1,
+            device=context.device,
+            dtype=context.dtype,
+        )
+        noise_scale = float(self.config.dlm_config.get("denoiser_noise_scale", 1.0))
+        generator = None
+        if seed is not None:
+            generator = torch.Generator(device=context.device)
+            generator.manual_seed(int(seed))
+
+        for idx in range(sde_steps):
+            t = t_steps[idx]
+            t_next = t_steps[idx + 1]
+            h = t_next - t
+            alpha = torch.clamp(1.0 - sde_gamma * h, min=0.0, max=1.0)
+            t_back = alpha * t
+            eps = torch.randn(
+                z.shape,
+                device=z.device,
+                dtype=z.dtype,
+                generator=generator,
+            ) * noise_scale
+            z_back = alpha * z + (1.0 - alpha) * eps
+
+            if attention_mask is not None:
+                valid_mask = attention_mask.to(device=context.device, dtype=torch.bool).unsqueeze(-1)
+                z_back = torch.where(valid_mask, z_back, context)
+
+            t_batch = torch.full((z.shape[0],), float(t_back.detach().item()), device=z.device, dtype=z.dtype)
+            v_pred, x_pred = self._elf_forward_ode_sample(
+                z_back,
+                t_batch,
+                x_pred,
+                attention_mask=attention_mask,
+                self_cond_cfg_scale_value=self_cond_cfg_scale,
+            )
+            z = z_back + (t_next - t_back) * v_pred
+            if attention_mask is not None:
+                z = torch.where(valid_mask, z, context)
+                x_pred = torch.where(valid_mask, x_pred, context)
+
+        return z
+
     def forward(
         self,
         input_ids: torch.LongTensor,
@@ -446,6 +515,12 @@ class PoreDLMForDiffusion(PreTrainedModel):
         ode_steps: int = 4,
         ode_start_t: float = 0.85,
         ode_self_cond_cfg_scale: float = 1.0,
+        return_sde_hidden: bool = False,
+        sde_steps: int = 4,
+        sde_start_t: float = 0.85,
+        sde_gamma: float = 0.1,
+        sde_self_cond_cfg_scale: float = 1.0,
+        sde_seed: Optional[int] = None,
         **kwargs: Any,
     ) -> dict[str, torch.Tensor]:
         del kwargs
@@ -493,6 +568,16 @@ class PoreDLMForDiffusion(PreTrainedModel):
                 ode_steps=ode_steps,
                 ode_start_t=ode_start_t,
                 self_cond_cfg_scale=ode_self_cond_cfg_scale,
+            )
+        if return_sde_hidden:
+            output["sde_hidden_state"] = self.sde_from_context_hidden(
+                context,
+                attention_mask=attention_mask,
+                sde_steps=sde_steps,
+                sde_start_t=sde_start_t,
+                sde_gamma=sde_gamma,
+                self_cond_cfg_scale=sde_self_cond_cfg_scale,
+                seed=sde_seed,
             )
         return output
 

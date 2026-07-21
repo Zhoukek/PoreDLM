@@ -18,6 +18,10 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 TOKEN_IDS=${TOKEN_IDS:-"2,129,130,131,3"}
 ODE_STEPS=${ODE_STEPS:-4}
 ODE_START_T=${ODE_START_T:-0.85}
+SDE_STEPS=${SDE_STEPS:-4}
+SDE_START_T=${SDE_START_T:-0.85}
+SDE_GAMMA=${SDE_GAMMA:-0.1}
+SDE_SEED=${SDE_SEED:-6198}
 DEVICE=${DEVICE:-cuda}
 
 cd "${SCRIPT_DIR}"
@@ -27,4 +31,8 @@ python3 test_load_hf_dlm.py \
   --token-ids "${TOKEN_IDS}" \
   --ode-steps "${ODE_STEPS}" \
   --ode-start-t "${ODE_START_T}" \
+  --sde-steps "${SDE_STEPS}" \
+  --sde-start-t "${SDE_START_T}" \
+  --sde-gamma "${SDE_GAMMA}" \
+  --sde-seed "${SDE_SEED}" \
   --device "${DEVICE}"

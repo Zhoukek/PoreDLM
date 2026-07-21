@@ -24,13 +24,13 @@ CODEBOOK_SIZE = 65664
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokens", default="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/s7/vqe_bert/signal_windows.vqe_tokens.jsonl")
-    parser.add_argument("--model-dir", default="/mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/hf_dlm")
+    parser.add_argument("--model-dir", default="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/test/hf_dlm")
     parser.add_argument("--out-dir", default="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/s7/vqe_dlm_zhou")
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--batch-size", type=int, default=8)
     # Defaults intentionally match hf_dlm/readme.md.
-    parser.add_argument("--ode-steps", type=int, default=2)
-    parser.add_argument("--ode-start-t", type=float, default=0.98)
+    parser.add_argument("--ode-steps", type=int, default=1)
+    parser.add_argument("--ode-start-t", type=float, default=0.1)
     parser.add_argument("--ode-self-cond-cfg-scale", type=float, default=0.0)
     return parser.parse_args()
 
@@ -119,8 +119,13 @@ def main() -> int:
                 ode_steps=args.ode_steps,
                 ode_start_t=args.ode_start_t,
                 ode_self_cond_cfg_scale=args.ode_self_cond_cfg_scale,
+                return_sde_hidden=True,
+                sde_steps=2,
+                sde_start_t=0.98,
+                sde_gamma=0.1,
+                sde_seed=6198,
             )
-            ode_hidden = output["ode_hidden_state"].float()
+            ode_hidden = output["sde_hidden_state"].float()
             weights = signal_token_mask[start:end].to(device).unsqueeze(-1).to(ode_hidden.dtype)
             mean_hidden = (ode_hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1)
             pooled.append(mean_hidden.cpu().numpy())

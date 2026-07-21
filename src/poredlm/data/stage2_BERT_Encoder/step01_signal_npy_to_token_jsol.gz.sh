@@ -1,19 +1,19 @@
 #!/bin/bash
 # 先加载MACA环境
-source /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh  # 你之前那个脚本
+source /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/set_env.sh  # 你之前那个脚本
 
-export PYTHONPATH=/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src:/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm:${PYTHONPATH:-}
+export PYTHONPATH=/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src:/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm:${PYTHONPATH:-}
 # --- Configuration Section ---
 # Modify these variables according to your setup
 
 # Input directory containing .npy files
-INPUT_DIR="/mnt/zzbnew/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
+INPUT_DIR="/mnt/si002562jbsc/poregpt/dnadata/balanced/human_dna_595g/memap_mongoq30/trank/train"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
+OUTPUT_DIR="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
-INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation"
+INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/train"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage2_BERT/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/validation"
+OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/stage2/train"
 
 
 #!/bin/bash
@@ -24,7 +24,7 @@ OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG00
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/stage1_tokenizer/runs/03_S0_HG002_UNMOD_35g_model_type_1_cnn_type_0_distill_0.1_8k_vq_apple/models/porepgt_vqe_tokenizer.final.pth"
+MODEL_CHECKPOINT="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/encoder"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 
@@ -34,7 +34,7 @@ MODEL_TYPE=1
 NUM_GPUS=2 # <--- CHANGE THIS to the number of GPUs you want to use
 
 # Batch size for tokenization (adjust based on your GPU memory)
-BATCH_SIZE=32 # Adjust as needed
+BATCH_SIZE=8 # Adjust as needed
 
 # Maximum number of concurrent tasks (recommended to match NUM_GPUS)
 MAX_CONCURRENT=2 # Usually best to keep this equal to NUM_GPUS
@@ -135,7 +135,7 @@ for npy_file in "${all_files[@]}"; do
     # Construct the device string and pass it via --device
     DEVICE_ARG="cuda:$gpu_id" # Fixed: Removed space after :
     echo "Executing: poredlm-vqe-tokenize-trank -i '$npy_file' -o '$output_file' --model-ckpt '$MODEL_CHECKPOINT' --device '$DEVICE_ARG' --batch-size $BATCH_SIZE"
-    python /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_token_jsol.gz.py \
+    python /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_token_jsol.gz.py \
          -i "$npy_file" \
          -o "$output_file" \
 	     --model-type $MODEL_TYPE \
