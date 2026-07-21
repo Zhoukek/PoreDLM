@@ -18,7 +18,7 @@ BOS_TOKEN_ID = 2
 EOS_TOKEN_ID = 3
 PAD_TOKEN_ID = 1
 TOKEN_OFFSET = 128
-CODEBOOK_SIZE = 65536
+CODEBOOK_SIZE = 65664
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,8 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--batch-size", type=int, default=8)
     # Defaults intentionally match hf_dlm/readme.md.
-    parser.add_argument("--ode-steps", type=int, default=4)
-    parser.add_argument("--ode-start-t", type=float, default=0.95)
+    parser.add_argument("--ode-steps", type=int, default=2)
+    parser.add_argument("--ode-start-t", type=float, default=0.98)
     parser.add_argument("--ode-self-cond-cfg-scale", type=float, default=0.0)
     return parser.parse_args()
 
