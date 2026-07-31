@@ -5,9 +5,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-CHUNKS_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/stage2/train"
-REFERENCES_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/train/reference"
-OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/basecall_data"
+CHUNKS_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_800000_chunks/stage2/train"
+REFERENCES_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_800000_chunks/train/reference"
+OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_800000_chunks/basecall_data"
 PATTERN="${PATTERN:-*_chunks.jsonl.gz}"
 GZIP_COMPRESSLEVEL="${GZIP_COMPRESSLEVEL:-1}"
 

@@ -73,74 +73,74 @@
 # # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 # # 读取npy文件
-import numpy as np
+# import numpy as np
 
-# 读取 npy 文件
-file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
-file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
-file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/basecall/validation/validation_00003/chunks.npy"
+# # 读取 npy 文件
+# file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
+# file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
+# file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/basecall/validation/validation_00015/chunks_apple.npy"
 
-data = np.load(file_path, allow_pickle=True)
+# data = np.load(file_path, allow_pickle=True)
 
-# 输出基本信息
-print("=" * 50)
-print("文件信息:")
-print(f"文件路径: {file_path}")
-print(f"数据类型: {data.dtype}")
-print(f"数组形状: {data.shape}")
-print(f"数组维度: {data.ndim}")
-print(f"总元素数: {data.size}")
-print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
-print("=" * 50)
+# # 输出基本信息
+# print("=" * 50)
+# print("文件信息:")
+# print(f"文件路径: {file_path}")
+# print(f"数据类型: {data.dtype}")
+# print(f"数组形状: {data.shape}")
+# print(f"数组维度: {data.ndim}")
+# print(f"总元素数: {data.size}")
+# print(f"内存大小: {data.nbytes / 1024 / 1024:.2f} MB")
+# print("=" * 50)
 
-# 输出内容
-# print("\n数组内容:")
-# print(data)
+# # 输出内容
+# # print("\n数组内容:")
+# # print(data)
 
-# 如果是高维数组，输出部分内容
-if data.ndim >= 2:
-    print(f"\n前5行（如果有）:")
-    print(data[1] if data.shape[0] > 5 else data)
+# # 如果是高维数组，输出部分内容
+# if data.ndim >= 2:
+#     print(f"\n前5行（如果有）:")
+#     print(data[1] if data.shape[0] > 5 else data)
 
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 # 读取
-# import h5py
+import h5py
 
-# filename = '/mnt/zzbnew/rnamodel/wangxue/data/DNA_data/S0_HG002_UNMOD/250F601844011/fast5_split_one/250F601844011_0_0_0_0/250F601844011_0_0_0_0_part0001/250F601844011_0_0_0_0_part0001.fast5'  # 替换为你的文件名
+filename = '/mnt/zzbnew/rnamodel/zhoukexuan/rockfish/example/fast5/DEAMERNANOPORE_20161117_FNFAB43577_MN16450_sequencing_run_MA_821_R9_4_NA12878_11_17_16_88738_ch301_read41_strand.fast5'  # 替换为你的文件名
 
-# with h5py.File(filename, 'r') as f:
-#     # 获取前3个read的名称
-#     read_names = list(f.keys())[:3]
+with h5py.File(filename, 'r') as f:
+    # 获取前3个read的名称
+    read_names = list(f.keys())[:3]
     
-#     for read_name in read_names:
-#         print(f"\n{'='*60}")
-#         print(f"Read: {read_name}")
-#         print(f"{'='*60}")
+    for read_name in read_names:
+        print(f"\n{'='*60}")
+        print(f"Read: {read_name}")
+        print(f"{'='*60}")
         
-#         read_group = f[read_name]
+        read_group = f[read_name]
         
-#         # 显示这个read下面有什么
-#         print("包含的内容:")
-#         for key in read_group.keys():
-#             item = read_group[key]
-#             if isinstance(item, h5py.Dataset):
-#                 print(f"  📄 {key}: shape={item.shape}, dtype={item.dtype}")
-#                 # 如果数据量小，显示部分值
-#                 if item.size < 100:
-#                     print(f"     值: {item[()]}")
-#                 else:
-#                     print(f"     前5个值: {item[:5]}")
-#             else:
-#                 print(f"  📁 {key}/")
+        # 显示这个read下面有什么
+        print("包含的内容:")
+        for key in read_group.keys():
+            item = read_group[key]
+            if isinstance(item, h5py.Dataset):
+                print(f"  📄 {key}: shape={item.shape}, dtype={item.dtype}")
+                # 如果数据量小，显示部分值
+                if item.size < 100:
+                    print(f"     值: {item[()]}")
+                else:
+                    print(f"     前5个值: {item[:5]}")
+            else:
+                print(f"  📁 {key}/")
         
-#         # 显示属性
-#         if read_group.attrs:
-#             print("\n属性:")
-#             for attr, val in read_group.attrs.items():
-#                 if isinstance(val, bytes):
-#                     val = val.decode('utf-8', errors='ignore')
-#                 print(f"  {attr}: {val}")
+        # 显示属性
+        if read_group.attrs:
+            print("\n属性:")
+            for attr, val in read_group.attrs.items():
+                if isinstance(val, bytes):
+                    val = val.decode('utf-8', errors='ignore')
+                print(f"  {attr}: {val}")
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 

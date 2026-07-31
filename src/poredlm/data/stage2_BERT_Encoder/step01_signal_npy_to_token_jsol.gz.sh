@@ -11,9 +11,9 @@ INPUT_DIR="/mnt/si002562jbsc/poregpt/dnadata/balanced/human_dna_595g/memap_mongo
 # Output directory for .jsonl.gz files
 OUTPUT_DIR="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
-INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/train"
+INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_800000_chunks/train"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/stage2/train"
+OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_800000_chunks/stage2/train"
 
 
 #!/bin/bash

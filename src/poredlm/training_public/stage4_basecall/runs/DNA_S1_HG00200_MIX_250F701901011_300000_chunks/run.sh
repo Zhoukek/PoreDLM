@@ -9,20 +9,20 @@ stage3_root="${project_root}/src/poredlm/training_public/stage3_DLM_train"
 stage4_root="${project_root}/src/poredlm/training_public/stage4_basecall"
 
 export PYTHONPATH="${stage4_root}:${project_root}/src:${PYTHONPATH:-}"
-export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 export TORCHDYNAMO_DISABLE=1
 export WANDB_API_KEY=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
 
 
 # DDP 参数
-nproc_per_node=2
-master_port=29513
+nproc_per_node=4
+master_port=29512
 ddp_backend="nccl"
 
 # 训练参数
-batch_size=8
-num_epochs=100
-head_lr="1e-4"
+batch_size=12
+num_epochs=500
+head_lr="1e-5"
 backbone_lr="1e-5"
 weight_decay="1e-5"
 warmup_ratio="0.1"
@@ -36,7 +36,7 @@ unfreeze_context_last_n_layers=0
 unfreeze_elf_last_n_layers=4
 head_type="ctc"
 train_decoder="ctc_viterbi"
-pre_head_type="none"
+pre_head_type="tcn"
 feature_source="ode_hidden"
 head_output_activation="tanh"
 head_output_scale=5
@@ -57,12 +57,12 @@ elf_sde_seed=6198
 # 日志参数
 use_wandb=true
 wandb_project="stage4_basecall_public"
-wandb_run_name="test_public_hf_dlm_basecall"
+wandb_run_name="test_public_hf_dlm_basecall_300000_chunks_tcn_ctc"
 
 # 输入、模型和输出路径
 base_model="${stage3_root}/runs/test/hf_dlm"
-data_root="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/basecall_test"
-outdir="${stage4_root}/runs/test"
+data_root="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/basecall_data"
+outdir="${stage4_root}/runs/DNA_S1_HG00200_MIX_250F701901011_300000_chunks"
 
 mkdir -p "${outdir}"
 
