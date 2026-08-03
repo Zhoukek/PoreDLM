@@ -1,0 +1,43 @@
+device: auto
+
+data:
+  eval_path: /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval
+  file_pattern: "*.npy"
+  token_dtype: uint32
+  sample_indices: [0]
+  token_offset: 128
+  codebook_size: 65536
+  bos_token_id: 2
+  eos_token_id: 3
+
+models:
+  dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/test/hf_dlm_condition
+  tokenizer_path: /mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/encoder
+  # Set this to a training_waveform_decoder checkpoint.pt.
+  waveform_decoder_checkpoint: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training/satge_EX_Waveform_Reconstruction/training_waveform_decoder/outputs/waveform_decoder/step_200000/checkpoint.pt
+  # Leave null to read it from the waveform decoder checkpoint config.
+  hidden_state_key: null
+
+generation:
+  condition_length: 1000
+  generation_length: 200
+  num_steps: 50
+  sampling_method: ode
+  sde_gamma: 0.1
+  cfg_scale: 1.0
+  self_cond_cfg_scale: 1.0
+  seed: 6198
+  # "error" is scientifically safe. "clip" is only useful for diagnostics.
+  invalid_token_policy: error
+
+hidden_sampling:
+  ode_steps: 4
+  ode_start_t: 0.85
+  sde_steps: 4
+  sde_start_t: 0.85
+  sde_gamma: 0.1
+  self_cond_cfg_scale: 1.0
+  seed: 6198
+
+output:
+  directory: outputs/token_to_waveform
