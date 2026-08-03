@@ -115,7 +115,6 @@ class WaveformTokenCollator:
     def __call__(self, samples: list[dict[str, object]]) -> dict[str, object]:
         dlm_sequences: list[torch.Tensor] = []
         codec_sequences: list[torch.Tensor] = []
-        ids: list[str] = []
         max_content_length = self.max_length - 2
         for sample in samples:
             raw = torch.as_tensor(sample["tokens"], dtype=torch.long).flatten()
@@ -150,7 +149,6 @@ class WaveformTokenCollator:
                 )
             )
             codec_sequences.append(codec_ids)
-            ids.append(str(sample.get("id", "")))
 
         dlm_length = max(item.numel() for item in dlm_sequences)
         content_length = max(item.numel() for item in codec_sequences)
@@ -168,5 +166,4 @@ class WaveformTokenCollator:
             "attention_mask": attention_mask,
             "codec_token_ids": codec_token_ids,
             "content_mask": content_mask,
-            "ids": ids,
         }

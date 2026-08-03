@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
 import os
@@ -63,6 +64,19 @@ def validate_pretrained_dir(path_value: str, name: str) -> Path:
             "Expected config.json and model.safetensors/pytorch_model.bin (or a shard index)."
         )
     return path
+
+
+def register_tokenizer_model(tokenizer_path: Path) -> None:
+    modeling_file = tokenizer_path / "modeling_pore_vq_codec.py"
+    if not modeling_file.is_file():
+        raise FileNotFoundError(
+            f"Tokenizer custom model code not found: {modeling_file}. "
+            "Expected modeling_pore_vq_codec.py inside model.tokenizer_path."
+        )
+    tokenizer_path_str = str(tokenizer_path)
+    if tokenizer_path_str not in sys.path:
+        sys.path.insert(0, tokenizer_path_str)
+    importlib.import_module("modeling_pore_vq_codec")
 
 
 def build_loader(config: dict[str, Any], split: str) -> DataLoader:
@@ -129,13 +143,43 @@ def dlm_forward_kwargs(config: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return hidden_key, kwargs
 
 
+def decode_stage1_waveform_label(
+    tokenizer: torch.nn.Module,
+    codec_token_ids: torch.Tensor,
+) -> torch.Tensor:
+    """Create labels through Stage 1 codebook lookup followed by its frozen decoder."""
+    vq = getattr(tokenizer, "vq", None)
+    cnn_model = getattr(tokenizer, "cnn_model", None)
+    decoder = getattr(cnn_model, "decoder", None)
+    if vq is None or not hasattr(vq, "get_output_from_indices"):
+        raise ValueError(
+            "Tokenizer does not expose vq.get_output_from_indices(); "
+            "cannot look up Stage 1 codebook embeddings."
+        )
+    if decoder is None:
+        raise ValueError(
+            "Tokenizer does not expose cnn_model.decoder; "
+            "cannot create Stage 1 waveform labels."
+        )
+
+    # VectorQuantize returns [batch, token_count, codebook_dim].
+    codebook_embeddings = vq.get_output_from_indices(codec_token_ids)
+    if codebook_embeddings.ndim != 3:
+        raise ValueError(
+            "Expected Stage 1 codebook embeddings with shape [batch, tokens, hidden], "
+            f"got {tuple(codebook_embeddings.shape)}."
+        )
+    # The Stage 1 convolutional decoder consumes [batch, hidden, token_count].
+    return decoder(codebook_embeddings.transpose(1, 2))
+
+
 def make_targets(
     dlm: torch.nn.Module,
     tokenizer: torch.nn.Module,
     batch: dict[str, Any],
     hidden_key: str,
     forward_kwargs: dict[str, Any],
-) -> tuple[torch.Tensor, list[torch.Tensor], list[int]]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     with torch.no_grad():
         outputs = dlm(
             input_ids=batch["input_ids"],
@@ -143,42 +187,42 @@ def make_targets(
             **forward_kwargs,
         )
         hidden = outputs[hidden_key].float()
-        # DLM positions are [BOS, content..., EOS]; the codec target contains content only.
-        lengths = [int(length) for length in batch["content_mask"].sum(dim=1).tolist()]
-        targets = [
-            tokenizer.decode_token(batch["codec_token_ids"][index : index + 1, :length]).float()
-            for index, length in enumerate(lengths)
-        ]
-    return hidden, targets, lengths
+        if not bool(batch["content_mask"].all()):
+            raise ValueError(
+                "Variable token lengths were found in a batch, but this training stage "
+                "expects fixed 6000-point inputs and equal token lengths."
+            )
+        target = decode_stage1_waveform_label(
+            tokenizer,
+            batch["codec_token_ids"],
+        ).float()
+    return hidden, target
 
 
 def reconstruction_loss(
     decoder: torch.nn.Module,
     hidden: torch.Tensor,
-    targets: list[torch.Tensor],
-    lengths: list[int],
+    target: torch.Tensor,
+    content_length: int,
     loss_type: str,
+    loss_reduction: str,
 ) -> torch.Tensor:
-    losses = []
-    for index, (target, length) in enumerate(zip(targets, lengths)):
-        if length <= 0:
-            continue
-        # Trim before convolution so EOS/padding hidden states cannot affect the boundary.
-        prediction = decoder(hidden[index : index + 1, 1 : 1 + length])
-        common_length = min(prediction.shape[-1], target.shape[-1])
-        prediction = prediction[..., :common_length]
-        target = target[..., :common_length]
-        if loss_type == "l1":
-            losses.append(F.l1_loss(prediction, target))
-        elif loss_type == "mse":
-            losses.append(F.mse_loss(prediction, target))
-        elif loss_type == "smooth_l1":
-            losses.append(F.smooth_l1_loss(prediction, target))
-        else:
-            raise ValueError(f"Unsupported training.loss_type={loss_type!r}.")
-    if not losses:
-        raise ValueError("Batch contains no content tokens.")
-    return torch.stack(losses).mean()
+    if loss_reduction not in {"mean", "sum"}:
+        raise ValueError(
+            f"Unsupported training.loss_reduction={loss_reduction!r}; expected 'mean' or 'sum'."
+        )
+    # DLM positions are [BOS, content..., EOS]. Decode the full fixed-length batch at once.
+    prediction = decoder(hidden[:, 1 : 1 + content_length])
+    common_length = min(prediction.shape[-1], target.shape[-1])
+    prediction = prediction[..., :common_length]
+    target = target[..., :common_length]
+    if loss_type == "l1":
+        return F.l1_loss(prediction, target, reduction=loss_reduction)
+    if loss_type == "mse":
+        return F.mse_loss(prediction, target, reduction=loss_reduction)
+    if loss_type == "smooth_l1":
+        return F.smooth_l1_loss(prediction, target, reduction=loss_reduction)
+    raise ValueError(f"Unsupported training.loss_type={loss_type!r}.")
 
 
 def scheduler_for(optimizer: torch.optim.Optimizer, config: dict[str, Any]) -> LambdaLR:
@@ -245,6 +289,7 @@ def main() -> None:
         elf_src_path = str(candidate) if candidate.is_dir() else None
     if elf_src_path and str(elf_src_path) not in sys.path:
         sys.path.insert(0, str(elf_src_path))
+    register_tokenizer_model(tokenizer_path)
     dlm = AutoModel.from_pretrained(
         str(dlm_path),
         trust_remote_code=True,
@@ -291,15 +336,23 @@ def main() -> None:
 
     max_steps = int(training["max_steps"])
     loss_type = str(training.get("loss_type", "smooth_l1"))
+    loss_reduction = str(training.get("loss_reduction", "sum"))
     progress = tqdm(total=max_steps, disable=not accelerator.is_local_main_process)
     step = 0
     decoder.train()
     for batch in train_loader:
         with accelerator.accumulate(decoder):
-            hidden, targets, lengths = make_targets(
+            hidden, target = make_targets(
                 dlm, tokenizer, batch, hidden_key, forward_kwargs
             )
-            loss = reconstruction_loss(decoder, hidden, targets, lengths, loss_type)
+            loss = reconstruction_loss(
+                decoder,
+                hidden,
+                target,
+                batch["codec_token_ids"].shape[1],
+                loss_type,
+                loss_reduction,
+            )
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(decoder.parameters(), float(training.get("max_grad_norm", 1.0)))
@@ -321,11 +374,18 @@ def main() -> None:
             eval_losses = []
             for batch_index, valid_batch in enumerate(valid_loader):
                 with torch.no_grad():
-                    hidden, targets, lengths = make_targets(
+                    hidden, target = make_targets(
                         dlm, tokenizer, valid_batch, hidden_key, forward_kwargs
                     )
                     eval_losses.append(
-                        reconstruction_loss(decoder, hidden, targets, lengths, loss_type)
+                        reconstruction_loss(
+                            decoder,
+                            hidden,
+                            target,
+                            valid_batch["codec_token_ids"].shape[1],
+                            loss_type,
+                            loss_reduction,
+                        )
                     )
                 if batch_index + 1 >= int(training.get("max_eval_batches", 100)):
                     break
