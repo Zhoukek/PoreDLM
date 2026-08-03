@@ -224,11 +224,15 @@ class PoreDLMConfig(PretrainedConfig):
         elf_src_path: Optional[str] = None,
         **kwargs: Any,
     ):
+        model_config = model_config or {}
+        kwargs.setdefault("pad_token_id", model_config.get("pad_token_id"))
+        kwargs.setdefault("bos_token_id", model_config.get("bos_token_id"))
+        kwargs.setdefault("eos_token_id", model_config.get("eos_token_id"))
         super().__init__(**kwargs)
         self.context_encoder_type = context_encoder_type
         self.context_encoder_config = context_encoder_config or {}
         self.dlm_config = dlm_config or {}
-        self.model_config = model_config or {}
+        self.model_config = model_config
         self.elf_src_path = elf_src_path
 
 
@@ -352,6 +356,155 @@ class PoreDLMForDiffusion(PreTrainedModel):
                 decoder_step_active=False,
             )
         return self._elf_net_out_to_v_x(net_out, z, t_batch, self._elf_t_eps())
+
+    @staticmethod
+    def _restore_condition(
+        value: torch.Tensor,
+        condition: torch.Tensor,
+        condition_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.where(condition_mask.unsqueeze(-1), condition, value)
+
+    def _conditional_sample_step(
+        self,
+        z: torch.Tensor,
+        t_batch: torch.Tensor,
+        x_pred_prev: Optional[torch.Tensor],
+        condition: torch.Tensor,
+        condition_mask: torch.Tensor,
+        attention_mask: torch.Tensor,
+        cfg_scale: float,
+        self_cond_cfg_scale: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        v_cond, x_cond = self._elf_forward_ode_sample(
+            z, t_batch, x_pred_prev, attention_mask, self_cond_cfg_scale
+        )
+        v_cond = self._restore_condition(v_cond, torch.zeros_like(condition), condition_mask)
+        x_cond = self._restore_condition(x_cond, condition, condition_mask)
+        if cfg_scale == 1.0:
+            return v_cond, x_cond
+        z_uncond = self._restore_condition(z, torch.zeros_like(condition), condition_mask)
+        x_prev_uncond = None if x_pred_prev is None else self._restore_condition(
+            x_pred_prev, torch.zeros_like(condition), condition_mask
+        )
+        v_uncond, x_uncond = self._elf_forward_ode_sample(
+            z_uncond, t_batch, x_prev_uncond, attention_mask, self_cond_cfg_scale
+        )
+        v = v_uncond + float(cfg_scale) * (v_cond - v_uncond)
+        x = x_uncond + float(cfg_scale) * (x_cond - x_uncond)
+        return (
+            self._restore_condition(v, torch.zeros_like(condition), condition_mask),
+            self._restore_condition(x, condition, condition_mask),
+        )
+
+    @torch.no_grad()
+    def generate(
+        self,
+        condition_input_ids: torch.LongTensor,
+        condition_attention_mask: Optional[torch.Tensor] = None,
+        *,
+        max_length: Optional[int] = None,
+        num_steps: int = 50,
+        sampling_method: str = "ode",
+        sde_gamma: float = 0.1,
+        cfg_scale: float = 1.0,
+        self_cond_cfg_scale: float = 1.0,
+        seed: Optional[int] = None,
+        return_dict: bool = False,
+        return_latents: bool = False,
+    ) -> Any:
+        """Generate tokens while keeping the supplied token prefix fixed."""
+        if condition_input_ids.ndim != 2:
+            raise ValueError("condition_input_ids must have shape [batch, condition_length].")
+        device = next(self.parameters()).device
+        condition_input_ids = condition_input_ids.to(device=device, dtype=torch.long)
+        if condition_attention_mask is None:
+            pad_token_id = getattr(self.config, "pad_token_id", None)
+            condition_attention_mask = (
+                torch.ones_like(condition_input_ids)
+                if pad_token_id is None
+                else condition_input_ids.ne(int(pad_token_id))
+            )
+        condition_attention_mask = condition_attention_mask.to(device=device, dtype=torch.bool)
+        if condition_attention_mask.shape != condition_input_ids.shape:
+            raise ValueError("condition_attention_mask must have the same shape as condition_input_ids.")
+        if int(num_steps) < 1:
+            raise ValueError("num_steps must be >= 1.")
+        if sampling_method not in {"ode", "sde"}:
+            raise ValueError("sampling_method must be either 'ode' or 'sde'.")
+        if sde_gamma < 0:
+            raise ValueError("sde_gamma must be >= 0.")
+        model_max_length = int(self.config.dlm_config.get("max_length") or self.config.model_config.get("max_sequence_length") or self.elf_denoiser.max_length)
+        total_length = model_max_length if max_length is None else int(max_length)
+        condition_lengths = condition_attention_mask.sum(dim=1)
+        if total_length < 1 or total_length > model_max_length:
+            raise ValueError(f"max_length must be in [1, {model_max_length}].")
+        if bool((condition_lengths > total_length).any()):
+            raise ValueError("A condition is longer than max_length.")
+        if bool((condition_lengths < 1).any()):
+            raise ValueError("Every sequence must contain at least one condition token.")
+
+        context_dtype = next(self.elf_denoiser.parameters()).dtype
+        encoded = self.context_encoder(input_ids=condition_input_ids, attention_mask=condition_attention_mask, return_dict=True).last_hidden_state.to(dtype=context_dtype)
+        batch_size, hidden_size = condition_input_ids.shape[0], encoded.shape[-1]
+        condition = torch.zeros(batch_size, total_length, hidden_size, device=device, dtype=context_dtype)
+        condition_mask = torch.zeros(batch_size, total_length, device=device, dtype=torch.bool)
+        sequences = torch.full((batch_size, total_length), int(getattr(self.config, "pad_token_id", 0) or 0), device=device, dtype=torch.long)
+        for row in range(batch_size):
+            valid = condition_attention_mask[row]
+            length = int(condition_lengths[row].item())
+            condition[row, :length] = encoded[row, valid]
+            condition_mask[row, :length] = True
+            sequences[row, :length] = condition_input_ids[row, valid]
+
+        generator = None
+        if seed is not None:
+            generator = torch.Generator(device=device)
+            generator.manual_seed(int(seed))
+        noise_scale = float(self.config.dlm_config.get("denoiser_noise_scale", 1.0))
+        z = torch.randn(condition.shape, device=device, dtype=context_dtype, generator=generator) * noise_scale
+        z = self._restore_condition(z, condition, condition_mask)
+        x_pred = self._restore_condition(torch.zeros_like(z), condition, condition_mask)
+        attention_mask = torch.ones(batch_size, total_length, device=device, dtype=torch.bool)
+        time_schedule = self.config.dlm_config.get("time_schedule", "logit_normal")
+        if time_schedule == "uniform" or int(num_steps) == 1:
+            t_steps = torch.linspace(0.0, 1.0, int(num_steps) + 1, device=device, dtype=context_dtype)
+        elif time_schedule == "logit_normal":
+            p_mean = float(self.config.dlm_config.get("denoiser_p_mean", -0.8))
+            p_std = float(self.config.dlm_config.get("denoiser_p_std", 0.8))
+            middle = torch.randn(int(num_steps) - 1, device=device, dtype=context_dtype, generator=generator)
+            middle = torch.sort(torch.sigmoid(middle * p_std + p_mean)).values
+            t_steps = torch.cat([middle.new_zeros(1), middle, middle.new_ones(1)], dim=0)
+        else:
+            raise ValueError(f"Unsupported time_schedule={time_schedule!r}.")
+        for index in range(int(num_steps)):
+            t, t_next = t_steps[index], t_steps[index + 1]
+            if sampling_method == "sde":
+                alpha = torch.clamp(1.0 - float(sde_gamma) * (t_next - t), min=0.0, max=1.0)
+                t_model = alpha * t
+                eps = torch.randn(z.shape, device=device, dtype=context_dtype, generator=generator) * noise_scale
+                z = self._restore_condition(alpha * z + (1.0 - alpha) * eps, condition, condition_mask)
+            else:
+                t_model = t
+            t_batch = torch.full((batch_size,), float(t_model.item()), device=device, dtype=context_dtype)
+            v_pred, x_pred = self._conditional_sample_step(z, t_batch, x_pred, condition, condition_mask, attention_mask, cfg_scale, self_cond_cfg_scale)
+            z = self._restore_condition(z + (t_next - t_model) * v_pred, condition, condition_mask)
+
+        decoder_input = z
+        if int(getattr(self.elf_denoiser, "num_self_cond_cfg_tokens", 0)) > 0:
+            decoder_input = torch.cat([z, torch.zeros_like(z)], dim=-1)
+        decoder_scale = torch.full((batch_size,), float(self_cond_cfg_scale), device=device, dtype=context_dtype)
+        _, logits = self.elf_denoiser(decoder_input, torch.ones(batch_size, device=device, dtype=context_dtype), attention_mask=attention_mask, self_cond_cfg_scale=decoder_scale, decoder_step_active=True)
+        if logits is None:
+            raise RuntimeError("ELF decoder did not return logits.")
+        sequences = torch.where(condition_mask, sequences, torch.argmax(logits, dim=-1))
+        if not return_dict:
+            return sequences
+        output = {"sequences": sequences, "logits": logits}
+        if return_latents:
+            output["latents"] = z
+            output["condition_mask"] = condition_mask
+        return output
 
     def ode_from_context_hidden(
         self,
