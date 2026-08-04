@@ -10,8 +10,8 @@ data:
   valid_dir: "/mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_tvfirq50_pore-codec-rsq741c12v-523/eval"
   data_name: "data"
   file_pattern: "*.npy"
-  token_dtype: "uint32"
-  memmap_dtype: "uint32"
+  token_dtype: "uint16"
+  memmap_dtype: "uint16"
   token_offset: 128
   input_has_special_tokens: true
   tokens_are_shifted: true

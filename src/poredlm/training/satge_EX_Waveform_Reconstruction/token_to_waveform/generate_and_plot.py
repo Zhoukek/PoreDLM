@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import yaml
-from transformers import AutoModel
+from transformers import AutoModel, AutoModelForCausalLM, __version__ as transformers_version
 
 
 HERE = Path(__file__).resolve().parent
@@ -52,12 +52,37 @@ def resolve_device(value: str) -> torch.device:
 
 
 def register_custom_tokenizer(tokenizer_path: Path) -> None:
-    modeling_file = tokenizer_path / "modeling_pore_vq_codec.py"
-    if not modeling_file.is_file():
-        raise FileNotFoundError(f"Missing tokenizer model code: {modeling_file}")
+    """Register either the VQ codec or the RSQ/FSQ codec shipped with a HF model."""
+    config_path = tokenizer_path / "config.json"
+    module_names: list[str] = []
+    if config_path.is_file():
+        with config_path.open("r", encoding="utf-8") as handle:
+            hf_config = json.load(handle)
+        auto_map = hf_config.get("auto_map", {})
+        auto_model = auto_map.get("AutoModel") if isinstance(auto_map, dict) else None
+        if isinstance(auto_model, str) and "." in auto_model:
+            module_names.append(auto_model.split(".", 1)[0])
+    module_names.extend(("modeling_pore_codec", "modeling_pore_vq_codec"))
+    module_names = list(dict.fromkeys(module_names))
+    modeling_file = next(
+        (tokenizer_path / f"{name}.py" for name in module_names if (tokenizer_path / f"{name}.py").is_file()),
+        None,
+    )
+    if modeling_file is None:
+        expected = ", ".join(f"{name}.py" for name in module_names)
+        raise FileNotFoundError(f"Missing codec model code under {tokenizer_path}; tried {expected}.")
     if str(tokenizer_path) not in sys.path:
         sys.path.insert(0, str(tokenizer_path))
-    importlib.import_module("modeling_pore_vq_codec")
+    module_name = modeling_file.stem
+    if module_name in sys.modules:
+        loaded_path = Path(getattr(sys.modules[module_name], "__file__", "")).resolve()
+        if loaded_path != modeling_file.resolve():
+            raise RuntimeError(
+                f"Python module {module_name!r} was already loaded from {loaded_path}, "
+                f"not the requested codec {modeling_file}."
+            )
+    else:
+        importlib.import_module(module_name)
 
 
 def freeze(model: torch.nn.Module, device: torch.device) -> torch.nn.Module:
@@ -90,16 +115,39 @@ def select_samples(config: dict[str, Any], indices: list[int]) -> list[dict[str,
 
 
 def stage1_decode(tokenizer: torch.nn.Module, codec_ids: torch.Tensor) -> torch.Tensor:
+    # PoreRSQCodec stores a packed token per time step. Its public decoder first
+    # expands that token into residual-FSQ level indices, then reconstructs signal.
+    decode_token = getattr(tokenizer, "decode_token", None)
+    if callable(decode_token):
+        waveform = decode_token(codec_ids)
+        return waveform.squeeze(1) if waveform.ndim == 3 and waveform.shape[1] == 1 else waveform
+
+    # PoreVQCodec uses one ordinary codebook index per time step.
     vq = getattr(tokenizer, "vq", None)
     decoder = getattr(getattr(tokenizer, "cnn_model", None), "decoder", None)
     if vq is None or not hasattr(vq, "get_output_from_indices"):
-        raise ValueError("Tokenizer does not expose vq.get_output_from_indices().")
+        raise ValueError(
+            "Codec exposes neither decode_token() nor vq.get_output_from_indices()."
+        )
     if decoder is None:
         raise ValueError("Tokenizer does not expose cnn_model.decoder.")
     embeddings = vq.get_output_from_indices(codec_ids)
     if embeddings.ndim != 3:
         raise ValueError(f"Expected codebook embeddings [B,T,D], got {embeddings.shape}.")
     return decoder(embeddings.transpose(1, 2)).squeeze(1)
+
+
+def infer_codec_vocabulary_size(codec: torch.nn.Module) -> int | None:
+    """Return the number of packed codec tokens when the codec exposes it."""
+    fsq_levels = getattr(codec, "fsq_levels", None)
+    num_quantizers = getattr(codec, "num_quantizers", None)
+    if fsq_levels is not None and num_quantizers is not None:
+        base_size = int(np.prod([int(level) for level in fsq_levels]))
+        return base_size ** int(num_quantizers)
+    codebook_size = getattr(codec, "codebook_size", None)
+    if codebook_size is None:
+        codebook_size = getattr(getattr(codec, "config", None), "codebook_size", None)
+    return int(codebook_size) if codebook_size is not None else None
 
 
 def normalize_raw_tokens(
@@ -131,7 +179,7 @@ def validate_or_fix_generated_ids(
     if count and policy == "error":
         values = torch.unique(token_ids[invalid]).detach().cpu().tolist()[:20]
         raise ValueError(
-            f"DLM generated {count} non-codebook tokens; valid DLM IDs are [{low}, {high}]. "
+            f"Generator produced {count} non-codebook tokens; valid IDs are [{low}, {high}]. "
             f"Examples: {values}. Use invalid_token_policy=clip only for diagnostic plotting."
         )
     if count:
@@ -210,46 +258,112 @@ def bert_repair(
     return repaired
 
 
+def gpt_repair(
+    gpt: torch.nn.Module,
+    full_ids: torch.Tensor,
+    mask_start: int,
+    mask_length: int,
+    token_offset: int,
+    codebook_size: int,
+) -> torch.Tensor:
+    """Autoregressively replace a content-token interval with a causal LM."""
+    # full_ids includes BOS, while mask_start is in content-token coordinates.
+    prefix_length = 1 + mask_start
+    prefix = full_ids[:, :prefix_length]
+    if prefix.shape[1] < 1:
+        raise ValueError("GPT generation requires at least one prefix token.")
+    max_positions = getattr(gpt.config, "max_position_embeddings", None)
+    if max_positions is not None and prefix_length + mask_length > int(max_positions):
+        raise ValueError(
+            f"GPT needs {prefix_length + mask_length} positions, but "
+            f"max_position_embeddings={max_positions}."
+        )
+
+    outputs = gpt(input_ids=prefix, attention_mask=torch.ones_like(prefix), use_cache=True)
+    past_key_values = getattr(outputs, "past_key_values", None)
+    vocab_end = token_offset + codebook_size
+    logits = outputs.logits[:, -1, :]
+    if logits.shape[-1] < vocab_end:
+        raise ValueError(
+            f"GPT vocabulary size {logits.shape[-1]} is smaller than codebook end {vocab_end}."
+        )
+
+    predicted: list[torch.Tensor] = []
+    for step in range(mask_length):
+        next_token = torch.argmax(logits[:, token_offset:vocab_end], dim=-1) + token_offset
+        predicted.append(next_token)
+        if step + 1 == mask_length:
+            break
+        step_input = next_token.unsqueeze(1)
+        if past_key_values is None:
+            # Compatibility fallback for causal models that do not expose KV cache.
+            running = torch.cat([prefix, torch.stack(predicted, dim=1)], dim=1)
+            outputs = gpt(
+                input_ids=running,
+                attention_mask=torch.ones_like(running),
+                use_cache=False,
+            )
+        else:
+            outputs = gpt(
+                input_ids=step_input,
+                past_key_values=past_key_values,
+                use_cache=True,
+            )
+            past_key_values = getattr(outputs, "past_key_values", None)
+        logits = outputs.logits[:, -1, :]
+
+    repaired = full_ids.clone()
+    repaired[:, prefix_length : prefix_length + mask_length] = torch.stack(predicted, dim=1)
+    return repaired
+
+
 def plot_waveforms(
     stage1_waveform: np.ndarray,
-    bert_waveform: np.ndarray,
     reference_waveform: np.ndarray,
     mask_start_token: int,
     mask_length_tokens: int,
     total_tokens: int,
     title: str,
     output_path: Path,
+    generator_name: str,
+    bert_waveform: np.ndarray | None = None,
 ) -> None:
-    common = min(stage1_waveform.size, bert_waveform.size, reference_waveform.size)
+    sizes = [stage1_waveform.size, reference_waveform.size]
+    if bert_waveform is not None:
+        sizes.append(bert_waveform.size)
+    common = min(sizes)
     stage1_waveform = stage1_waveform[:common]
-    bert_waveform = bert_waveform[:common]
+    if bert_waveform is not None:
+        bert_waveform = bert_waveform[:common]
     reference_waveform = reference_waveform[:common]
     region_start = min(int(round(common * mask_start_token / total_tokens)), common - 1)
     region_end = min(
         int(round(common * (mask_start_token + mask_length_tokens) / total_tokens)),
         common,
     )
-    dlm_region_mse = aligned_mse(reference_waveform, stage1_waveform, region_start, region_end)
-    bert_region_mse = aligned_mse(reference_waveform, bert_waveform, region_start, region_end)
-    figure, axes = plt.subplots(1, 3, figsize=(24, 6), constrained_layout=True)
+    generated_region_mse = aligned_mse(reference_waveform, stage1_waveform, region_start, region_end)
+    panel_count = 3 if bert_waveform is not None else 2
+    figure, axes = plt.subplots(1, panel_count, figsize=(8 * panel_count, 6), constrained_layout=True)
     x = np.arange(common)
     black_label = "Reference tokens → Stage-1 decoder"
-    blue_label = "DLM repaired tokens → Stage-1 decoder"
-    red_label = "BERT repaired tokens → Stage-1 decoder"
+    blue_label = f"{generator_name} repaired tokens → Stage-1 decoder"
     axes[0].plot(x, reference_waveform, color="black", alpha=0.6, linewidth=0.8, label=black_label)
     axes[0].plot(x, stage1_waveform, color="#0072B2", linewidth=0.8, label=blue_label)
-    axes[0].set_title(f"Full sequence: Reference vs DLM\nmasked-region MSE={dlm_region_mse:.6g}")
+    axes[0].set_title(f"Full sequence: Reference vs {generator_name}\nmasked-region MSE={generated_region_mse:.6g}")
     axes[0].legend(loc="upper right", fontsize=8)
 
     axes[1].plot(x[region_start:region_end], reference_waveform[region_start:region_end], color="black", alpha=0.65, linewidth=0.9, label=black_label)
     axes[1].plot(x[region_start:region_end], stage1_waveform[region_start:region_end], color="#0072B2", linewidth=0.9, label=blue_label)
-    axes[1].set_title(f"Masked region: Reference vs DLM\nMSE={dlm_region_mse:.6g}")
+    axes[1].set_title(f"Masked region: Reference vs {generator_name}\nMSE={generated_region_mse:.6g}")
     axes[1].legend(loc="upper right", fontsize=8)
 
-    axes[2].plot(x[region_start:region_end], reference_waveform[region_start:region_end], color="black", alpha=0.65, linewidth=0.9, label=black_label)
-    axes[2].plot(x[region_start:region_end], bert_waveform[region_start:region_end], color="#D62728", linewidth=0.9, label=red_label)
-    axes[2].set_title(f"Masked region: Reference vs BERT\nMSE={bert_region_mse:.6g}")
-    axes[2].legend(loc="upper right", fontsize=8)
+    if bert_waveform is not None:
+        bert_region_mse = aligned_mse(reference_waveform, bert_waveform, region_start, region_end)
+        red_label = "BERT repaired tokens → Stage-1 decoder"
+        axes[2].plot(x[region_start:region_end], reference_waveform[region_start:region_end], color="black", alpha=0.65, linewidth=0.9, label=black_label)
+        axes[2].plot(x[region_start:region_end], bert_waveform[region_start:region_end], color="#D62728", linewidth=0.9, label=red_label)
+        axes[2].set_title(f"Masked region: Reference vs BERT\nMSE={bert_region_mse:.6g}")
+        axes[2].legend(loc="upper right", fontsize=8)
 
     for axis in axes:
         axis.axvline(region_start, color="#009E73", linestyle="--", linewidth=1.0)
@@ -267,7 +381,8 @@ def plot_waveforms(
 def process_sample(
     sample: dict[str, object],
     sample_index: int,
-    dlm: torch.nn.Module,
+    generator_model: torch.nn.Module,
+    generator_type: str,
     tokenizer: torch.nn.Module,
     config: dict[str, Any],
     device: torch.device,
@@ -295,51 +410,61 @@ def process_sample(
     full_ids = torch.cat(
         [torch.tensor([bos], device=device), reference_content]
     ).unsqueeze(0)
-    condition_token_mask = torch.ones_like(full_ids, dtype=torch.bool)
     masked_positions = torch.zeros_like(full_ids, dtype=torch.bool)
     masked_positions[:, 1 + mask_start : 1 + mask_end] = True
-    condition_token_mask[masked_positions] = False
-    context_core = getattr(getattr(dlm, "context_encoder", None), "model", getattr(dlm, "context_encoder", None))
-    mask_token_id = int(
-        generation.get("mask_token_id")
-        if generation.get("mask_token_id") is not None
-        else getattr(getattr(context_core, "config", None), "mask_token_id", 1)
-    )
-    masked_input_ids = full_ids.clone()
-    masked_input_ids[masked_positions] = mask_token_id
-    generation_output = dlm.generate(
-        condition_input_ids=masked_input_ids,
-        condition_attention_mask=torch.ones_like(masked_input_ids),
-        condition_token_mask=condition_token_mask,
-        max_length=1 + total_content_length,
-        num_steps=int(generation.get("num_steps", 50)),
-        sampling_method=str(generation.get("sampling_method", "ode")),
-        sde_gamma=float(generation.get("sde_gamma", 0.1)),
-        cfg_scale=float(generation.get("cfg_scale", 1.0)),
-        self_cond_cfg_scale=float(generation.get("self_cond_cfg_scale", 1.0)),
-        seed=int(generation.get("seed", 6198)) + sample_index,
-        return_dict=True,
-        return_latents=False,
-    )
-    if not isinstance(generation_output, dict):
-        raise TypeError("DLM generate() must return a dict when return_dict=True.")
-    if "sequences" not in generation_output:
-        raise KeyError(
-            f"DLM generation output must contain sequences; keys={list(generation_output)}"
+    bert_content: torch.Tensor | None = None
+    if generator_type == "dlm":
+        condition_token_mask = ~masked_positions
+        context_core = getattr(getattr(generator_model, "context_encoder", None), "model", None)
+        mask_token_id = int(
+            generation.get("mask_token_id")
+            if generation.get("mask_token_id") is not None
+            else getattr(getattr(context_core, "config", None), "mask_token_id", 1)
         )
-    generated = generation_output["sequences"]
-    if bool(generation.get("restrict_to_codebook", True)):
-        logits = generation_output.get("logits")
-        if logits is None:
-            raise KeyError("restrict_to_codebook=True requires logits in DLM generation output.")
-        vocab_end = offset + codebook_size
-        if logits.shape[-1] < vocab_end:
-            raise ValueError(
-                f"DLM vocabulary size {logits.shape[-1]} is smaller than required codebook end {vocab_end}."
-            )
-        generated = generated.clone()
-        constrained_ids = torch.argmax(logits[..., offset:vocab_end], dim=-1) + offset
-        generated[masked_positions] = constrained_ids[masked_positions]
+        masked_input_ids = full_ids.clone()
+        masked_input_ids[masked_positions] = mask_token_id
+        generation_output = generator_model.generate(
+            condition_input_ids=masked_input_ids,
+            condition_attention_mask=torch.ones_like(masked_input_ids),
+            condition_token_mask=condition_token_mask,
+            max_length=1 + total_content_length,
+            num_steps=int(generation.get("num_steps", 50)),
+            sampling_method=str(generation.get("sampling_method", "ode")),
+            sde_gamma=float(generation.get("sde_gamma", 0.1)),
+            cfg_scale=float(generation.get("cfg_scale", 1.0)),
+            self_cond_cfg_scale=float(generation.get("self_cond_cfg_scale", 1.0)),
+            seed=int(generation.get("seed", 6198)) + sample_index,
+            return_dict=True,
+            return_latents=False,
+        )
+        if not isinstance(generation_output, dict) or "sequences" not in generation_output:
+            raise TypeError("DLM generate() must return a dict containing 'sequences'.")
+        generated = generation_output["sequences"]
+        if bool(generation.get("restrict_to_codebook", True)):
+            logits = generation_output.get("logits")
+            if logits is None:
+                raise KeyError("restrict_to_codebook=True requires DLM logits.")
+            vocab_end = offset + codebook_size
+            if logits.shape[-1] < vocab_end:
+                raise ValueError(
+                    f"DLM vocabulary size {logits.shape[-1]} is smaller than codebook end {vocab_end}."
+                )
+            generated = generated.clone()
+            constrained_ids = torch.argmax(logits[..., offset:vocab_end], dim=-1) + offset
+            generated[masked_positions] = constrained_ids[masked_positions]
+        bert_ids = bert_repair(
+            generator_model, masked_input_ids, masked_positions, offset, codebook_size
+        )
+        bert_content = bert_ids[0, 1 : 1 + total_content_length]
+        bert_content, _ = validate_or_fix_generated_ids(
+            bert_content, offset, codebook_size, "error"
+        )
+    elif generator_type == "gpt":
+        generated = gpt_repair(
+            generator_model, full_ids, mask_start, mask_length, offset, codebook_size
+        )
+    else:
+        raise ValueError("generator_type must be 'dlm' or 'gpt'.")
     generated_content = generated[0, 1 : 1 + total_content_length]
     generated_content, invalid_count = validate_or_fix_generated_ids(
         generated_content,
@@ -348,83 +473,85 @@ def process_sample(
         str(generation.get("invalid_token_policy", "error")),
     )
     generated_codec = (generated_content - offset).unsqueeze(0)
-    bert_ids = bert_repair(
-        dlm, masked_input_ids, masked_positions, offset, codebook_size
-    )
-    bert_content = bert_ids[0, 1 : 1 + total_content_length]
-    bert_content, bert_invalid_count = validate_or_fix_generated_ids(
-        bert_content, offset, codebook_size, "error"
-    )
-    bert_codec = (bert_content - offset).unsqueeze(0)
     reference_codec = (reference_content - offset).unsqueeze(0)
     if int(reference_codec.min()) < 0 or int(reference_codec.max()) >= codebook_size:
         raise ValueError(f"Reference sample {sample_index} contains invalid codebook IDs.")
 
     stage1_waveform = stage1_decode(tokenizer, generated_codec).float()
-    bert_reconstructed_waveform = stage1_decode(tokenizer, bert_codec).float()
     reference_waveform = stage1_decode(tokenizer, reference_codec).float()
+    bert_reconstructed_waveform = None
+    if bert_content is not None:
+        bert_codec = (bert_content - offset).unsqueeze(0)
+        bert_reconstructed_waveform = stage1_decode(tokenizer, bert_codec).float()
 
     stage1_np = stage1_waveform[0].detach().cpu().numpy()
-    bert_np = bert_reconstructed_waveform[0].detach().cpu().numpy()
+    bert_np = (
+        bert_reconstructed_waveform[0].detach().cpu().numpy()
+        if bert_reconstructed_waveform is not None else None
+    )
     reference_np = reference_waveform[0].detach().cpu().numpy()
     output_dir = Path(config["output"]["directory"]).expanduser()
-    stem = f"sample_{sample_index:06d}_mask{mask_start}-{mask_end}"
+    stem = f"{generator_type}_sample_{sample_index:06d}_mask{mask_start}-{mask_end}"
     plot_waveforms(
         stage1_np,
-        bert_np,
         reference_np,
         mask_start,
         mask_length,
         total_content_length,
         f"{stem} | id={sample.get('id', '')}",
         output_dir / f"{stem}.png",
-    )
-    np.savez_compressed(
-        output_dir / f"{stem}.npz",
-        generated_dlm_ids=generated_content.detach().cpu().numpy(),
-        generated_codec_ids=generated_codec[0].detach().cpu().numpy(),
-        bert_repaired_dlm_ids=bert_content.detach().cpu().numpy(),
-        bert_repaired_codec_ids=bert_codec[0].detach().cpu().numpy(),
-        reference_dlm_ids=reference_content.detach().cpu().numpy(),
-        stage1_waveform=stage1_np,
+        generator_type.upper(),
         bert_waveform=bert_np,
-        reference_waveform=reference_np,
     )
+    arrays = {
+        "generated_token_ids": generated_content.detach().cpu().numpy(),
+        "generated_codec_ids": generated_codec[0].detach().cpu().numpy(),
+        "reference_token_ids": reference_content.detach().cpu().numpy(),
+        "generated_waveform": stage1_np,
+        "reference_waveform": reference_np,
+    }
+    if bert_content is not None and bert_np is not None:
+        arrays["bert_repaired_token_ids"] = bert_content.detach().cpu().numpy()
+        arrays["bert_waveform"] = bert_np
+    np.savez_compressed(output_dir / f"{stem}.npz", **arrays)
     masked_region = slice(mask_start, mask_end)
-    dlm_token_accuracy = float(
+    generated_token_accuracy = float(
         (generated_content[masked_region] == reference_content[masked_region])
         .float()
         .mean()
         .item()
     )
-    bert_token_accuracy = float(
-        (bert_content[masked_region] == reference_content[masked_region])
-        .float()
-        .mean()
-        .item()
-    )
-    waveform_length = min(reference_np.size, stage1_np.size, bert_np.size)
+    waveform_length = min(reference_np.size, stage1_np.size)
     waveform_start = int(waveform_length * mask_start / total_content_length)
     waveform_end = int(waveform_length * mask_end / total_content_length)
-    return {
+    result = {
+        "generator_type": generator_type,
         "sample_index": sample_index,
         "sample_id": str(sample.get("id", "")),
         "total_length": total_content_length,
         "mask_start": mask_start,
         "mask_length": mask_length,
         "invalid_generated_tokens": invalid_count,
-        "invalid_bert_tokens": bert_invalid_count,
-        "dlm_masked_region_token_accuracy": dlm_token_accuracy,
-        "bert_masked_region_token_accuracy": bert_token_accuracy,
-        "stage1_generated_vs_reference_full_metrics": waveform_metrics(stage1_np, reference_np),
-        "bert_vs_reference_full_metrics": waveform_metrics(bert_np, reference_np),
+        "masked_region_token_accuracy": generated_token_accuracy,
+        "reference_region_token_ids": reference_content[masked_region].detach().cpu().tolist(),
+        "predicted_region_token_ids": generated_content[masked_region].detach().cpu().tolist(),
+        "generated_vs_reference_full_metrics": waveform_metrics(stage1_np, reference_np),
         "mse": {
-            "reference_vs_dlm_masked_region": aligned_mse(reference_np, stage1_np, waveform_start, waveform_end),
-            "reference_vs_bert_masked_region": aligned_mse(reference_np, bert_np, waveform_start, waveform_end),
+            "reference_vs_generated_masked_region": aligned_mse(reference_np, stage1_np, waveform_start, waveform_end),
         },
         "figure": str(output_dir / f"{stem}.png"),
         "arrays": str(output_dir / f"{stem}.npz"),
     }
+    if bert_content is not None and bert_np is not None:
+        result["bert_predicted_region_token_ids"] = bert_content[masked_region].detach().cpu().tolist()
+        result["bert_masked_region_token_accuracy"] = float(
+            (bert_content[masked_region] == reference_content[masked_region]).float().mean().item()
+        )
+        result["bert_vs_reference_full_metrics"] = waveform_metrics(bert_np, reference_np)
+        result["mse"]["reference_vs_bert_masked_region"] = aligned_mse(
+            reference_np, bert_np, waveform_start, waveform_end
+        )
+    return result
 
 
 def main() -> None:
@@ -435,6 +562,7 @@ def main() -> None:
     parser.add_argument("--mask-length", type=int)
     parser.add_argument("--sample-indices")
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--generator-type", choices=("dlm", "gpt"))
     args = parser.parse_args()
     config = load_yaml(args.config)
     if args.total_length is not None:
@@ -447,26 +575,79 @@ def main() -> None:
         config["data"]["sample_indices"] = args.sample_indices
     if args.output_dir is not None:
         config["output"]["directory"] = str(args.output_dir)
+    if args.generator_type is not None:
+        config["generation"]["generator_type"] = args.generator_type
 
     device = resolve_device(str(config.get("device", "auto")))
     models = config["models"]
-    dlm_path = Path(models["dlm_path"]).expanduser().resolve()
-    tokenizer_path = Path(models["tokenizer_path"]).expanduser().resolve()
+    generator_type = str(config["generation"].get("generator_type", "dlm")).lower()
+    if generator_type not in {"dlm", "gpt"}:
+        raise ValueError("generation.generator_type must be 'dlm' or 'gpt'.")
+    model_path = Path(models[f"{generator_type}_path"]).expanduser().resolve()
+    tokenizer_path_value = models.get(f"{generator_type}_tokenizer_path", models.get("tokenizer_path"))
+    if tokenizer_path_value is None:
+        raise KeyError(
+            f"models must define {generator_type}_tokenizer_path or tokenizer_path."
+        )
+    tokenizer_path = Path(tokenizer_path_value).expanduser().resolve()
     register_custom_tokenizer(tokenizer_path)
-    dlm = freeze(
-        AutoModel.from_pretrained(
-            str(dlm_path), trust_remote_code=True, local_files_only=True
-        ),
-        device,
-    )
-    if not hasattr(dlm, "generate"):
-        raise AttributeError(f"DLM at {dlm_path} does not provide conditional generate().")
+    model_loader = AutoModel if generator_type == "dlm" else AutoModelForCausalLM
+    try:
+        loaded_generator = model_loader.from_pretrained(
+            str(model_path), trust_remote_code=True, local_files_only=True
+        )
+    except ValueError as error:
+        if generator_type == "gpt" and "model type `olmo2`" in str(error):
+            raise RuntimeError(
+                f"GPT checkpoint {model_path} is OLMo2, but installed Transformers "
+                f"{transformers_version} does not support it. Install Transformers >=4.48,<5 "
+                f"in the active environment, then rerun."
+            ) from error
+        raise
+    generator_model = freeze(loaded_generator, device)
+    if generator_type == "dlm" and not hasattr(generator_model, "generate"):
+        raise AttributeError(f"DLM at {model_path} does not provide conditional generate().")
     tokenizer = freeze(
         AutoModel.from_pretrained(
             str(tokenizer_path), trust_remote_code=True, local_files_only=True
         ),
         device,
     )
+    data = config["data"]
+    generator_eval_path = data.get(f"{generator_type}_eval_path")
+    if generator_eval_path is not None:
+        data["eval_path"] = generator_eval_path
+    generator_offset = data.get(f"{generator_type}_token_offset")
+    if generator_offset is not None:
+        data["token_offset"] = int(generator_offset)
+    generator_codebook_size = data.get(f"{generator_type}_codebook_size")
+    if generator_codebook_size is not None:
+        data["codebook_size"] = int(generator_codebook_size)
+    inferred_size = infer_codec_vocabulary_size(tokenizer)
+    if generator_type == "gpt":
+        if generator_codebook_size is None:
+            if inferred_size is None:
+                raise ValueError(
+                    "Could not infer the GPT codec vocabulary size; set data.gpt_codebook_size."
+                )
+            data["codebook_size"] = inferred_size
+        elif inferred_size is not None and int(generator_codebook_size) != inferred_size:
+            raise ValueError(
+                f"data.gpt_codebook_size={generator_codebook_size} does not match the "
+                f"RSQ codec packed vocabulary size {inferred_size}. Use null to infer it."
+            )
+    elif generator_type == "dlm":
+        if generator_codebook_size is None:
+            # Backward compatibility for old configs that only define codebook_size.
+            if "codebook_size" not in data:
+                if inferred_size is None:
+                    raise ValueError("Set data.dlm_codebook_size for the selected DLM codec.")
+                data["codebook_size"] = inferred_size
+        elif inferred_size is not None and int(generator_codebook_size) != inferred_size:
+            raise ValueError(
+                f"data.dlm_codebook_size={generator_codebook_size} does not match the "
+                f"DLM codec vocabulary size {inferred_size}."
+            )
     output_dir = Path(config["output"]["directory"]).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
     indices = parse_indices(config["data"].get("sample_indices", [0]))
@@ -475,14 +656,15 @@ def main() -> None:
         process_sample(
             sample,
             index,
-            dlm,
+            generator_model,
+            generator_type,
             tokenizer,
             config,
             device,
         )
         for index, sample in zip(indices, samples)
     ]
-    summary_path = output_dir / "summary.json"
+    summary_path = output_dir / f"summary_{generator_type}.json"
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2, ensure_ascii=False, allow_nan=True)
     print(json.dumps(results, indent=2, ensure_ascii=False, allow_nan=True))
