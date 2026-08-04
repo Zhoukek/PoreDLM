@@ -6,8 +6,8 @@ reproducibility:
 data:
   # Team-required loader. FlowMapDataset reads samples from `data_name`.
   dataset_type: "flowmap"
-  train_dir: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train"
-  valid_dir: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval"
+  train_dir: "/mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train"
+  valid_dir: "/mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval"
   data_name: "data"
   file_pattern: "*.npy"
   token_dtype: "uint32"

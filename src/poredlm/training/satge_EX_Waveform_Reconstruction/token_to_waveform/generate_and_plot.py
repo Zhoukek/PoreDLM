@@ -114,12 +114,19 @@ def select_samples(config: dict[str, Any], indices: list[int]) -> list[dict[str,
     return [selected[index] for index in indices]
 
 
-def stage1_decode(tokenizer: torch.nn.Module, codec_ids: torch.Tensor) -> torch.Tensor:
+def stage1_decode(
+    tokenizer: torch.nn.Module,
+    codec_ids: torch.Tensor,
+    codec_layer: int = 0,
+) -> torch.Tensor:
     # PoreRSQCodec stores a packed token per time step. Its public decoder first
     # expands that token into residual-FSQ level indices, then reconstructs signal.
     decode_token = getattr(tokenizer, "decode_token", None)
     if callable(decode_token):
-        waveform = decode_token(codec_ids)
+        if getattr(tokenizer, "fsq_levels", None) is not None:
+            waveform = decode_token(codec_ids, layer=codec_layer)
+        else:
+            waveform = decode_token(codec_ids)
         return waveform.squeeze(1) if waveform.ndim == 3 and waveform.shape[1] == 1 else waveform
 
     # PoreVQCodec uses one ordinary codebook index per time step.
@@ -137,13 +144,21 @@ def stage1_decode(tokenizer: torch.nn.Module, codec_ids: torch.Tensor) -> torch.
     return decoder(embeddings.transpose(1, 2)).squeeze(1)
 
 
-def infer_codec_vocabulary_size(codec: torch.nn.Module) -> int | None:
+def infer_codec_vocabulary_size(
+    codec: torch.nn.Module,
+    codec_layer: int = 0,
+) -> int | None:
     """Return the number of packed codec tokens when the codec exposes it."""
     fsq_levels = getattr(codec, "fsq_levels", None)
     num_quantizers = getattr(codec, "num_quantizers", None)
     if fsq_levels is not None and num_quantizers is not None:
         base_size = int(np.prod([int(level) for level in fsq_levels]))
-        return base_size ** int(num_quantizers)
+        active_layers = int(num_quantizers) if codec_layer == 0 else int(codec_layer)
+        if active_layers < 1 or active_layers > int(num_quantizers):
+            raise ValueError(
+                f"codec_layer must be 0 or in [1, {int(num_quantizers)}], got {codec_layer}."
+            )
+        return base_size ** active_layers
     codebook_size = getattr(codec, "codebook_size", None)
     if codebook_size is None:
         codebook_size = getattr(getattr(codec, "config", None), "codebook_size", None)
@@ -399,6 +414,7 @@ def process_sample(
     eos = int(data.get("eos_token_id", 3))
     offset = int(data.get("token_offset", 128))
     codebook_size = int(data.get("codebook_size", 65536))
+    codec_layer = int(data.get("codec_layer", 0))
     raw = normalize_raw_tokens(torch.as_tensor(sample["tokens"]), bos, eos)
     reference_content = raw[1:-1]
     if reference_content.numel() < total_content_length:
@@ -477,12 +493,12 @@ def process_sample(
     if int(reference_codec.min()) < 0 or int(reference_codec.max()) >= codebook_size:
         raise ValueError(f"Reference sample {sample_index} contains invalid codebook IDs.")
 
-    stage1_waveform = stage1_decode(tokenizer, generated_codec).float()
-    reference_waveform = stage1_decode(tokenizer, reference_codec).float()
+    stage1_waveform = stage1_decode(tokenizer, generated_codec, codec_layer).float()
+    reference_waveform = stage1_decode(tokenizer, reference_codec, codec_layer).float()
     bert_reconstructed_waveform = None
     if bert_content is not None:
         bert_codec = (bert_content - offset).unsqueeze(0)
-        bert_reconstructed_waveform = stage1_decode(tokenizer, bert_codec).float()
+        bert_reconstructed_waveform = stage1_decode(tokenizer, bert_codec, codec_layer).float()
 
     stage1_np = stage1_waveform[0].detach().cpu().numpy()
     bert_np = (
@@ -531,6 +547,9 @@ def process_sample(
         "total_length": total_content_length,
         "mask_start": mask_start,
         "mask_length": mask_length,
+        "token_offset": offset,
+        "codebook_size": codebook_size,
+        "codec_layer": codec_layer,
         "invalid_generated_tokens": invalid_count,
         "masked_region_token_accuracy": generated_token_accuracy,
         "reference_region_token_ids": reference_content[masked_region].detach().cpu().tolist(),
@@ -620,10 +639,11 @@ def main() -> None:
     generator_offset = data.get(f"{generator_type}_token_offset")
     if generator_offset is not None:
         data["token_offset"] = int(generator_offset)
+    data["codec_layer"] = int(data.get(f"{generator_type}_codec_layer", 0))
     generator_codebook_size = data.get(f"{generator_type}_codebook_size")
     if generator_codebook_size is not None:
         data["codebook_size"] = int(generator_codebook_size)
-    inferred_size = infer_codec_vocabulary_size(tokenizer)
+    inferred_size = infer_codec_vocabulary_size(tokenizer, int(data["codec_layer"]))
     if generator_type == "gpt":
         if generator_codebook_size is None:
             if inferred_size is None:

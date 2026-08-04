@@ -1,27 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Override any value at launch, for example:
-# BERT=/path/to/step_235000 INPUT_NPY=/path/to/chunks.npy bash run_eval_masked_tokens.sh
+# The evaluator reads data.valid_dir/train_dir and token semantics from this config.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-CODEC="${CODEC:-/path/to/pore_vq_codec_checkpoint}"
-BERT="${BERT:-${SCRIPT_DIR}/../runs/test/models/latest}"
-INPUT_NPY="${INPUT_NPY:-/path/to/signal_chunks.npy}"
+TRAIN_CONFIG="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/test/train_config.yaml"
+BERT="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/test/models/step_235000"
 OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output}"
 DEVICE="${DEVICE:-cuda:0}"
+CODEC="/mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/encoder"
 
-python "${SCRIPT_DIR}/eval_masked_tokens.py" \
-  --codec "${CODEC}" \
-  --bert "${BERT}" \
-  --input-npy "${INPUT_NPY}" \
-  --input-index "${INPUT_INDEX:-0}" \
-  --signal-start "${SIGNAL_START:-0}" \
-  --signal-length "${SIGNAL_LENGTH:-6000}" \
-  --mask-mode "${MASK_MODE:-contiguous}" \
-  --mask-token-start "${MASK_TOKEN_START:--1}" \
-  --mask-token-length "${MASK_TOKEN_LENGTH:-4}" \
-  --mask-probability "${MASK_PROBABILITY:-0.15}" \
-  --seed "${SEED:-42}" \
-  --device "${DEVICE}" \
+
+ARGS=(
+  --bert "${BERT}"
+  --codec "${CODEC}"
+  --training-config "${TRAIN_CONFIG}"
+  --split "${SPLIT:-valid}"
+  --sample-index "0"
+  --num-samples "${NUM_SAMPLES:-1}"
+  --mask-mode "${MASK_MODE:-contiguous}"
+  --mask-token-start "10"
+  --mask-token-length "5"
+  --plot-context-tokens "${PLOT_CONTEXT_TOKENS:-20}"
+  --seed "${SEED:-42}"
+  --device "${DEVICE}"
   --output-dir "${OUTPUT_DIR}"
+)
+if [[ -n "${DATA_DIR:-}" ]]; then
+  ARGS+=(--data-dir "${DATA_DIR}")
+fi
+if [[ -n "${MASK_PROBABILITY:-}" ]]; then
+  ARGS+=(--mask-probability "${MASK_PROBABILITY}")
+fi
+
+python "${SCRIPT_DIR}/eval_masked_tokens.py" "${ARGS[@]}"

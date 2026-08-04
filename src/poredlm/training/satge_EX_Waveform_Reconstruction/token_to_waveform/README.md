@@ -55,8 +55,10 @@ The codec loader supports both `modeling_pore_vq_codec.py` and
 `modeling_pore_codec.py`. The latter is the packed residual-RSQ/FSQ codec used by
 `HF_RSQ742C12A511_MIXOLMO_V606`; decoding uses its public `decode_token()` method.
 Set `models.gpt_tokenizer_path` to that model's `encoder` directory. Unless
-`data.gpt_codebook_size` is explicitly set, the packed GPT token vocabulary is
-inferred as `product(fsq_levels) ** codebook_nqtz`. Set
+`data.gpt_codebook_size` is explicitly set, the GPT token vocabulary is inferred
+as `product(fsq_levels) ** gpt_codec_layer`. Set `gpt_codec_layer: 1` for a GPT
+trained on the first RSQ layer only; use `0` only for tokens packed from all RSQ
+layers. The same layer setting is passed to the codec's `decode_token()` method. Set
 `data.gpt_token_offset` to the offset used when the GPT training tokens were built.
 The DLM layout is configured independently with `data.dlm_token_offset` and
 `data.dlm_codebook_size`; its default codebook size is 65536. If an explicit
