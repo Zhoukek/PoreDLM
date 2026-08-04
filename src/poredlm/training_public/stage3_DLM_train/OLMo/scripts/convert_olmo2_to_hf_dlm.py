@@ -447,6 +447,7 @@ class PoreDLMForDiffusion(PreTrainedModel):
         self,
         condition_input_ids: torch.LongTensor,
         condition_attention_mask: Optional[torch.Tensor] = None,
+        condition_token_mask: Optional[torch.Tensor] = None,
         *,
         max_length: Optional[int] = None,
         num_steps: int = 50,
@@ -458,11 +459,12 @@ class PoreDLMForDiffusion(PreTrainedModel):
         return_dict: bool = False,
         return_latents: bool = False,
     ) -> Any:
-        """Generate token sequences while keeping a token prefix fixed.
+        """Generate token sequences while keeping selected token positions fixed.
 
         ``max_length`` is the total length (condition plus generated tokens),
-        not the number of new tokens. Batched conditions may be right padded;
-        valid condition tokens are compacted to the beginning of each result.
+        not the number of new tokens. Without ``condition_token_mask``, valid
+        inputs are compacted into a prefix. With an explicit boolean mask,
+        positions are preserved, enabling BERT-style infill.
         """
         if condition_input_ids.ndim != 2:
             raise ValueError("condition_input_ids must have shape [batch, condition_length].")
@@ -477,6 +479,10 @@ class PoreDLMForDiffusion(PreTrainedModel):
         condition_attention_mask = condition_attention_mask.to(device=device, dtype=torch.bool)
         if condition_attention_mask.shape != condition_input_ids.shape:
             raise ValueError("condition_attention_mask must have the same shape as condition_input_ids.")
+        if condition_token_mask is not None:
+            condition_token_mask = condition_token_mask.to(device=device, dtype=torch.bool)
+            if condition_token_mask.shape != condition_input_ids.shape:
+                raise ValueError("condition_token_mask must have the same shape as condition_input_ids.")
 
         num_steps = int(num_steps)
         if num_steps < 1:
@@ -491,7 +497,7 @@ class PoreDLMForDiffusion(PreTrainedModel):
             or self.elf_denoiser.max_length
         )
         total_length = model_max_length if max_length is None else int(max_length)
-        condition_lengths = condition_attention_mask.sum(dim=1)
+        condition_lengths = condition_attention_mask.sum(dim=1) if condition_token_mask is None else condition_token_mask.sum(dim=1)
         if total_length < 1 or total_length > model_max_length:
             raise ValueError(f"max_length must be in [1, {model_max_length}].")
         if bool((condition_lengths > total_length).any()):
@@ -507,24 +513,22 @@ class PoreDLMForDiffusion(PreTrainedModel):
         ).last_hidden_state.to(dtype=context_dtype)
         batch_size = condition_input_ids.shape[0]
         hidden_size = encoded.shape[-1]
-        condition = torch.zeros(
-            batch_size, total_length, hidden_size, device=device, dtype=context_dtype
-        )
-        condition_mask = torch.zeros(
-            batch_size, total_length, device=device, dtype=torch.bool
-        )
-        sequences = torch.full(
-            (batch_size, total_length),
-            int(getattr(self.config, "pad_token_id", 0) or 0),
-            device=device,
-            dtype=torch.long,
-        )
-        for row in range(batch_size):
-            valid = condition_attention_mask[row]
-            length = int(condition_lengths[row].item())
-            condition[row, :length] = encoded[row, valid]
-            condition_mask[row, :length] = True
-            sequences[row, :length] = condition_input_ids[row, valid]
+        if condition_token_mask is not None:
+            if condition_input_ids.shape[1] != total_length:
+                raise ValueError("With condition_token_mask, condition_input_ids length must equal max_length.")
+            condition = encoded
+            condition_mask = condition_token_mask & condition_attention_mask
+            sequences = condition_input_ids.clone()
+        else:
+            condition = torch.zeros(batch_size, total_length, hidden_size, device=device, dtype=context_dtype)
+            condition_mask = torch.zeros(batch_size, total_length, device=device, dtype=torch.bool)
+            sequences = torch.full((batch_size, total_length), int(getattr(self.config, "pad_token_id", 0) or 0), device=device, dtype=torch.long)
+            for row in range(batch_size):
+                valid = condition_attention_mask[row]
+                length = int(condition_lengths[row].item())
+                condition[row, :length] = encoded[row, valid]
+                condition_mask[row, :length] = True
+                sequences[row, :length] = condition_input_ids[row, valid]
 
         generator = None
         if seed is not None:

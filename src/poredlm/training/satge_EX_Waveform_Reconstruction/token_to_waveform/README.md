@@ -1,35 +1,43 @@
 # Conditional token generation to waveform
 
-This tool selects indexed sequences from the Stage 3 eval token shards, keeps a
-configurable content-token prefix, generates the following tokens with the HF
-DLM, and compares three aligned waveforms in one figure:
+This tool selects indexed sequences from the Stage 3 eval token shards, masks a
+configurable middle region, repairs it independently with the HF DLM and its
+embedded Stage-2 BERT, then decodes all token sequences with the same Stage-1
+codebook and tokenizer decoder:
 
 1. Reference token IDs → Stage-1 codebook → Stage-1 tokenizer decoder.
-2. Generated token IDs → Stage-1 codebook → Stage-1 tokenizer decoder.
-3. Generated token IDs → DLM hidden states → trained waveform decoder.
-
-Edit `config.yaml`, especially `models.waveform_decoder_checkpoint`, then run:
+2. DLM-repaired token IDs → Stage-1 codebook → Stage-1 tokenizer decoder.
+3. BERT-repaired token IDs → Stage-1 codebook → Stage-1 tokenizer decoder.
+Both paths use the original Stage-1 codebook and tokenizer decoder; no separately
+trained waveform decoder is needed. Edit `config.yaml`, then run:
 
 ```bash
 bash run.sh
 ```
 
-The common 1000-condition / 200-generation experiment can be overridden without
-editing YAML:
+For example, the following repairs content-token positions 1001 through 1100
+(CLI coordinates are zero-based, so `mask-start=1000`):
 
 ```bash
 bash run.sh \
-  --condition-length 1000 \
-  --generation-length 200 \
+  --total-length 1200 \
+  --mask-start 1000 \
+  --mask-length 100 \
   --sample-indices 0,10,25 \
-  --output-dir outputs/cond1000_gen200
+  --output-dir outputs/infill_1001_1100
 ```
 
-`condition_length` and `generation_length` count content/codebook tokens; BOS and
-EOS are handled by the script. Output includes one PNG and NPZ per sample plus a
-`summary.json` containing token accuracy, waveform MSE, and Pearson correlation.
+`total_length`, `mask_start`, and `mask_length` count content/codebook tokens;
+BOS is handled by the script. Tokens before and after the masked interval remain
+fixed conditions. Output includes one PNG and NPZ per sample plus a `summary.json`
+containing separate DLM/BERT token accuracy and masked-region waveform MSE.
+
+The PNG contains three panels: full reference versus DLM, masked-region reference
+versus DLM, and masked-region reference versus BERT. MSE is calculated only over
+the waveform interval corresponding to the masked tokens.
 
 The DLM vocabulary uses an offset of 128 for waveform-codebook tokens. By
-default, generation stops with an error if the DLM emits a special or otherwise
-non-codebook token. `generation.invalid_token_policy: clip` exists only for
+default, `restrict_to_codebook: true` masks BOS/EOS/PAD at generated positions
+and selects only IDs from the waveform codebook. The additional validation still
+stops on invalid IDs. `generation.invalid_token_policy: clip` exists only for
 diagnostic plotting and should not be used for quantitative results.

@@ -6,7 +6,7 @@ PROJECT_ROOT=$(cd -- "${SCRIPT_DIR}/../../../../.." && pwd)
 
 source "${PROJECT_ROOT}/src/poredlm/training/set_env.sh"
 export PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH:-}"
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+export CUDA_VISIBLE_DEVICES=0
 
 cd "${SCRIPT_DIR}"
 python3 "${SCRIPT_DIR}/generate_and_plot.py" \
