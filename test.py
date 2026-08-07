@@ -1,74 +1,74 @@
 # # 读取jsonl.gz文件
-# import gzip
-# import json
+import gzip
+import json
 
-# # 文件路径
-# file_path = "/mnt/si002562jbsc/poregpt/models/HF_RSQ742C12A511_DNAOLMO_V600/basecall_DNA_S1_HG002_MOD/eval/validation_00001_bwav.jsonl.gz"
+# 文件路径
+file_path = "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50/stage2/train/validation_00037_chunks.jsonl.gz"
 
-# # 读取文件并收集所有的keys
-# all_keys = set()
+# 读取文件并收集所有的keys
+all_keys = set()
 
-# with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-#     for line_num, line in enumerate(f, 1):
-#         try:
-#             data = json.loads(line.strip())
-#             all_keys.update(data.keys())
-#         except json.JSONDecodeError as e:
-#             print(f"Line {line_num}: JSON decode error: {e}")
-#         except Exception as e:
-#             print(f"Line {line_num}: Error: {e}")
+with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+    for line_num, line in enumerate(f, 1):
+        try:
+            data = json.loads(line.strip())
+            all_keys.update(data.keys())
+        except json.JSONDecodeError as e:
+            print(f"Line {line_num}: JSON decode error: {e}")
+        except Exception as e:
+            print(f"Line {line_num}: Error: {e}")
 
-# def read_specific_line(file_path, line_number):
-#     """读取指定行（从0开始计数）"""
-#     with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-#         for idx, line in enumerate(f):
-#             if idx == line_number:
-#                 return json.loads(line.strip())
-#     return None
+def read_specific_line(file_path, line_number):
+    """读取指定行（从0开始计数）"""
+    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+        for idx, line in enumerate(f):
+            if idx == line_number:
+                return json.loads(line.strip())
+    return None
 
-# def truncate_value(value, max_length=100):
-#     """截断过长的值"""
-#     if isinstance(value, str):
-#         if len(value) > max_length:
-#             return value[:max_length] + "...(truncated)"
-#         return value
-#     elif isinstance(value, list):
-#         if len(value) > 30:  # 列表只显示前10个元素
-#             return [truncate_value(v, max_length) for v in value[:40]] + [f"...({len(value)-40} more)"]
-#         return [truncate_value(v, max_length) for v in value]
-#     elif isinstance(value, dict):
-#         # 对于字典，限制显示的键值对数量
-#         new_dict = {}
-#         for i, (k, v) in enumerate(value.items()):
-#             if i >= 50:  # 只显示前10个键值对
-#                 new_dict[f"...({len(value)-30} more keys)"] = "..."
-#                 break
-#             new_dict[k] = truncate_value(v, max_length)
-#         return new_dict
-#     else:
-#         return value
+def truncate_value(value, max_length=100):
+    """截断过长的值"""
+    if isinstance(value, str):
+        if len(value) > max_length:
+            return value[:max_length] + "...(truncated)"
+        return value
+    elif isinstance(value, list):
+        if len(value) > 30:  # 列表只显示前10个元素
+            return [truncate_value(v, max_length) for v in value[:40]] + [f"...({len(value)-40} more)"]
+        return [truncate_value(v, max_length) for v in value]
+    elif isinstance(value, dict):
+        # 对于字典，限制显示的键值对数量
+        new_dict = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= 50:  # 只显示前10个键值对
+                new_dict[f"...({len(value)-30} more keys)"] = "..."
+                break
+            new_dict[k] = truncate_value(v, max_length)
+        return new_dict
+    else:
+        return value
 
-# def print_truncated_json(data, max_length=100, indent=2):
-#     """打印截断后的JSON"""
-#     truncated = truncate_value(data, max_length)
-#     print(json.dumps(truncated, indent=indent, ensure_ascii=False))
+def print_truncated_json(data, max_length=100, indent=2):
+    """打印截断后的JSON"""
+    truncated = truncate_value(data, max_length)
+    print(json.dumps(truncated, indent=indent, ensure_ascii=False))
 
-# # 输出结果
-# print(f"文件: {file_path}")
-# print(f"总行数: {line_num}")
-# print(f"\n所有的keys:")
-# for key in sorted(all_keys):
-#     print(f"  - {key}")
+# 输出结果
+print(f"文件: {file_path}")
+print(f"总行数: {line_num}")
+print(f"\n所有的keys:")
+for key in sorted(all_keys):
+    print(f"  - {key}")
 
-# # 显示第一行数据的示例（截断版）
-# print("\n" + "="*50)
-# print("第一行数据（截断版）:")
+# 显示第一行数据的示例（截断版）
+print("\n" + "="*50)
+print("第一行数据（截断版）:")
 
-# data = read_specific_line(file_path, 0)
-# print_truncated_json(data, max_length=100000)  # 可以调整这个长度
+data = read_specific_line(file_path, 0)
+print_truncated_json(data, max_length=100000)  # 可以调整这个长度
 
-# data = read_specific_line(file_path, 1)  # 索引1表示第二行
-# print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
+data = read_specific_line(file_path, 1)  # 索引1表示第二行
+print("第二行数据:", json.dumps(data, indent=2, ensure_ascii=False))
 
 # # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
@@ -105,42 +105,42 @@
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 # 读取
-import h5py
+# import h5py
 
-filename = '/mnt/zzbnew/rnamodel/zhoukexuan/rockfish/example/fast5/DEAMERNANOPORE_20161117_FNFAB43577_MN16450_sequencing_run_MA_821_R9_4_NA12878_11_17_16_88738_ch301_read41_strand.fast5'  # 替换为你的文件名
+# filename = '/mnt/zzbnew/rnamodel/zhoukexuan/rockfish/example/fast5/DEAMERNANOPORE_20161117_FNFAB43577_MN16450_sequencing_run_MA_821_R9_4_NA12878_11_17_16_88738_ch301_read41_strand.fast5'  # 替换为你的文件名
 
-with h5py.File(filename, 'r') as f:
-    # 获取前3个read的名称
-    read_names = list(f.keys())[:3]
+# with h5py.File(filename, 'r') as f:
+#     # 获取前3个read的名称
+#     read_names = list(f.keys())[:3]
     
-    for read_name in read_names:
-        print(f"\n{'='*60}")
-        print(f"Read: {read_name}")
-        print(f"{'='*60}")
+#     for read_name in read_names:
+#         print(f"\n{'='*60}")
+#         print(f"Read: {read_name}")
+#         print(f"{'='*60}")
         
-        read_group = f[read_name]
+#         read_group = f[read_name]
         
-        # 显示这个read下面有什么
-        print("包含的内容:")
-        for key in read_group.keys():
-            item = read_group[key]
-            if isinstance(item, h5py.Dataset):
-                print(f"  📄 {key}: shape={item.shape}, dtype={item.dtype}")
-                # 如果数据量小，显示部分值
-                if item.size < 100:
-                    print(f"     值: {item[()]}")
-                else:
-                    print(f"     前5个值: {item[:5]}")
-            else:
-                print(f"  📁 {key}/")
+#         # 显示这个read下面有什么
+#         print("包含的内容:")
+#         for key in read_group.keys():
+#             item = read_group[key]
+#             if isinstance(item, h5py.Dataset):
+#                 print(f"  📄 {key}: shape={item.shape}, dtype={item.dtype}")
+#                 # 如果数据量小，显示部分值
+#                 if item.size < 100:
+#                     print(f"     值: {item[()]}")
+#                 else:
+#                     print(f"     前5个值: {item[:5]}")
+#             else:
+#                 print(f"  📁 {key}/")
         
-        # 显示属性
-        if read_group.attrs:
-            print("\n属性:")
-            for attr, val in read_group.attrs.items():
-                if isinstance(val, bytes):
-                    val = val.decode('utf-8', errors='ignore')
-                print(f"  {attr}: {val}")
+#         # 显示属性
+#         if read_group.attrs:
+#             print("\n属性:")
+#             for attr, val in read_group.attrs.items():
+#                 if isinstance(val, bytes):
+#                     val = val.decode('utf-8', errors='ignore')
+#                 print(f"  {attr}: {val}")
 
 # ——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 

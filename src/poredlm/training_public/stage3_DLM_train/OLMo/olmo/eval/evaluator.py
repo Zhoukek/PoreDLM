@@ -18,6 +18,7 @@ class Evaluator:
     eval_loader: DataLoader
     eval_metric: Union[Metric, Dict[str, Metric]]
     subset_num_batches: Optional[int] = None
+    dlm_eval_metrics: Optional[Dict[str, Dict[str, MeanMetric]]] = None
 
     def reset_metrics(self) -> None:
         if isinstance(self.eval_metric, Metric):
@@ -25,6 +26,10 @@ class Evaluator:
         else:
             for metric in self.eval_metric.values():
                 metric.reset()
+        if self.dlm_eval_metrics is not None:
+            for objective_metrics in self.dlm_eval_metrics.values():
+                for metric in objective_metrics.values():
+                    metric.reset()
 
     def compute_metrics(self) -> Dict[str, float]:
         if self.type == EvaluatorType.downstream:
@@ -35,6 +40,16 @@ class Evaluator:
                 key = key.replace("/downstream/", f"/downstream_{self.eval_metric.metric_type}/")
             return {key: value}
         elif self.type == EvaluatorType.lm:
+            if self.dlm_eval_metrics is not None:
+                out: Dict[str, float] = {}
+                for objective, objective_metrics in self.dlm_eval_metrics.items():
+                    for label, metric in sorted(objective_metrics.items()):
+                        if metric.weight.item() == 0.0:  # type: ignore
+                            metric.update(0.0, 0.0)
+                        value = metric.compute()
+                        if not value.isnan().item():
+                            out[f"eval/{label}/{objective}"] = value.item()
+                return out
             # Metric(s) = cross entropy loss
             metrics: Dict[str, Metric]
             if isinstance(self.eval_metric, Metric):
@@ -63,6 +78,20 @@ class Evaluator:
             return out
         else:
             raise ValueError(f"Unexpected evaluator type '{self.type}'")
+
+    def update_dlm_metrics(
+        self,
+        batch: Dict[str, Any],
+        *,
+        l2_loss: torch.Tensor,
+        ce_loss: torch.Tensor,
+    ) -> None:
+        if self.dlm_eval_metrics is None:
+            raise RuntimeError("DLM metrics were not configured for this evaluator")
+        for metadata, instance_l2, instance_ce in zip(batch["metadata"], l2_loss, ce_loss):
+            label = metadata.get("label", self.label)
+            self.dlm_eval_metrics["L2Loss"][label].update(instance_l2)
+            self.dlm_eval_metrics["CELoss"][label].update(instance_ce)
 
     def update_metrics(
         self,

@@ -227,15 +227,18 @@ def aligned_mse(
 
 
 def bert_repair(
-    dlm: torch.nn.Module,
+    bert_source: torch.nn.Module,
     masked_input_ids: torch.Tensor,
     masked_positions: torch.Tensor,
     token_offset: int,
     codebook_size: int,
-) -> torch.Tensor:
-    """Repair masks with the embedded Stage-2 BERT and its own MLM head only."""
-    adapter = getattr(dlm, "context_encoder", None)
-    bert_mlm = getattr(adapter, "model", None)
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Repair masks with a standalone or DLM-embedded Stage-2 BERT MLM."""
+    if getattr(bert_source, "lm_head", None) is not None:
+        bert_mlm = bert_source
+    else:
+        adapter = getattr(bert_source, "context_encoder", None)
+        bert_mlm = getattr(adapter, "model", None)
     if bert_mlm is None:
         raise ValueError("DLM does not expose a context_encoder for BERT reconstruction.")
 
@@ -267,10 +270,16 @@ def bert_repair(
         raise ValueError(
             f"BERT vocabulary size {logits.shape[-1]} is smaller than codebook end {vocab_end}."
         )
-    predicted = torch.argmax(logits[..., token_offset:vocab_end], dim=-1) + token_offset
+    raw_predicted = torch.argmax(logits, dim=-1)
+    legal_predicted = torch.argmax(logits[..., token_offset:vocab_end], dim=-1) + token_offset
+    predicted = torch.where(
+        (raw_predicted >= token_offset) & (raw_predicted < vocab_end),
+        raw_predicted,
+        legal_predicted,
+    )
     repaired = masked_input_ids.clone()
     repaired[masked_positions] = predicted[masked_positions]
-    return repaired
+    return repaired, raw_predicted[masked_positions]
 
 
 def gpt_repair(
@@ -398,6 +407,7 @@ def process_sample(
     sample_index: int,
     generator_model: torch.nn.Module,
     generator_type: str,
+    bert_model: torch.nn.Module | None,
     tokenizer: torch.nn.Module,
     config: dict[str, Any],
     device: torch.device,
@@ -416,22 +426,27 @@ def process_sample(
     codebook_size = int(data.get("codebook_size", 65536))
     codec_layer = int(data.get("codec_layer", 0))
     raw = normalize_raw_tokens(torch.as_tensor(sample["tokens"]), bos, eos)
-    reference_content = raw[1:-1]
-    if reference_content.numel() < total_content_length:
+    available_reference_content = raw[1:-1].to(device)
+    if available_reference_content.numel() < total_content_length:
         raise ValueError(
-            f"Sample {sample_index} contains {reference_content.numel()} content tokens, "
+            f"Sample {sample_index} contains {available_reference_content.numel()} content tokens, "
             f"but {total_content_length} are required."
         )
-    reference_content = reference_content[:total_content_length].to(device)
+    reference_content = available_reference_content[:total_content_length]
     full_ids = torch.cat(
         [torch.tensor([bos], device=device), reference_content]
     ).unsqueeze(0)
     masked_positions = torch.zeros_like(full_ids, dtype=torch.bool)
     masked_positions[:, 1 + mask_start : 1 + mask_end] = True
     bert_content: torch.Tensor | None = None
+    bert_raw_region: torch.Tensor | None = None
     if generator_type == "dlm":
         condition_token_mask = ~masked_positions
-        context_core = getattr(getattr(generator_model, "context_encoder", None), "model", None)
+        bert_source = bert_model if bert_model is not None else generator_model
+        context_core = (
+            bert_source if getattr(bert_source, "lm_head", None) is not None
+            else getattr(getattr(bert_source, "context_encoder", None), "model", None)
+        )
         mask_token_id = int(
             generation.get("mask_token_id")
             if generation.get("mask_token_id") is not None
@@ -468,8 +483,26 @@ def process_sample(
             generated = generated.clone()
             constrained_ids = torch.argmax(logits[..., offset:vocab_end], dim=-1) + offset
             generated[masked_positions] = constrained_ids[masked_positions]
-        bert_ids = bert_repair(
-            generator_model, masked_input_ids, masked_positions, offset, codebook_size
+        # Mirror stage2_BERT_trian/eval: BERT sees [BOS, content, EOS] and keeps
+        # as much right context as its own maximum position length permits.
+        bert_max_positions = int(
+            getattr(getattr(context_core, "config", None), "max_position_embeddings", total_content_length + 2)
+        )
+        bert_reference_content = available_reference_content[: bert_max_positions - 2]
+        if mask_end > bert_reference_content.numel():
+            raise ValueError("BERT masked interval exceeds its available content context.")
+        bert_input_ids = torch.cat(
+            [
+                torch.tensor([bos], dtype=full_ids.dtype, device=device),
+                bert_reference_content,
+                torch.tensor([eos], dtype=full_ids.dtype, device=device),
+            ]
+        ).unsqueeze(0)
+        bert_masked_positions = torch.zeros_like(bert_input_ids, dtype=torch.bool)
+        bert_masked_positions[:, 1 + mask_start : 1 + mask_end] = True
+        bert_input_ids[bert_masked_positions] = mask_token_id
+        bert_ids, bert_raw_region = bert_repair(
+            bert_source, bert_input_ids, bert_masked_positions, offset, codebook_size
         )
         bert_content = bert_ids[0, 1 : 1 + total_content_length]
         bert_content, _ = validate_or_fix_generated_ids(
@@ -529,6 +562,8 @@ def process_sample(
     if bert_content is not None and bert_np is not None:
         arrays["bert_repaired_token_ids"] = bert_content.detach().cpu().numpy()
         arrays["bert_waveform"] = bert_np
+        if bert_raw_region is not None:
+            arrays["bert_raw_predicted_region_token_ids"] = bert_raw_region.detach().cpu().numpy()
     np.savez_compressed(output_dir / f"{stem}.npz", **arrays)
     masked_region = slice(mask_start, mask_end)
     generated_token_accuracy = float(
@@ -563,6 +598,11 @@ def process_sample(
     }
     if bert_content is not None and bert_np is not None:
         result["bert_predicted_region_token_ids"] = bert_content[masked_region].detach().cpu().tolist()
+        if bert_raw_region is not None:
+            result["bert_raw_predicted_region_token_ids"] = bert_raw_region.detach().cpu().tolist()
+            result["bert_raw_masked_region_token_accuracy"] = float(
+                (bert_raw_region == reference_content[masked_region]).float().mean().item()
+            )
         result["bert_masked_region_token_accuracy"] = float(
             (bert_content[masked_region] == reference_content[masked_region]).float().mean().item()
         )
@@ -632,10 +672,23 @@ def main() -> None:
         ),
         device,
     )
+    bert_model = None
+    if generator_type == "dlm" and models.get("bert_path"):
+        bert_model = freeze(
+            AutoModel.from_pretrained(
+                str(Path(models["bert_path"]).expanduser().resolve()),
+                trust_remote_code=True,
+                local_files_only=True,
+            ),
+            device,
+        )
     data = config["data"]
     generator_eval_path = data.get(f"{generator_type}_eval_path")
     if generator_eval_path is not None:
         data["eval_path"] = generator_eval_path
+    generator_token_dtype = data.get(f"{generator_type}_token_dtype")
+    if generator_token_dtype is not None:
+        data["token_dtype"] = str(generator_token_dtype)
     generator_offset = data.get(f"{generator_type}_token_offset")
     if generator_offset is not None:
         data["token_offset"] = int(generator_offset)
@@ -678,6 +731,7 @@ def main() -> None:
             index,
             generator_model,
             generator_type,
+            bert_model,
             tokenizer,
             config,
             device,

@@ -3,15 +3,15 @@
 # ==============================================================================
 
 model:
-  model_dir: "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/encoder"    # 量化编码器模型路径；可替换为本地 VQ/VQ-distill save_pretrained 输出目录
+  model_dir: "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V002/encoder"    # 量化编码器模型路径；可替换为本地 VQ/VQ-distill save_pretrained 输出目录
   target_layer: 1                                      # RSQ 使用目标量化层级；VQ/VQ-distill 会兼容该字段但实际忽略
 
 dataset:
   # -------------------- 基础 I/O 航道配置 --------------------
   input_data_paths:                                    # 原始电信号文件/目录列表
-    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/eval"
+    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/eval"
   
-  save_folder: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval"                  # 转换后标准 Dolma 格式存放目录
+  save_folder: "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval"                  # 转换后标准 Dolma 格式存放目录
   output_prefix: "pore_tokens"                         # 输出文件名前缀
 
   # 🌟 ----------------- 🚀 新增：内存流式蓄水池控制 -----------------

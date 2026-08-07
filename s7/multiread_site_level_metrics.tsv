@@ -1,4 +1,0 @@
-method	primary_units	auroc	balanced_accuracy	accuracy
-Signal stats	10	0.520000	0.600000	0.600000
-Token frequency	10	0.640000	0.700000	0.700000
-OLMo embedding	10	0.400000	0.400000	0.400000

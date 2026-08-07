@@ -1,4 +1,0 @@
-method	primary_units	auroc	balanced_accuracy	accuracy
-Signal stats	10	0.520000	0.600000	0.600000
-Token frequency	10	0.200000	0.500000	0.500000
-VQE-BERT embedding	10	0.520000	0.600000	0.600000

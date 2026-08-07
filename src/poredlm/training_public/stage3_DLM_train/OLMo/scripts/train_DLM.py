@@ -134,7 +134,7 @@ def main(cfg: TrainConfig) -> None:
     train_loader = build_train_dlm_dataloader(cfg)
 
     # Construct evaluators.
-    evaluators = build_evaluators(cfg, device)
+    evaluators = build_evaluators(cfg, device, dlm=True)
     barrier()
 
     # Initialize the model.

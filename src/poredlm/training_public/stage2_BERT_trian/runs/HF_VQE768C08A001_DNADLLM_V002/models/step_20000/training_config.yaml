@@ -1,0 +1,63 @@
+seed: 42
+reproducibility:
+  seed: 42
+data:
+  dataset_type: flowmap
+  train_dir: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/train
+  valid_dir: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval
+  data_name: data
+  file_pattern: '*.npy'
+  token_dtype: uint32
+  memmap_dtype: uint32
+  token_offset: 128
+  input_has_special_tokens: true
+  tokens_are_shifted: true
+  add_cls_token: false
+  strict_special_tokens: true
+  buffer_size: 4194304
+  shuffle_buffer: false
+  memmap_cache_capacity: 1024
+  num_workers: 4
+  prefetch_factor: 2
+  persistent_workers: true
+  pin_memory: true
+  train_shuffle_files: true
+  valid_shuffle_files: false
+model:
+  vocab_size: 65664
+  pad_token_id: 1
+  mask_token_id: 4
+  bos_token_id: 2
+  eos_token_id: 3
+  cls_token_id: 5
+  random_token_min_id: 128
+  random_token_max_id: 65664
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  hidden_dropout_prob: 0.1
+  attention_probs_dropout_prob: 0.1
+  max_position_embeddings: 1536
+  mask_probability: 0.15
+  init_from_pretrained: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V002/models_2026_806/step_30000
+training:
+  max_train_steps: 2000000
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  warmup_steps: 1000
+  lr_scheduler_type: cosine
+  device_micro_batch_size: 8
+  gradient_accumulation_steps: 1
+  mixed_precision: 'no'
+  gradient_clipping: 1.0
+  output_dir: models
+  log_dir: log
+  log_every_steps: 10
+  eval_every_steps: 1000
+  max_eval_batches: 100
+  save_every_steps: 5000
+wandb:
+  use_wandb: true
+  project: stage2_bert_public
+  name: stage2_bert_memmap

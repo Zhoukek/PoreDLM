@@ -51,6 +51,12 @@ Each summary entry stores `reference_region_token_ids` and
 `predicted_region_token_ids`; DLM runs also store
 `bert_predicted_region_token_ids`.
 
+For a direct Stage-2 comparison, set `models.bert_path` to the exact checkpoint
+used by `stage2_BERT_trian/eval`. The script loads that standalone MLM rather than
+the BERT copy embedded in the DLM, gives it `[BOS, content, EOS]`, and stores both
+`bert_raw_predicted_region_token_ids` (full-vocabulary top-1, matching the old
+evaluator) and `bert_predicted_region_token_ids` (decoder-safe codebook IDs).
+
 The codec loader supports both `modeling_pore_vq_codec.py` and
 `modeling_pore_codec.py`. The latter is the packed residual-RSQ/FSQ codec used by
 `HF_RSQ742C12A511_MIXOLMO_V606`; decoding uses its public `decode_token()` method.

@@ -177,7 +177,7 @@ class DLMTrainer(Trainer):
         batch = move_to_device(batch, self.device)
         with torch.no_grad():
             with torch.autocast("cuda", enabled=True, dtype=self.cfg.autocast_precision):
-                output = self.dist_model(
+                common_kwargs = dict(
                     input_ids=batch["input_ids"],
                     encoder_attention_mask=batch.get("encoder_attention_mask"),
                     attention_mask=batch.get("attention_mask"),
@@ -191,7 +191,6 @@ class DLMTrainer(Trainer):
                     denoiser_noise_scale=self.cfg.dlm.denoiser_noise_scale,
                     t_eps=self.cfg.dlm.t_eps,
                     time_schedule=self.cfg.dlm.time_schedule,
-                    decoder_prob=0.0,
                     decoder_noise_scale=self.cfg.dlm.decoder_noise_scale,
                     decoder_p_mean=self.cfg.dlm.decoder_p_mean,
                     decoder_p_std=self.cfg.dlm.decoder_p_std,
@@ -200,11 +199,12 @@ class DLMTrainer(Trainer):
                     self_cond_cfg_max=self.cfg.dlm.self_cond_cfg_max,
                     num_self_cond_cfg_tokens=self.cfg.dlm.num_self_cond_cfg_tokens,
                 )
-        loss = output.loss.detach().expand(batch["input_ids"].shape[0])
-        dummy_logits = torch.empty(
-            (*batch["input_ids"].shape, 0),
-            device=batch["input_ids"].device,
-            dtype=loss.dtype,
+                l2_output = self.dist_model(**common_kwargs, decoder_prob=0.0)
+                ce_output = self.dist_model(**common_kwargs, decoder_prob=1.0)
+        batch_size = batch["input_ids"].shape[0]
+        evaluator.update_dlm_metrics(
+            batch,
+            l2_loss=l2_output.l2_loss.detach().expand(batch_size),
+            ce_loss=ce_output.ce_loss.detach().expand(batch_size),
         )
-        evaluator.update_metrics(batch, loss, dummy_logits)
         barrier()

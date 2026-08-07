@@ -69,7 +69,8 @@ def build_downstream_evaluator(
 
 
 def build_evaluator(
-    train_config: TrainConfig, eval_config: EvaluatorConfig, tokenizer: Tokenizer, device: torch.device
+    train_config: TrainConfig, eval_config: EvaluatorConfig, tokenizer: Tokenizer, device: torch.device,
+    *, dlm: bool = False,
 ) -> Evaluator:
     from ..data import build_eval_dataloader
 
@@ -78,11 +79,20 @@ def build_evaluator(
         return build_downstream_evaluator(train_config, eval_config, tokenizer, device)
     elif eval_config.type == EvaluatorType.lm:
         # Language modeling evaluation.
-        eval_loader = build_eval_dataloader(
-            train_config,
-            eval_config.data,
-            eval_config.device_eval_batch_size or train_config.device_eval_batch_size,
-        )
+        if dlm:
+            from ..data_DLM import build_eval_dlm_dataloader
+
+            eval_loader = build_eval_dlm_dataloader(
+                train_config,
+                eval_config.data,
+                eval_config.device_eval_batch_size or train_config.device_eval_batch_size,
+            )
+        else:
+            eval_loader = build_eval_dataloader(
+                train_config,
+                eval_config.data,
+                eval_config.device_eval_batch_size or train_config.device_eval_batch_size,
+            )
 
         def make_metric():
             return MeanMetric(nan_strategy="error").to(device)
@@ -95,20 +105,28 @@ def build_evaluator(
         else:
             raise OLMoConfigurationError("One of DataConfig.paths or DataConfig.datasets is required")
 
+        dlm_eval_metrics = None
+        if dlm:
+            labels = [eval_config.label] if eval_config.data.paths else sorted(eval_config.data.datasets or {})
+            dlm_eval_metrics = {
+                objective: {label: make_metric() for label in labels}
+                for objective in ("L2Loss", "CELoss")
+            }
         return Evaluator(
             label=eval_config.label,
             type=eval_config.type,
             eval_loader=eval_loader,
             eval_metric=eval_metric,
             subset_num_batches=eval_config.subset_num_batches,
+            dlm_eval_metrics=dlm_eval_metrics,
         )
     else:
         raise ValueError(f"Unexpected evaluator type '{eval_config.type}'")
 
 
-def build_evaluators(cfg: TrainConfig, device: torch.device) -> List[Evaluator]:
+def build_evaluators(cfg: TrainConfig, device: torch.device, *, dlm: bool = False) -> List[Evaluator]:
     evaluators = []
     tokenizer = Tokenizer.from_train_config(cfg)
     for eval_cfg in cfg.evaluators:
-        evaluators.append(build_evaluator(cfg, eval_cfg, tokenizer, device))
+        evaluators.append(build_evaluator(cfg, eval_cfg, tokenizer, device, dlm=dlm))
     return evaluators
