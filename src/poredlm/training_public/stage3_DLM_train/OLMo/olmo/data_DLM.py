@@ -245,10 +245,71 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
 
 
 class DLMDataCollator:
-    def __init__(self, *, max_seq_length: int, pad_token_id: int, max_input_seq_length: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_seq_length: int,
+        pad_token_id: int,
+        max_input_seq_length: Optional[int] = None,
+        conditioning_mode: str = "unconditional",
+        unconditional_prob: float = 0.1,
+        condition_pattern: str = "mixed",
+        condition_min_mask_ratio: float = 0.1,
+        condition_max_mask_ratio: float = 0.5,
+    ) -> None:
         self.max_seq_length = max_seq_length
         self.pad_token_id = pad_token_id
         self.max_input_seq_length = max_input_seq_length
+        self.conditioning_mode = str(conditioning_mode).lower()
+        self.unconditional_prob = float(unconditional_prob)
+        self.condition_pattern = str(condition_pattern).lower()
+        self.condition_min_mask_ratio = float(condition_min_mask_ratio)
+        self.condition_max_mask_ratio = float(condition_max_mask_ratio)
+        if self.conditioning_mode not in {"unconditional", "conditional", "mixed"}:
+            raise ValueError("conditioning_mode must be unconditional, conditional, or mixed")
+        if self.condition_pattern not in {"prefix", "infill", "mixed"}:
+            raise ValueError("condition_pattern must be prefix, infill, or mixed")
+        if not 0.0 <= self.unconditional_prob <= 1.0:
+            raise ValueError("unconditional_prob must be in [0, 1]")
+        if not 0.0 < self.condition_min_mask_ratio <= self.condition_max_mask_ratio <= 1.0:
+            raise ValueError("Require 0 < condition_min_mask_ratio <= condition_max_mask_ratio <= 1")
+
+    def _sample_condition_mask(self, valid_length: int) -> np.ndarray:
+        mask = np.zeros(self.max_seq_length, dtype=np.bool_)
+        if valid_length >= 2:
+            # Sequence boundaries are always known. "Unconditional" below
+            # means unconditional generation of all codec content tokens.
+            mask[0] = True
+            mask[valid_length - 1] = True
+        if self.conditioning_mode == "unconditional" or valid_length < 3:
+            return mask
+        if self.conditioning_mode == "mixed" and torch.rand(()).item() < self.unconditional_prob:
+            return mask
+
+        # The sequence layout is [BOS, content..., EOS]. Select a target span in
+        # content-token coordinates; known positions become the fixed condition.
+        content_length = valid_length - 2
+        ratio = self.condition_min_mask_ratio + torch.rand(()).item() * (
+            self.condition_max_mask_ratio - self.condition_min_mask_ratio
+        )
+        target_length = min(content_length, max(1, int(round(content_length * ratio))))
+        pattern = self.condition_pattern
+        if pattern == "mixed":
+            pattern = "prefix" if torch.rand(()).item() < 0.5 else "infill"
+
+        mask[:valid_length] = True
+        if pattern == "prefix":
+            # Generate only a content suffix. BOS and EOS stay fixed because
+            # waveform reconstruction uses a known token length and only codec
+            # tokens are valid generation targets.
+            target_start = 1 + content_length - target_length
+            mask[target_start : valid_length - 1] = False
+        else:
+            max_start = content_length - target_length
+            content_start = int(torch.randint(max_start + 1, ()).item()) if max_start else 0
+            target_start = 1 + content_start
+            mask[target_start : target_start + target_length] = False
+        return mask
 
     def __call__(self, batch_list: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         seq_list: List[np.ndarray] = []
@@ -268,8 +329,13 @@ class DLMDataCollator:
 
         ids, total_lens = _pad_and_truncate(seq_list, self.max_seq_length, self.pad_token_id)
         pos = np.arange(self.max_seq_length)[None, :]
-        is_cond = pos < np.asarray(cond_lens, dtype=np.int64)[:, None]
         is_valid = (pos < total_lens[:, None]) & (ids != self.pad_token_id)
+        if any(cond_lens):
+            # Backward-compatible path for explicitly concatenated conditions.
+            is_cond = pos < np.asarray(cond_lens, dtype=np.int64)[:, None]
+        else:
+            is_cond = np.stack([self._sample_condition_mask(int(length)) for length in total_lens])
+        is_cond &= is_valid
         encoder_attn, attn, cond_seq_mask = _build_self_attn_cond_masks(is_cond, is_valid)
 
         result: Dict[str, Any] = {
@@ -341,6 +407,11 @@ def build_train_dlm_dataloader(
         max_seq_length=train_config.model.max_sequence_length,
         pad_token_id=train_config.model.pad_token_id,
         max_input_seq_length=getattr(train_config.dlm, "max_input_length", None),
+        conditioning_mode=getattr(train_config.dlm, "conditioning_mode", "unconditional"),
+        unconditional_prob=getattr(train_config.dlm, "unconditional_prob", 0.1),
+        condition_pattern=getattr(train_config.dlm, "condition_pattern", "mixed"),
+        condition_min_mask_ratio=getattr(train_config.dlm, "condition_min_mask_ratio", 0.1),
+        condition_max_mask_ratio=getattr(train_config.dlm, "condition_max_mask_ratio", 0.5),
     )
     return DataLoader(
         iterable_dataset,
@@ -407,6 +478,9 @@ def build_eval_dlm_dataloader(
         max_seq_length=train_config.model.max_sequence_length,
         pad_token_id=train_config.model.pad_token_id,
         max_input_seq_length=getattr(train_config.dlm, "max_input_length", None),
+        # Keep eval deterministic and comparable: evaluate full unconditional
+        # denoising here. Conditional generation is measured separately.
+        conditioning_mode="unconditional",
     )
     return DataLoader(
         dataset,

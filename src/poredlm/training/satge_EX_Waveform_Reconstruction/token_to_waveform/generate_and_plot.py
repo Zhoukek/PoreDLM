@@ -434,7 +434,11 @@ def process_sample(
         )
     reference_content = available_reference_content[:total_content_length]
     full_ids = torch.cat(
-        [torch.tensor([bos], device=device), reference_content]
+        [
+            torch.tensor([bos], device=device),
+            reference_content,
+            torch.tensor([eos], device=device),
+        ]
     ).unsqueeze(0)
     masked_positions = torch.zeros_like(full_ids, dtype=torch.bool)
     masked_positions[:, 1 + mask_start : 1 + mask_end] = True
@@ -458,7 +462,7 @@ def process_sample(
             condition_input_ids=masked_input_ids,
             condition_attention_mask=torch.ones_like(masked_input_ids),
             condition_token_mask=condition_token_mask,
-            max_length=1 + total_content_length,
+            max_length=2 + total_content_length,
             num_steps=int(generation.get("num_steps", 50)),
             sampling_method=str(generation.get("sampling_method", "ode")),
             sde_gamma=float(generation.get("sde_gamma", 0.1)),

@@ -18,6 +18,15 @@ class DLMTrainer(Trainer):
         self, micro_batch: Dict[str, Any], batch_size_in_tokens: int
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Dict[str, torch.Tensor]]]:
         del batch_size_in_tokens
+        content_condition_mask = micro_batch["cond_seq_mask"].bool().clone()
+        content_condition_mask[:, 0] = False
+        valid_lengths = micro_batch["attention_mask"].sum(dim=1).long()
+        content_condition_mask.scatter_(
+            1,
+            (valid_lengths - 1).clamp_min(0).unsqueeze(1),
+            False,
+        )
+        content_token_count = (valid_lengths - 2).clamp_min(0).sum().clamp_min(1)
         # # 打印 micro_batch 的所有内容
         # print("=" * 50)
         # print("micro_batch first sample contents:")
@@ -61,6 +70,12 @@ class DLMTrainer(Trainer):
             "l2_loss": output.l2_loss.detach(),
             "ce_loss": output.ce_loss.detach(),
             "decoder_step_active": output.decoder_step_active.detach().to(dtype=torch.float32),
+            "condition_token_frac": (
+                content_condition_mask.float().sum() / content_token_count
+            ).detach(),
+            "unconditional_example_frac": (
+                content_condition_mask.sum(dim=1) == 0
+            ).float().mean().detach(),
         }
         return loss, loss.detach(), metrics
 
@@ -72,6 +87,8 @@ class DLMTrainer(Trainer):
         batch_l2_loss = torch.tensor(0.0, device=self.device)
         batch_ce_loss = torch.tensor(0.0, device=self.device)
         batch_decoder_frac = torch.tensor(0.0, device=self.device)
+        batch_condition_token_frac = torch.tensor(0.0, device=self.device)
+        batch_unconditional_example_frac = torch.tensor(0.0, device=self.device)
         num_micro_batches = len(micro_batches)
 
         for micro_batch_idx, micro_batch in enumerate(micro_batches):
@@ -97,6 +114,10 @@ class DLMTrainer(Trainer):
                         batch_l2_loss += micro_metrics["l2_loss"] / num_micro_batches
                         batch_ce_loss += micro_metrics["ce_loss"] / num_micro_batches
                         batch_decoder_frac += micro_metrics["decoder_step_active"] / num_micro_batches
+                        batch_condition_token_frac += micro_metrics["condition_token_frac"] / num_micro_batches
+                        batch_unconditional_example_frac += (
+                            micro_metrics["unconditional_example_frac"] / num_micro_batches
+                        )
                 loss.backward()
 
             for hook in output_hooks:
@@ -106,6 +127,8 @@ class DLMTrainer(Trainer):
             "l2_loss": batch_l2_loss.detach(),
             "ce_loss": batch_ce_loss.detach(),
             "decoder_step_frac": batch_decoder_frac.detach(),
+            "condition_token_frac": batch_condition_token_frac.detach(),
+            "unconditional_example_frac": batch_unconditional_example_frac.detach(),
         }
         return batch_loss, metrics
 
@@ -163,6 +186,10 @@ class DLMTrainer(Trainer):
             metrics["train/L2Loss"] = dlm_metrics["l2_loss"].item()
             metrics["train/CELoss"] = dlm_metrics["ce_loss"].item()
             metrics["train/DecoderStepFrac"] = dlm_metrics["decoder_step_frac"].item()
+            metrics["train/ConditionTokenFrac"] = dlm_metrics["condition_token_frac"].item()
+            metrics["train/UnconditionalExampleFrac"] = dlm_metrics[
+                "unconditional_example_frac"
+            ].item()
 
         if should_log_optim_metrics_this_step:
             optim_metrics = self.optim.get_post_step_metrics(

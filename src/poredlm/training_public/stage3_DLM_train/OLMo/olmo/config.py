@@ -990,6 +990,18 @@ class DLMConfig(BaseConfig):
     self_cond_cfg_max: float = 1.0
     label_drop_prob: float = 0.0
 
+    conditioning_mode: str = "unconditional"
+    """DLM training mode: ``unconditional``, ``conditional``, or ``mixed``."""
+
+    unconditional_prob: float = 0.1
+    """Probability of a fully unconditional example when conditioning_mode is mixed."""
+
+    condition_pattern: str = "mixed"
+    """Conditional task shape: ``prefix``, ``infill``, or a 50/50 ``mixed`` choice."""
+
+    condition_min_mask_ratio: float = 0.1
+    condition_max_mask_ratio: float = 0.5
+
     epochs: int = 1
     global_batch_size: Optional[int] = None
     blr: float = 1.0e-3
