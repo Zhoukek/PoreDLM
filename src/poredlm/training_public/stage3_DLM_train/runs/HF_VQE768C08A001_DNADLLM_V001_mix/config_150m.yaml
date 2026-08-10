@@ -4,7 +4,7 @@ dry_run: false
 
 # Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/HF_BERT_part
+  context_encoder_path: /mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/HF_BERT_part
   freeze_context_encoder: true
   max_length: 1536
   # Encoder
@@ -314,7 +314,7 @@ scheduler:
 
 tokenizer:
   # identifier: tokenizers/allenai_dolma2.json
-  identifier: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
+  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
   truncate_direction: right
 
 save_folder: save/olmo_output
@@ -363,8 +363,7 @@ evaluators:
      memmap_dtype: uint32
      datasets:
        small_eval:
-        - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval/pore_tokens_rank0_0000.npy
-
+        - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank0_0000.npy
 
   ##########################
   # Downstream evaluations #
@@ -386,4 +385,4 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/train
+    - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train

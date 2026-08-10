@@ -3,7 +3,7 @@ import gzip
 import json
 
 # 文件路径
-file_path = "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50/stage2/train/validation_00037_chunks.jsonl.gz"
+file_path = "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50/basecall_data/validation_00002_chunks.jsonl.gz"
 
 # 读取文件并收集所有的keys
 all_keys = set()

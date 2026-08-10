@@ -4,7 +4,7 @@ dry_run: false
 
 # Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/HF_BERT_part
+  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V002/models/step_240000
   freeze_context_encoder: true
   max_length: 1536
   # Encoder
@@ -12,7 +12,7 @@ dlm:
   latent_std: 0.2
 
   # Model architecture
-  model: ELF-B  # ELF-B, ELF-M
+  model: ELF-B  # ELF-B, ELF-Ms
   bottleneck_dim: 128
   num_time_tokens: 4
   num_self_cond_cfg_tokens: 4

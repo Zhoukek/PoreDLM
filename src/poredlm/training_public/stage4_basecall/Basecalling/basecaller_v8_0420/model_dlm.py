@@ -168,8 +168,6 @@ class BasecallModel(nn.Module):
             for layer in target_layers:
                 for param in layer.parameters():
                     param.requires_grad = True
-            if target_layers:
-                self._unfreeze_context_embeddings()
 
         self._set_frozen_backbone_submodules_eval()
         show_layer_trainable_status(self.backbone)
@@ -297,8 +295,6 @@ class BasecallModel(nn.Module):
         for layer in layers[-n_unfreeze:]:
             for param in layer.parameters():
                 param.requires_grad = True
-        if target == "context_encoder":
-            self._unfreeze_context_embeddings()
 
     def _unfreeze_context_embeddings(self) -> None:
         context_encoder = getattr(self.backbone, "context_encoder", None)
