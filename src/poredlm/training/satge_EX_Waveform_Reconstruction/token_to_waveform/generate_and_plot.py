@@ -165,6 +165,38 @@ def infer_codec_vocabulary_size(
     return int(codebook_size) if codebook_size is not None else None
 
 
+def infer_codec_downsample_rate(codec: torch.nn.Module) -> int:
+    """Return the number of waveform samples represented by one codec token."""
+    candidates = (
+        getattr(codec, "cnn_stride", None),
+        getattr(codec, "downsample_rate", None),
+        getattr(getattr(codec, "cnn_model", None), "stride", None),
+        getattr(getattr(codec, "config", None), "cnn_stride", None),
+        getattr(getattr(codec, "config", None), "downsample_rate", None),
+    )
+    for value in candidates:
+        if value is None:
+            continue
+        rate = int(value)
+        if rate > 0:
+            return rate
+    raise ValueError("Could not infer a positive downsample rate from the selected codec.")
+
+
+def token_span_to_waveform_span(
+    token_start: int,
+    token_end: int,
+    downsample_rate: int,
+    waveform_length: int,
+) -> tuple[int, int]:
+    """Map a half-open content-token span to its logical waveform span."""
+    if downsample_rate <= 0:
+        raise ValueError(f"downsample_rate must be positive, got {downsample_rate}.")
+    start = min(max(0, int(token_start) * downsample_rate), waveform_length)
+    end = min(max(start, int(token_end) * downsample_rate), waveform_length)
+    return start, end
+
+
 def normalize_raw_tokens(
     raw: torch.Tensor,
     bos_token_id: int,
@@ -346,7 +378,7 @@ def plot_waveforms(
     reference_waveform: np.ndarray,
     mask_start_token: int,
     mask_length_tokens: int,
-    total_tokens: int,
+    downsample_rate: int,
     title: str,
     output_path: Path,
     generator_name: str,
@@ -360,9 +392,10 @@ def plot_waveforms(
     if bert_waveform is not None:
         bert_waveform = bert_waveform[:common]
     reference_waveform = reference_waveform[:common]
-    region_start = min(int(round(common * mask_start_token / total_tokens)), common - 1)
-    region_end = min(
-        int(round(common * (mask_start_token + mask_length_tokens) / total_tokens)),
+    region_start, region_end = token_span_to_waveform_span(
+        mask_start_token,
+        mask_start_token + mask_length_tokens,
+        downsample_rate,
         common,
     )
     generated_region_mse = aligned_mse(reference_waveform, stage1_waveform, region_start, region_end)
@@ -425,6 +458,7 @@ def process_sample(
     offset = int(data.get("token_offset", 128))
     codebook_size = int(data.get("codebook_size", 65536))
     codec_layer = int(data.get("codec_layer", 0))
+    downsample_rate = infer_codec_downsample_rate(tokenizer)
     raw = normalize_raw_tokens(torch.as_tensor(sample["tokens"]), bos, eos)
     available_reference_content = raw[1:-1].to(device)
     if available_reference_content.numel() < total_content_length:
@@ -550,7 +584,7 @@ def process_sample(
         reference_np,
         mask_start,
         mask_length,
-        total_content_length,
+        downsample_rate,
         f"{stem} | id={sample.get('id', '')}",
         output_dir / f"{stem}.png",
         generator_type.upper(),
@@ -577,8 +611,12 @@ def process_sample(
         .item()
     )
     waveform_length = min(reference_np.size, stage1_np.size)
-    waveform_start = int(waveform_length * mask_start / total_content_length)
-    waveform_end = int(waveform_length * mask_end / total_content_length)
+    waveform_start, waveform_end = token_span_to_waveform_span(
+        mask_start,
+        mask_end,
+        downsample_rate,
+        waveform_length,
+    )
     result = {
         "generator_type": generator_type,
         "sample_index": sample_index,
@@ -589,6 +627,7 @@ def process_sample(
         "token_offset": offset,
         "codebook_size": codebook_size,
         "codec_layer": codec_layer,
+        "downsample_rate": downsample_rate,
         "invalid_generated_tokens": invalid_count,
         "masked_region_token_accuracy": generated_token_accuracy,
         "reference_region_token_ids": reference_content[masked_region].detach().cpu().tolist(),
