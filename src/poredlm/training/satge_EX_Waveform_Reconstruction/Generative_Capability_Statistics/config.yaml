@@ -1,12 +1,12 @@
 device: auto
 
 data:
-  eval_path: /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval
+  eval_path: /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval
   file_pattern: "*.npy"
   token_dtype: uint32
   # Use the first num_chunks samples beginning at start_index. Set
   # sample_indices to an explicit list to evaluate exactly the same chunks later.
-  num_chunks: 20
+  num_chunks: 10
   start_index: 0
   sample_indices: null
   token_offset: 128
@@ -29,7 +29,7 @@ evaluation:
     middle: 0.5
     back: 0.8
   # Reduce this if a 1200-token attention pass runs out of accelerator memory.
-  batch_size: 2
+  batch_size: 32
   num_steps: 64
   sampling_method: ode
   sde_gamma: 0.1

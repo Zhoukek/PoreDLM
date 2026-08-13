@@ -1,16 +1,16 @@
 device: auto
 
 data:
-  # eval_path: /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval
-  eval_path: /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval
+  eval_path: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/train
+  # eval_path: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval
   # GPT must use token shards produced by its matching RSQ codec, not the VQE
   # shards above. Replace this placeholder before running generator_type=gpt.
-  gpt_eval_path: /mnt/zzbnew/poregpt/datasets/MIX_LLM_TOKENS_train/tokens_appleq50_pore-codec-rsq742c12a-511/DNA_S1_HG00200_MIX_250F701901011
+  gpt_eval_path: /mnt/si002562jbsc/poregpt/datasets/MIX_LLM_TOKENS_train/tokens_appleq50_pore-codec-rsq742c12a-511/DNA_S1_HG00200_MIX_250F701901011
   file_pattern: "*.npy"
   # DLM and GPT token shards use different storage dtypes.
   dlm_token_dtype: uint32
   gpt_token_dtype: uint16
-  sample_indices: [1600]
+  sample_indices: [6679]
   # Generator-specific token layouts. DLM uses its 64k VQ codebook; GPT uses a
   # packed residual-RSQ codebook and must not reuse the DLM codebook size.
   dlm_token_offset: 128
@@ -25,17 +25,18 @@ data:
   eos_token_id: 3
 
 models:
-  # dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/test/hf_dlm_condition
-  dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V002/hf_dlm_condition
+  # dlm_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/test/hf_dlm_cond
+  dlm_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V001_mix/hf_dlm_step69000
+  # dlm_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V002/hf_dlm_step69000
   # Exact checkpoint used by stage2_BERT_trian/eval. Set null to use the BERT
   # embedded in hf_dlm_condition instead.
-  bert_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/test/models/step_235000
+  bert_path: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V002/HF_BERT_part
   # Standard HF causal LM converted by convert_olmo2_to_hf.py.
-  gpt_path: /mnt/zzbnew/poregpt/models/HF_RSQ742C12A511_MIXOLMO_V606/base
+  gpt_path: /mnt/si002562jbsc/poregpt/models/HF_RSQ742C12A511_MIXOLMO_V606/base
   # Optional per-generator codecs. The GPT codec is RSQ/FSQ and ships
   # modeling_pore_codec.py; the DLM codec currently uses modeling_pore_vq_codec.py.
-  gpt_tokenizer_path: /mnt/zzbnew/poregpt/models/HF_RSQ742C12A511_MIXOLMO_V606/encoder
-  tokenizer_path: /mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V002/encoder
+  gpt_tokenizer_path: /mnt/si002562jbsc/poregpt/models/HF_RSQ742C12A511_MIXOLMO_V606/encoder
+  tokenizer_path: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V002/encoder
 
 generation:
   # Choose exactly one generator per run: dlm or gpt.
@@ -43,14 +44,14 @@ generation:
   # Content-token coordinates are zero-based. DLM can condition on both sides;
   # GPT predicts left-to-right from the prefix and cannot see the right side.
   total_length: 1200
-  mask_start: 600
-  mask_length: 20
+  mask_start: 800
+  mask_length: 30
   # DLM only: null uses the embedded Stage-2 BERT mask_token_id.
   mask_token_id: null
   num_steps: 64
   sampling_method: ode
   sde_gamma: 0.1
-  cfg_scale: 1.0
+  cfg_scale: 0.2
   self_cond_cfg_scale: 1.0
   seed: 6198
   # Mask BOS/EOS/PAD and select generated positions only from codebook tokens.
@@ -59,4 +60,4 @@ generation:
   invalid_token_policy: error
 
 output:
-  directory: outputs/token_to_waveform
+  directory: figure/outputs/token_to_waveform_dlm_cfg_0.2

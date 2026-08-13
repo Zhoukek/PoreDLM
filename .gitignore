@@ -117,3 +117,4 @@ dorado_models/
 /src/poredlm/training/stage4_finetune/Basecalling/test
 /src/poredlm/training_public/stage3_DLM_train/OLMo/transformers
 /src/poredlm/training_public/stage3_DLM_train/LB07_AND_LB06_figure
+/src/poredlm/training/satge_EX_Waveform_Reconstruction/token_to_waveform/figure

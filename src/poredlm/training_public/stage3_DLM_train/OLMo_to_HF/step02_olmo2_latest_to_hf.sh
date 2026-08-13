@@ -13,7 +13,7 @@ export CUDA_VISIBLE_DEVICES=0
 
 
 python3 ${OLMO_ROOT}/scripts/convert_olmo2_to_hf_dlm.py \
-   --input_dir "${RUN_ROOT}/model_mixed/step43000-unsharded"  \
-   --output_dir "${RUN_ROOT}/hf_dlm_condition"  \
+   --input_dir "${RUN_ROOT}/model_mixed/step69000-unsharded"  \
+   --output_dir "${RUN_ROOT}/hf_dlm_step69000"  \
    --tokenizer_json_path "${PROJECT_ROOT}/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json" \
    --overwrite

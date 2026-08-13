@@ -133,14 +133,6 @@ class Stage2MaskedSignalLM(nn.Module):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size)
         self.lm_head.weight = self.token_embeddings.weight
 
-    @staticmethod
-    def _to_key_padding_attention_mask(attention_mask: torch.Tensor) -> torch.Tensor:
-        if attention_mask.dim() == 3:
-            return attention_mask.to(dtype=torch.bool).any(dim=1).to(dtype=attention_mask.dtype)
-        if attention_mask.dim() > 2:
-            return attention_mask.view(attention_mask.shape[0], -1)
-        return attention_mask
-
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -149,8 +141,6 @@ class Stage2MaskedSignalLM(nn.Module):
         **kwargs: Any,
     ) -> Any:
         del kwargs
-        if attention_mask is not None:
-            attention_mask = self._to_key_padding_attention_mask(attention_mask)
         if input_ids.ndim != 2:
             raise ValueError(f"input_ids must have shape [batch, seq_len], got {tuple(input_ids.shape)}.")
         seq_len = input_ids.shape[1]
@@ -163,8 +153,25 @@ class Stage2MaskedSignalLM(nn.Module):
         hidden = self.token_embeddings(input_ids) + self.position_embeddings(positions)
         hidden = self.embedding_layer_norm(hidden)
         hidden = self.dropout(hidden)
-        key_padding_mask = attention_mask == 0 if attention_mask is not None else None
-        hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        if attention_mask is not None and attention_mask.dim() == 3:
+            if attention_mask.shape != (input_ids.shape[0], seq_len, seq_len):
+                raise ValueError(
+                    "3D attention_mask must have shape [batch, seq_len, seq_len], "
+                    f"got {tuple(attention_mask.shape)}."
+                )
+            # nn.TransformerEncoder uses True for disallowed query/key pairs
+            # and expects a separate mask for every attention head.
+            attn_mask = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            attn_mask = attn_mask.repeat_interleave(self.config.num_attention_heads, dim=0)
+            hidden = self.encoder(hidden, mask=attn_mask)
+        else:
+            if attention_mask is not None and attention_mask.dim() != 2:
+                raise ValueError(
+                    "attention_mask must have shape [batch, seq_len] or "
+                    "[batch, seq_len, seq_len]."
+                )
+            key_padding_mask = attention_mask == 0 if attention_mask is not None else None
+            hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
         hidden = self.final_layer_norm(hidden)
         if return_dict:
             return SimpleNamespace(last_hidden_state=hidden)
@@ -177,14 +184,6 @@ class HFContextEncoderAdapter(nn.Module):
         self.model = model
         self.config = model.config
 
-    @staticmethod
-    def _to_key_padding_attention_mask(attention_mask: torch.Tensor) -> torch.Tensor:
-        if attention_mask.dim() == 3:
-            return attention_mask.to(dtype=torch.bool).any(dim=1).to(dtype=attention_mask.dtype)
-        if attention_mask.dim() > 2:
-            return attention_mask.view(attention_mask.shape[0], -1)
-        return attention_mask
-
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -192,8 +191,6 @@ class HFContextEncoderAdapter(nn.Module):
         return_dict: bool = True,
         **kwargs: Any,
     ) -> Any:
-        if attention_mask is not None:
-            attention_mask = self._to_key_padding_attention_mask(attention_mask)
         output = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -473,9 +470,24 @@ class PoreDLMForDiffusion(PreTrainedModel):
             raise ValueError("Every sequence must contain at least one condition token.")
 
         context_dtype = next(self.elf_denoiser.parameters()).dtype
+        encoder_attention_mask = condition_attention_mask
+        if condition_token_mask is not None:
+            # Match Stage-3 conditional training exactly. Known queries may
+            # attend only known keys, so their fixed context representations
+            # cannot absorb information from the unknown/generated span.
+            # Unknown queries may attend every valid key. This structural mask
+            # is only for the context encoder; the ELF denoiser below still
+            # receives the ordinary valid-token mask.
+            is_cond = condition_token_mask & condition_attention_mask
+            is_valid = condition_attention_mask
+            encoder_attention_mask = (
+                (is_cond[:, :, None] & is_cond[:, None, :])
+                | (~is_cond[:, :, None] & is_valid[:, None, :])
+            )
+
         encoded = self.context_encoder(
             input_ids=condition_input_ids,
-            attention_mask=condition_attention_mask,
+            attention_mask=encoder_attention_mask,
             return_dict=True,
         ).last_hidden_state.to(dtype=context_dtype)
         batch_size = condition_input_ids.shape[0]

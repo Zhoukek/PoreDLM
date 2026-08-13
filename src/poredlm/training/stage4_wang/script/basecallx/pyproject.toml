@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "basecallx"
+version = "0.1.0"
+description = "A cleaner orchestration layer for the dcbasecaller toolkit."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy",
+  "torch",
+  "accelerate",
+  "transformers",
+  "tqdm",
+  "edlib",
+  "parasail",
+  "matplotlib",
+]
+
+[project.scripts]
+basecallx = "basecallx.cli:main"
+basecallx-train = "basecallx.train:main"
+basecallx-eval = "basecallx.eval:main"
+basecallx-infer = "basecallx.infer:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["basecallx*"]

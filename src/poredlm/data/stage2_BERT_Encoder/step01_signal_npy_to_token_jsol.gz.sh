@@ -11,9 +11,9 @@ INPUT_DIR="/mnt/si002562jbsc/poregpt/dnadata/balanced/human_dna_595g/memap_mongo
 # Output directory for .jsonl.gz files
 OUTPUT_DIR="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
-INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50/all_data"
+INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50_stone/train"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50/stage2/train"
+OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50_stone/stage2/train"
 
 #!/bin/bash
 
@@ -23,7 +23,7 @@ OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basec
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/encoder"
+MODEL_CHECKPOINT="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/encoder"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 

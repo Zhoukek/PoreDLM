@@ -1,4 +1,4 @@
-run_name: dlm_ELF_B_64K
+run_name: dlm_ELF_B_64K_apple_mix
 seed: 6198
 epoch: null
 dry_run: false
@@ -75,6 +75,11 @@ dlm:
   self_cond_cfg_min: 0.0
   self_cond_cfg_max: 1.0
   label_drop_prob: 0.0
+  conditioning_mode: mixed
+  unconditional_prob: 0.2
+  condition_pattern: mixed
+  condition_min_mask_ratio: 0.1
+  condition_max_mask_ratio: 0.4
   epochs: 100
   global_batch_size: 512
   blr: 0.001
@@ -144,9 +149,6 @@ evaluators:
     datasets:
       small_eval:
       - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank0_0000.npy
-      - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank1_0000.npy
-      - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank2_0000.npy
-      - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_appleq50_pore_codec_vqe768c08a-001/eval/pore_tokens_rank3_0000.npy
     label_mask_paths: null
     pad_direction: right
     generate_attention_mask: false
@@ -166,7 +168,7 @@ eval_interval: 1000
 tokenizer:
   identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
   truncate_direction: right
-save_folder: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/test/model
+save_folder: /home/shj/data/zhoukexuan/HF_VQE768C08A001_DNADLLM_V001_mix/model
 remote_save_folder: null
 canceled_check_interval: 50
 save_interval: 1000
@@ -186,12 +188,12 @@ sharded_checkpointer: olmo_core
 new_style_checkpoints: null
 max_duration: 5ep
 global_train_batch_size: 64
-device_train_batch_size: 16
+device_train_batch_size: 32
 device_train_microbatch_size: 8
 device_eval_batch_size: 8
 eval_subset_num_batches: -1
 eval_on_load: false
-device_train_grad_accum: 2
+device_train_grad_accum: 4
 max_grad_norm: 1.0
 max_grad_norm_ratio: null
 precision: amp_bf16
@@ -199,7 +201,7 @@ wandb:
   project: stage3_dlm_public
   entity: zhoukek-zhejiang-university
   group: null
-  name: dlm_ELF_B_64K
+  name: dlm_ELF_B_64K_apple_mix
   tags:
   - watching
   log_artifacts: false
@@ -229,7 +231,7 @@ early_stopping_factor: null
 save_data_indices: true
 python_profiling: false
 torch_profiling: false
-stop_at: 5699765
+stop_at: 7283570
 stop_after: null
 activation_checkpointing: null
 fused_loss: null
