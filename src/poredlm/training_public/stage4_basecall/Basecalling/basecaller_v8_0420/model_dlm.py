@@ -27,6 +27,7 @@ class BasecallModel(nn.Module):
     def __init__(
         self,
         model_path: str,
+        backbone_type: str = "auto",
         tokenizer_path: str | None = None,
         tokenizer_type: str = "bwav",
         tokenizer_token_offset: int = 128,
@@ -66,6 +67,7 @@ class BasecallModel(nn.Module):
         del vq_device, vq_token_batch_size
         super().__init__()
         self.hidden_layer = hidden_layer
+        self.backbone_type = str(backbone_type).lower()
         self.learnable_fuse_last_n_layers = max(0, int(learnable_fuse_last_n_layers))
         self.feature_source = feature_source
         self.freeze_backbone = bool(freeze_backbone)
@@ -87,17 +89,20 @@ class BasecallModel(nn.Module):
         self.tokenizer = None
         self.backbone = None
         self.vq_embedding = None
+        self.layer_fuse_logits = (
+            nn.Parameter(torch.zeros(self.learnable_fuse_last_n_layers))
+            if self.learnable_fuse_last_n_layers > 0
+            else None
+        )
 
+        if self.backbone_type not in {"auto", "dlm", "bert"}:
+            raise ValueError("backbone_type must be one of: auto, dlm, bert.")
         allowed_feature_sources = {"hidden", "denoised_hidden", "context_hidden", "ode_hidden", "sde_hidden"}
         if self.feature_source not in allowed_feature_sources:
             raise ValueError(
                 "model_dlm.BasecallModel supports feature_source in "
                 f"{sorted(allowed_feature_sources)}."
             )
-        if self.learnable_fuse_last_n_layers > 0:
-            raise ValueError("PoreDLM HF wrapper does not expose per-layer hidden_states; use hidden_layer=-1.")
-        if self.hidden_layer not in {-1, 0}:
-            raise ValueError("PoreDLM HF wrapper exposes one sequence feature. Use hidden_layer=-1 or 0.")
         if not 0.0 < self.elf_ode_start_t <= 1.0:
             raise ValueError("--elf_ode_start_t must be in (0, 1].")
         if not 0.0 < self.elf_sde_start_t <= 1.0:
@@ -111,19 +116,51 @@ class BasecallModel(nn.Module):
         else:
             self.backbone = AutoModel.from_pretrained(model_path, trust_remote_code=True)
 
+        if self.backbone_type == "auto":
+            config = self.backbone.config
+            is_dlm = any(
+                getattr(config, name, None) is not None
+                for name in ("dlm_config", "context_encoder_config", "model_config")
+            ) or any(hasattr(self.backbone, name) for name in ("context_encoder", "elf_denoiser"))
+            self.backbone_type = "dlm" if is_dlm else "bert"
+        print(f"[Backbone] detected type={self.backbone_type} class={type(self.backbone).__name__}")
+
+        max_positions = getattr(self.backbone.config, "max_position_embeddings", None)
+        if max_positions and (self.backbone_chunk_size == 0 or self.backbone_chunk_size > int(max_positions)):
+            old_chunk_size = self.backbone_chunk_size
+            self.backbone_chunk_size = int(max_positions)
+            print(
+                f"[Backbone] adjusted chunk_size={old_chunk_size} -> {self.backbone_chunk_size} "
+                "to fit max_position_embeddings"
+            )
+
+        if self.backbone_type == "dlm":
+            if self.learnable_fuse_last_n_layers > 0:
+                raise ValueError("PoreDLM HF wrapper does not expose per-layer hidden_states; use hidden_layer=-1.")
+            if self.hidden_layer not in {-1, 0}:
+                raise ValueError("PoreDLM HF wrapper exposes one sequence feature. Use hidden_layer=-1 or 0.")
+        elif self.feature_source != "hidden":
+            raise ValueError(
+                f"BERT backbone only supports feature_source='hidden', got {self.feature_source!r}."
+            )
+
         if tokenizer_type == "auto":
             tokenizer_path = tokenizer_path or model_path
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
         elif tokenizer_type == "bwav":
             context_cfg = getattr(self.backbone.config, "context_encoder_config", None) or {}
-            vocab_size = int(context_cfg.get("vocab_size", 65664))
+            def token_id(name: str, default: int) -> int:
+                value = context_cfg.get(name, getattr(self.backbone.config, name, default))
+                return default if value is None else int(value)
+
+            vocab_size = int(context_cfg.get("vocab_size", getattr(self.backbone.config, "vocab_size", 65664)))
             self.tokenizer = BwavTokenizer(
                 vocab_size=vocab_size,
                 token_offset=tokenizer_token_offset,
-                pad_token_id=int(context_cfg.get("pad_token_id", 1)),
-                bos_token_id=int(context_cfg.get("bos_token_id", 2)),
-                eos_token_id=int(context_cfg.get("eos_token_id", 3)),
-                mask_token_id=int(context_cfg.get("mask_token_id", 4)),
+                pad_token_id=token_id("pad_token_id", 1),
+                bos_token_id=token_id("bos_token_id", 2),
+                eos_token_id=token_id("eos_token_id", 3),
+                mask_token_id=token_id("mask_token_id", 4),
             )
         else:
             raise ValueError(f"Unsupported tokenizer_type={tokenizer_type!r}.")
@@ -255,6 +292,8 @@ class BasecallModel(nn.Module):
                 ("context_encoder", "encoder", "layers"),
                 ("context_encoder", "encoder", "layer"),
                 ("encoder", "layer"),
+                ("encoder", "layers"),
+                ("bert", "encoder", "layer"),
                 ("model", "layers"),
                 ("layers",),
                 ("blocks",),
@@ -401,6 +440,30 @@ class BasecallModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if self.backbone_type == "bert":
+            outputs = self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+            hidden_states = outputs.hidden_states
+            if hidden_states is None:
+                raise ValueError("BERT backbone did not return hidden_states.")
+            if self.learnable_fuse_last_n_layers > 0:
+                n = self.learnable_fuse_last_n_layers
+                if n > len(hidden_states) - 1:
+                    raise ValueError(f"Cannot fuse last {n} layers; BERT only has {len(hidden_states) - 1} layers.")
+                selected = torch.stack(hidden_states[-n:], dim=0)
+                weights = torch.softmax(self.layer_fuse_logits, dim=0).to(selected.dtype)
+                return torch.sum(selected * weights.view(-1, 1, 1, 1), dim=0)
+            try:
+                return hidden_states[self.hidden_layer]
+            except IndexError as exc:
+                raise ValueError(
+                    f"hidden_layer={self.hidden_layer} out of range for {len(hidden_states)} BERT hidden states."
+                ) from exc
+
         outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,

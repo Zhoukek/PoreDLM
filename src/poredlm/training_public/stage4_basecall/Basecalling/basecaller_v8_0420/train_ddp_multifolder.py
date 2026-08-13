@@ -850,6 +850,8 @@ def parse_args():
 
     p.add_argument("--model_name_or_path", type=str, required=True,
                    help="Backbone model path for hidden/embedding; VQ tokenizer checkpoint path for vq_embedding.")
+    p.add_argument("--backbone_type", "--backbone-type", choices=["auto", "dlm", "bert"], default="auto",
+                   help="Backbone architecture. 'auto' detects PoreDLM versus a standard Hugging Face BERT model.")
     p.add_argument("--tokenizer_name_or_path", type=str, default=None,
                    help="Optional tokenizer path. Defaults to --model_name_or_path; useful when hf_dlm stores model and tokenizer separately.")
     p.add_argument("--tokenizer_type", choices=["bwav", "auto"], default="bwav",
@@ -1105,6 +1107,7 @@ def main():
 
     base_model = BasecallModel(
         model_path=args.model_name_or_path,
+        backbone_type=args.backbone_type,
         tokenizer_path=args.tokenizer_name_or_path,
         tokenizer_type=args.tokenizer_type,
         tokenizer_token_offset=args.tokenizer_token_offset,
