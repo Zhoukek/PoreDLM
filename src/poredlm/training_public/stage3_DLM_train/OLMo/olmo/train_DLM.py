@@ -27,6 +27,7 @@ class DLMTrainer(Trainer):
             False,
         )
         content_token_count = (valid_lengths - 2).clamp_min(0).sum().clamp_min(1)
+        task_ids = micro_batch.get("condition_task_ids")
         # # 打印 micro_batch 的所有内容
         # print("=" * 50)
         # print("micro_batch first sample contents:")
@@ -77,6 +78,14 @@ class DLMTrainer(Trainer):
                 content_condition_mask.sum(dim=1) == 0
             ).float().mean().detach(),
         }
+        if task_ids is not None:
+            metrics.update(
+                {
+                    "prefix_suffix_frac": (task_ids == 1).float().mean().detach(),
+                    "single_span_frac": (task_ids == 2).float().mean().detach(),
+                    "multi_span_frac": (task_ids == 3).float().mean().detach(),
+                }
+            )
         return loss, loss.detach(), metrics
 
     def train_batch(self, batch: Dict[str, Any]) -> Tuple[torch.Tensor, Optional[Dict[str, torch.Tensor]]]:
@@ -89,6 +98,9 @@ class DLMTrainer(Trainer):
         batch_decoder_frac = torch.tensor(0.0, device=self.device)
         batch_condition_token_frac = torch.tensor(0.0, device=self.device)
         batch_unconditional_example_frac = torch.tensor(0.0, device=self.device)
+        batch_prefix_suffix_frac = torch.tensor(0.0, device=self.device)
+        batch_single_span_frac = torch.tensor(0.0, device=self.device)
+        batch_multi_span_frac = torch.tensor(0.0, device=self.device)
         num_micro_batches = len(micro_batches)
 
         for micro_batch_idx, micro_batch in enumerate(micro_batches):
@@ -118,6 +130,15 @@ class DLMTrainer(Trainer):
                         batch_unconditional_example_frac += (
                             micro_metrics["unconditional_example_frac"] / num_micro_batches
                         )
+                        batch_prefix_suffix_frac += micro_metrics.get(
+                            "prefix_suffix_frac", batch_prefix_suffix_frac.new_zeros(())
+                        ) / num_micro_batches
+                        batch_single_span_frac += micro_metrics.get(
+                            "single_span_frac", batch_single_span_frac.new_zeros(())
+                        ) / num_micro_batches
+                        batch_multi_span_frac += micro_metrics.get(
+                            "multi_span_frac", batch_multi_span_frac.new_zeros(())
+                        ) / num_micro_batches
                 loss.backward()
 
             for hook in output_hooks:
@@ -129,6 +150,9 @@ class DLMTrainer(Trainer):
             "decoder_step_frac": batch_decoder_frac.detach(),
             "condition_token_frac": batch_condition_token_frac.detach(),
             "unconditional_example_frac": batch_unconditional_example_frac.detach(),
+            "prefix_suffix_frac": batch_prefix_suffix_frac.detach(),
+            "single_span_frac": batch_single_span_frac.detach(),
+            "multi_span_frac": batch_multi_span_frac.detach(),
         }
         return batch_loss, metrics
 
@@ -190,6 +214,9 @@ class DLMTrainer(Trainer):
             metrics["train/UnconditionalExampleFrac"] = dlm_metrics[
                 "unconditional_example_frac"
             ].item()
+            metrics["train/PrefixSuffixFrac"] = dlm_metrics["prefix_suffix_frac"].item()
+            metrics["train/SingleSpanFrac"] = dlm_metrics["single_span_frac"].item()
+            metrics["train/MultiSpanFrac"] = dlm_metrics["multi_span_frac"].item()
 
         if should_log_optim_metrics_this_step:
             optim_metrics = self.optim.get_post_step_metrics(

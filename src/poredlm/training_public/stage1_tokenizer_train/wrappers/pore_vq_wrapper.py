@@ -15,6 +15,9 @@ def _loss_item(loss_breakdown, name: str, device: torch.device) -> torch.Tensor:
 
 
 class PoreVQWrapper(nn.Module):
+    _keys_to_ignore_on_save = None
+    _keys_to_ignore_on_load_missing = None
+    _keys_to_ignore_on_load_unexpected = None
     def __init__(
         self,
         codec: PoreVQCodec,

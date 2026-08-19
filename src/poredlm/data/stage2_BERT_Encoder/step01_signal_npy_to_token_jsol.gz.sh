@@ -11,9 +11,9 @@ INPUT_DIR="/mnt/si002562jbsc/poregpt/dnadata/balanced/human_dna_595g/memap_mongo
 # Output directory for .jsonl.gz files
 OUTPUT_DIR="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/test"
 
-INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50_stone/train"
+INPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_eval_all/all_data"
 # Output directory for .jsonl.gz files
-OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50_stone/stage2/train"
+OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_eval_all/stage2"
 
 #!/bin/bash
 
@@ -134,13 +134,13 @@ for npy_file in "${all_files[@]}"; do
     # Construct the device string and pass it via --device
     DEVICE_ARG="cuda:$gpu_id" # Fixed: Removed space after :
     echo "Executing: poredlm-vqe-tokenize-trank -i '$npy_file' -o '$output_file' --model-ckpt '$MODEL_CHECKPOINT' --device '$DEVICE_ARG' --batch-size $BATCH_SIZE"
-    python /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_token_jsol.gz.py \
+    nohup python /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/step01_signal_npy_to_token_jsol.gz.py \
          -i "$npy_file" \
          -o "$output_file" \
 	     --model-type $MODEL_TYPE \
          --model-ckpt "$MODEL_CHECKPOINT" \
          --device "$DEVICE_ARG" \
-         --batch-size $BATCH_SIZE &
+         --batch-size $BATCH_SIZE > "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/nohup.out" 2>&1 &
 
     # Increment task counter
     # ((task_count++))

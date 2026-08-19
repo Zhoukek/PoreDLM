@@ -3,7 +3,7 @@
 # import json
 
 # # 文件路径
-# file_path = "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50/basecall_data/validation_00002_chunks.jsonl.gz"
+# file_path = "/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/DNA_S1_HG00200_MIX_250F701901011_validation_1_to_50_stone/basecall_data/validation_00001_chunks.jsonl.gz"
 
 # # 读取文件并收集所有的keys
 # all_keys = set()
@@ -78,7 +78,7 @@ import numpy as np
 # 读取 npy 文件
 file_path = "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/without_modifiction/chunks.npy"
 file_path = "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/data/DNA_modifiction/S0_HG002_UNMOD-35g/stage1_tokenizer_apple/validation/250F601844011_0_0_0_0_chunks.npy"
-file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/basecall/eval/eval_00001/chunks_apple.npy"
+file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/basecall/eval/eval_00003/references.npy"
 
 data = np.load(file_path, allow_pickle=True)
 

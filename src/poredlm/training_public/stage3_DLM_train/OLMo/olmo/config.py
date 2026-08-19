@@ -994,13 +994,21 @@ class DLMConfig(BaseConfig):
     """DLM training mode: ``unconditional``, ``conditional``, or ``mixed``."""
 
     unconditional_prob: float = 0.1
-    """Probability of a fully unconditional example when conditioning_mode is mixed."""
+    """Probability of content-unconditional generation when conditioning_mode is mixed."""
 
     condition_pattern: str = "mixed"
-    """Conditional task shape: ``prefix``, ``infill``, or a 50/50 ``mixed`` choice."""
+    """Conditional task shape; ``mixed`` uses the three configurable task weights."""
 
     condition_min_mask_ratio: float = 0.1
     condition_max_mask_ratio: float = 0.5
+
+    condition_min_span_length: int = 30
+    condition_max_span_length: int = 50
+    condition_multi_min_spans: int = 4
+    condition_multi_max_spans: int = 8
+    condition_prefix_suffix_weight: float = 1.0
+    condition_single_span_weight: float = 1.0
+    condition_multi_span_weight: float = 1.0
 
     epochs: int = 1
     global_batch_size: Optional[int] = None

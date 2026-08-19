@@ -9,14 +9,14 @@ stage2_root="${project_root}/src/poredlm/training_public/stage2_BERT_trian"
 stage4_root="${project_root}/src/poredlm/training_public/stage4_basecall"
 
 export PYTHONPATH="${stage4_root}:${project_root}/src:${PYTHONPATH:-}"
-export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=0,1
 export TORCHDYNAMO_DISABLE=1
 export WANDB_API_KEY=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
 
 
 # DDP 参数
 nproc_per_node=2
-master_port=29513
+master_port=29512
 ddp_backend="nccl"
 
 # 训练参数
@@ -29,19 +29,19 @@ warmup_ratio="0.1"
 min_lr="1e-6"
 
 # 模型参数
-backbone_type="bert"  # auto 可同时识别 DLM 和标准 Hugging Face BERT；也可显式设为 dlm/bert
+backbone_type="dlm"  # auto 可同时识别 DLM 和标准 Hugging Face BERT；也可显式设为 dlm/bert
 hidden_layer=-1
 unfreeze_last_n_layers=4
 unfreeze_target="auto"
 unfreeze_context_last_n_layers=0
-unfreeze_elf_last_n_layers=0
+unfreeze_elf_last_n_layers=4
 head_type="ctc"
 train_decoder="ctc_viterbi"
 pre_head_type="tcn"
 feature_source="hidden"
 head_output_activation="tanh"
 head_output_scale=5
-backbone_chunk_size=1536
+backbone_chunk_size=1540
 
 # ODE 参数（feature_source="ode_hidden" 时生效）
 elf_ode_steps=2
@@ -58,12 +58,12 @@ elf_sde_seed=6198
 # 日志参数
 use_wandb=true
 wandb_project="stage4_basecall_public"
-wandb_run_name="test_public_hf_dlm_basecall_300000_chunks_tcn_ctc_context_BERT_24_layer"
+wandb_run_name="test_public_hf_dlm_basecall_300000_chunks_tcn_ctc_context_DLM"
 
 # 输入、模型和输出路径
-base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V001_24_layer/models/step_280000"
+base_model="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/hf_dlm"
 data_root="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V001/basecall/DNA_S1_HG00200_MIX_250F701901011_30000_chunks/basecall_data"
-outdir="${stage4_root}/runs/DNA_S1_HG00200_MIX_250F701901011_300000_chunks_BERT_24_layer"
+outdir="${stage4_root}/runs/DNA_S1_HG00200_MIX_250F701901011_300000_chunks_DLM"
 
 mkdir -p "${outdir}"
 
