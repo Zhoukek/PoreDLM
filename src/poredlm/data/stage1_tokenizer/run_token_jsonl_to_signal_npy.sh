@@ -21,6 +21,9 @@ BATCH_SIZE=32
 # 如果设为空字符串，Python 脚本会按“token 数 × tokenizer stride”自动推断。
 SIGNAL_LENGTH=6000
 
+# reference 固定长度；不足部分在右侧补 0，超过该长度的部分会被截断。
+REFERENCE_LENGTH=1000
+
 # 设为 true 时覆盖已经存在的 .npy；设为 false 时遇到已有文件会停止。
 OVERWRITE=false
 
@@ -54,6 +57,7 @@ ARGS=(
     --model "${MODEL_PATH}"
     --device "${DEVICE}"
     --batch-size "${BATCH_SIZE}"
+    --reference-length "${REFERENCE_LENGTH}"
 )
 
 if [[ -n "${SIGNAL_LENGTH}" ]]; then
@@ -73,5 +77,6 @@ echo "模型路径：${MODEL_PATH}"
 echo "计算设备：${DEVICE}"
 echo "批次大小：${BATCH_SIZE}"
 echo "信号长度：${SIGNAL_LENGTH:-自动推断}"
+echo "Reference 长度：${REFERENCE_LENGTH}"
 
 "${PYTHON_BIN}" "${PYTHON_SCRIPT}" "${ARGS[@]}" "$@"

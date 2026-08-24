@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Decode ``<|bwav:N|>`` corpora back to nanopore signal arrays.
 
-One input ``*.jsonl.gz`` produces one two-dimensional ``*.npy`` by default.
-Rows in the output have exactly the same order as records in the input file.
+Each input produces a two-dimensional signal ``*.npy`` and an aligned
+``*_references.npy``. Rows keep exactly the same order as the JSONL records.
 """
 
 from __future__ import annotations
@@ -29,8 +29,26 @@ def parse_bwav_tokens(text: str) -> np.ndarray:
     return np.asarray(values, dtype=np.int64)
 
 
-def iter_records(path: Path) -> Iterator[tuple[int, str, np.ndarray]]:
-    """Yield ``(line_number, record_id, token_ids)`` from a JSONL gzip file."""
+def parse_bases(value: object) -> np.ndarray:
+    """Parse a bases field such as ``"1234"`` or ``[1, 2, 3, 4]``."""
+    if isinstance(value, str):
+        if not value:
+            return np.empty(0, dtype=np.uint8)
+        if not value.isdigit():
+            raise ValueError("the 'bases' string must contain digits only")
+        values = [int(base) for base in value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        raise TypeError("'bases' must be a digit string or a list of integers")
+    result = np.asarray(values, dtype=np.int64)
+    if result.ndim != 1 or np.any(result < 0) or np.any(result > 255):
+        raise ValueError("'bases' values must be one-dimensional integers in [0, 255]")
+    return result.astype(np.uint8)
+
+
+def iter_records(path: Path) -> Iterator[tuple[int, str, np.ndarray, np.ndarray]]:
+    """Yield line number, record ID, token IDs, and bases from a JSONL gzip file."""
     with gzip.open(path, "rt", encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, 1):
             if not line.strip():
@@ -42,16 +60,17 @@ def iter_records(path: Path) -> Iterator[tuple[int, str, np.ndarray]]:
                 if not isinstance(text, str):
                     raise TypeError("'text' is not a string")
                 tokens = parse_bwav_tokens(text)
+                bases = parse_bases(record["bases"])
             except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"{path}: invalid record on line {line_number}: {exc}") from exc
-            yield line_number, record_id, tokens
+            yield line_number, record_id, tokens, bases
 
 
 def inspect_input(path: Path) -> tuple[int, int]:
     """Return record count and the common token count, validating all rows."""
     count = 0
     token_count = -1
-    for line_number, record_id, tokens in iter_records(path):
+    for line_number, record_id, tokens, _ in iter_records(path):
         if token_count < 0:
             token_count = len(tokens)
         elif len(tokens) != token_count:
@@ -166,17 +185,33 @@ def decode_file(
     batch_size: int,
     overwrite: bool,
     signal_length: int | None = None,
+    reference_length: int = 1000,
 ) -> tuple[int, int]:
     if output_path.exists() and not overwrite:
         raise FileExistsError(f"output already exists: {output_path} (use --overwrite to replace it)")
     record_count, token_count = inspect_input(input_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    reference_path = output_path.with_name(reference_name(output_path))
+    if reference_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"output already exists: {reference_path} (use --overwrite to replace it)"
+        )
+    references = np.lib.format.open_memmap(
+        reference_path,
+        mode="w+",
+        dtype=np.uint8,
+        shape=(record_count, reference_length),
+    )
+    references[:] = 0
 
     output = None
     batch: list[np.ndarray] = []
+    base_batch: list[np.ndarray] = []
     row = 0
-    for _, _, tokens in iter_records(input_path):
+    truncated_references = 0
+    for _, _, tokens, bases in iter_records(input_path):
         batch.append(tokens)
+        base_batch.append(bases)
         if len(batch) < batch_size and row + len(batch) < record_count:
             continue
         decoded = decoder.decode(np.stack(batch), target_signal_length=signal_length)
@@ -187,14 +222,27 @@ def decode_file(
         elif decoded.shape[1] != output.shape[1]:
             raise RuntimeError("decoder returned different signal lengths between batches")
         output[row : row + len(batch)] = decoded
+        for batch_index, bases in enumerate(base_batch):
+            copied_length = min(len(bases), reference_length)
+            references[row + batch_index, :copied_length] = bases[:copied_length]
+            truncated_references += int(len(bases) > reference_length)
         row += len(batch)
         batch.clear()
+        base_batch.clear()
         print(f"\r{input_path.name}: {row}/{record_count}", end="", flush=True)
     print()
     assert output is not None
     signal_length = int(output.shape[1])
     output.flush()
+    references.flush()
     del output
+    del references
+    print(f"saved {reference_path} shape=({record_count}, {reference_length}) dtype=uint8")
+    if truncated_references:
+        print(
+            f"warning: truncated {truncated_references} references longer than "
+            f"{reference_length} bases"
+        )
     return record_count, signal_length
 
 
@@ -214,6 +262,13 @@ def output_name(input_path: Path) -> str:
     return name[:-9] + ".npy" if name.endswith(".jsonl.gz") else name + ".npy"
 
 
+def reference_name(signal_path: Path) -> str:
+    """Derive the Stage4 companion reference filename from a chunks filename."""
+    if signal_path.name.endswith("_chunks.npy"):
+        return signal_path.name[:-len("_chunks.npy")] + "_references.npy"
+    return signal_path.stem + "_references.npy"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path, help="A .jsonl.gz file or directory")
@@ -227,6 +282,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Target points per reconstructed signal; default: token count times codec stride",
     )
+    parser.add_argument(
+        "--reference-length",
+        type=int,
+        default=1000,
+        help="Fixed width of the companion references array (default: 1000)",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -237,6 +298,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("--batch-size must be at least 1")
     if args.signal_length is not None and args.signal_length < 1:
         raise ValueError("--signal-length must be at least 1")
+    if args.reference_length < 1:
+        raise ValueError("--reference-length must be at least 1")
     inputs = find_inputs(args.input.expanduser())
     decoder = SignalDecoder(args.model, args.device)
     for input_path in inputs:
@@ -248,6 +311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.batch_size,
             args.overwrite,
             args.signal_length,
+            args.reference_length,
         )
         print(f"saved {output_path} shape=({rows}, {length}) dtype=float32")
     return 0
