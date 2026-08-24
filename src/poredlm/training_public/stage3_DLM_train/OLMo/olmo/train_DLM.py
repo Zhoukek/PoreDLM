@@ -43,29 +43,38 @@ class DLMTrainer(Trainer):
         #         print(f"  {key}: {value} (type: {type(value)})")
         # print("=" * 50)
 
-        output = self.dist_model(
-            input_ids=micro_batch["input_ids"],
-            encoder_attention_mask=micro_batch.get("encoder_attention_mask"),
-            attention_mask=micro_batch.get("attention_mask"),
-            attention_bias=micro_batch.get("attention_bias"),
-            cond_seq_mask=micro_batch.get("cond_seq_mask"),
-            label_drop_mask=micro_batch.get("label_drop_mask"),
-            elf_diffusion=True,
-            label_drop_prob=self.cfg.dlm.label_drop_prob,
-            denoiser_p_mean=self.cfg.dlm.denoiser_p_mean,
-            denoiser_p_std=self.cfg.dlm.denoiser_p_std,
-            denoiser_noise_scale=self.cfg.dlm.denoiser_noise_scale,
-            t_eps=self.cfg.dlm.t_eps,
-            time_schedule=self.cfg.dlm.time_schedule,
-            decoder_prob=self.cfg.dlm.decoder_prob,
-            decoder_noise_scale=self.cfg.dlm.decoder_noise_scale,
-            decoder_p_mean=self.cfg.dlm.decoder_p_mean,
-            decoder_p_std=self.cfg.dlm.decoder_p_std,
-            self_cond_prob=self.cfg.dlm.self_cond_prob,
-            self_cond_cfg_min=self.cfg.dlm.self_cond_cfg_min,
-            self_cond_cfg_max=self.cfg.dlm.self_cond_cfg_max,
-            num_self_cond_cfg_tokens=self.cfg.dlm.num_self_cond_cfg_tokens,
-        )
+        objective = str(getattr(self.cfg.dlm, "training_objective", "elf")).lower()
+        if objective == "bert":
+            output = self.dist_model(
+                input_ids=micro_batch["input_ids"],
+                attention_mask=micro_batch["attention_mask"],
+                cond_seq_mask=micro_batch["cond_seq_mask"],
+                bert_masked_lm=True,
+            )
+        else:
+            output = self.dist_model(
+                input_ids=micro_batch["input_ids"],
+                encoder_attention_mask=micro_batch.get("encoder_attention_mask"),
+                attention_mask=micro_batch.get("attention_mask"),
+                attention_bias=micro_batch.get("attention_bias"),
+                cond_seq_mask=micro_batch.get("cond_seq_mask"),
+                label_drop_mask=micro_batch.get("label_drop_mask"),
+                elf_diffusion=True,
+                label_drop_prob=self.cfg.dlm.label_drop_prob,
+                denoiser_p_mean=self.cfg.dlm.denoiser_p_mean,
+                denoiser_p_std=self.cfg.dlm.denoiser_p_std,
+                denoiser_noise_scale=self.cfg.dlm.denoiser_noise_scale,
+                t_eps=self.cfg.dlm.t_eps,
+                time_schedule=self.cfg.dlm.time_schedule,
+                decoder_prob=self.cfg.dlm.decoder_prob,
+                decoder_noise_scale=self.cfg.dlm.decoder_noise_scale,
+                decoder_p_mean=self.cfg.dlm.decoder_p_mean,
+                decoder_p_std=self.cfg.dlm.decoder_p_std,
+                self_cond_prob=self.cfg.dlm.self_cond_prob,
+                self_cond_cfg_min=self.cfg.dlm.self_cond_cfg_min,
+                self_cond_cfg_max=self.cfg.dlm.self_cond_cfg_max,
+                num_self_cond_cfg_tokens=self.cfg.dlm.num_self_cond_cfg_tokens,
+            )
         loss = output.loss * self.cfg.dlm.loss_weight
         metrics = {
             "l2_loss": output.l2_loss.detach(),
@@ -231,6 +240,21 @@ class DLMTrainer(Trainer):
         batch = move_to_device(batch, self.device)
         with torch.no_grad():
             with torch.autocast("cuda", enabled=True, dtype=self.cfg.autocast_precision):
+                if str(getattr(self.cfg.dlm, "training_objective", "elf")).lower() == "bert":
+                    bert_output = self.dist_model(
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                        cond_seq_mask=batch["cond_seq_mask"],
+                        bert_masked_lm=True,
+                    )
+                    batch_size = batch["input_ids"].shape[0]
+                    evaluator.update_dlm_metrics(
+                        batch,
+                        l2_loss=bert_output.l2_loss.detach().expand(batch_size),
+                        ce_loss=bert_output.ce_loss.detach().expand(batch_size),
+                    )
+                    barrier()
+                    return
                 common_kwargs = dict(
                     input_ids=batch["input_ids"],
                     encoder_attention_mask=batch.get("encoder_attention_mask"),

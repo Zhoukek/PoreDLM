@@ -957,6 +957,8 @@ class DLMConfig(BaseConfig):
     """
 
     freeze_context_encoder: bool = True
+    training_objective: str = "elf"
+    """Stage-3 objective: ``elf`` or BERT's original masked-LM head (``bert``)."""
 
     max_length: Optional[int] = None
     max_input_length: Optional[int] = None

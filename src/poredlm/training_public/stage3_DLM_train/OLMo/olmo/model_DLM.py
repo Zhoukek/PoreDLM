@@ -2199,6 +2199,24 @@ class _HFContextEncoderAdapter(nn.Module):
             return SimpleNamespace(last_hidden_state=hidden)
         return (hidden,)
 
+    def masked_lm_logits(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        attention_mask = self._to_key_padding_attention_mask(attention_mask)
+        output = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True,
+        )
+        logits = getattr(output, "logits", None)
+        if logits is None:
+            raise OLMoConfigurationError(
+                f"Context encoder {self.model.__class__.__name__} does not expose original MLM logits"
+            )
+        return logits
+
 
 def _strip_state_dict_prefixes(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     prefixes = ("module.", "_orig_mod.")
@@ -2347,6 +2365,13 @@ class OLMoDLM(nn.Module):
         self.dlm_config = dlm_config
         self.context_encoder = _load_context_encoder(context_encoder_path)
         self.freeze_context_encoder = freeze_context_encoder
+        self.training_objective = str(getattr(dlm_config, "training_objective", "elf")).lower()
+        if self.training_objective not in {"elf", "bert"}:
+            raise OLMoConfigurationError("dlm.training_objective must be 'elf' or 'bert'")
+        if self.training_objective == "bert" and freeze_context_encoder:
+            raise OLMoConfigurationError(
+                "BERT objective requires dlm.freeze_context_encoder=false"
+            )
         self.context_hidden_size = self.context_encoder.config.hidden_size
         if freeze_context_encoder:
             self.context_encoder.eval()
@@ -2371,6 +2396,9 @@ class OLMoDLM(nn.Module):
             num_model_mode_tokens=int(getattr(dlm_config, "num_model_mode_tokens", 0)),
             bottleneck_dim=int(getattr(dlm_config, "bottleneck_dim", 128)),
         )
+        if self.training_objective == "bert":
+            for param in self.elf_denoiser.parameters():
+                param.requires_grad = False
 
     def reset_parameters(self):
         # ELF and the HuggingFace BERT context encoder initialize themselves.
@@ -2435,9 +2463,14 @@ class OLMoDLM(nn.Module):
         dlm_t_min: float = 1.0e-5,
         dlm_t_max: float = 1.0 - 1.0e-5,
         dlm_reduction: str = "mean",
+        bert_masked_lm: bool = False,
         **kwargs: Any,
     ) -> Any:
         del kwargs
+        if bert_masked_lm:
+            if attention_mask is None or cond_seq_mask is None:
+                raise OLMoConfigurationError("BERT objective requires attention_mask and cond_seq_mask")
+            return self.bert_masked_lm_forward(input_ids, attention_mask, cond_seq_mask)
         if elf_diffusion:
             return self.elf_diffusion_forward(
                 input_ids=input_ids,
@@ -2471,6 +2504,46 @@ class OLMoDLM(nn.Module):
                 reduction=dlm_reduction,
             )
         raise OLMoConfigurationError("OLMoDLM.forward() expects `elf_diffusion=True` for stage 3 training")
+
+    def bert_masked_lm_forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.Tensor,
+        cond_seq_mask: torch.Tensor,
+    ) -> OLMoELFDLMOutput:
+        masked_lm_logits = getattr(self.context_encoder, "masked_lm_logits", None)
+        if not callable(masked_lm_logits):
+            raise OLMoConfigurationError(
+                "BERT objective requires an HF Stage-2 checkpoint that retains its original lm_head"
+            )
+        valid = attention_mask.to(dtype=torch.bool)
+        target_mask = valid & ~cond_seq_mask.to(dtype=torch.bool)
+        if not bool(target_mask.any()):
+            raise OLMoConfigurationError("BERT objective batch contains no target positions")
+        mask_token_id = getattr(self.context_encoder.config, "mask_token_id", None)
+        if mask_token_id is None:
+            raise OLMoConfigurationError("Stage-2 BERT config does not define mask_token_id")
+        masked_ids = input_ids.clone()
+        masked_ids[target_mask] = int(mask_token_id)
+        logits = masked_lm_logits(masked_ids, attention_mask=valid)
+        per_token_ce = F.cross_entropy(
+            logits.float().reshape(-1, logits.shape[-1]),
+            input_ids.reshape(-1),
+            reduction="none",
+        ).view_as(input_ids)
+        loss_mask = target_mask.to(dtype=per_token_ce.dtype)
+        ce_loss = (per_token_ce * loss_mask).sum() / loss_mask.sum().clamp_min(1.0)
+        zero = ce_loss.detach().new_zeros(())
+        return OLMoELFDLMOutput(
+            loss=ce_loss,
+            l2_loss=zero,
+            ce_loss=ce_loss.detach(),
+            decoder_step_active=torch.tensor(True, device=input_ids.device),
+            pred=logits,
+            target=input_ids,
+            mask=loss_mask,
+            t=zero,
+        )
 
     def _sample_elf_timesteps(
         self,
