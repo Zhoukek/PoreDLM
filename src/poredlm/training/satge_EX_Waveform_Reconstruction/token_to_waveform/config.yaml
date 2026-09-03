@@ -26,8 +26,8 @@ data:
 
 models:
   # dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/test/hf_dlm_cond
-  dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V004/hf_dlm_step70000
-  # dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V002/hf_dlm_step69000
+  # dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V004/hf_dlm_step70000
+  dlm_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V004_BERT/hf_dlm_step215000
   # Exact checkpoint used by stage2_BERT_trian/eval. Set null to use the BERT
   # embedded in hf_dlm_condition instead.
   bert_path: /mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V002/HF_BERT_part
@@ -60,4 +60,4 @@ generation:
   invalid_token_policy: error
 
 output:
-  directory: figure/outputs/token_to_waveform_V004_step70000_sde_step8_cfg_1.0_sde_gamma_0.1_self_cond_1.0_1000_30
+  directory: figure/outputs/token_to_waveform_V004_BERT

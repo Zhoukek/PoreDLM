@@ -848,7 +848,17 @@ class FullCheckpointer(Checkpointer):
             for group in optim_state_dict["param_groups"]:
                 group["param_names"] = [fqn.replace("_fsdp_wrapped_module.", "") for fqn in group["param_names"]]
                 group["params"] = [fqn.replace("_fsdp_wrapped_module.", "") for fqn in group["params"]]
-                assert group["param_names"] == group["params"]
+                if group["param_names"] != group["params"]:
+                    # FSDP may expand ``params`` to a different set/order of
+                    # FQNs when a wrapped model mixes frozen ELF parameters
+                    # with trainable BERT MultiheadAttention parameters. The
+                    # optimizer's ``param_names`` were created from its actual
+                    # trainable parameter groups and therefore determine the
+                    # group cardinality expected by Optimizer.load_state_dict.
+                    log.warning(
+                        "FSDP params differ from optimizer param_names; using optimizer param_names"
+                    )
+                    group["params"] = list(group["param_names"])
             for key in list(optim_state_dict["state"].keys()):
                 optim_state_dict["state"][key.replace("_fsdp_wrapped_module.", "")] = optim_state_dict[
                     "state"

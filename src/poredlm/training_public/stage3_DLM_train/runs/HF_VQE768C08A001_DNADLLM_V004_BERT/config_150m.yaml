@@ -6,8 +6,8 @@ dry_run: false
 dlm:
   context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V004/models/step_200000
   # elf: freeze BERT and train only ELF. bert: train BERT encoder + its original MLM head.
-  training_objective: elf
-  freeze_context_encoder: true
+  training_objective: bert
+  freeze_context_encoder: false
   max_length: 1536
   # Encoder
   latent_mean: 0.0
@@ -338,7 +338,7 @@ sharded_checkpointer: olmo_core
 save_interval_unsharded: 1000
 save_num_unsharded_checkpoints_to_keep: 5
 
-load_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_VQE768C08A001_DNADLLM_V004/model_mixed/step6000-unsharded
+load_path: null
 
 # 这个是控制训练轮数的
 max_duration: 5ep

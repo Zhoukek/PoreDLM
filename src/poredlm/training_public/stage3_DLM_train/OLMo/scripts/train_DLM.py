@@ -353,7 +353,14 @@ def main(cfg: TrainConfig) -> None:
             # And they we verify that we can load it.
             log.info("Attempting to load pre-train checkpoint...")
             trainer.restore_checkpoint(
-                checkpoint_path, checkpoint_type=checkpoint_type, local_cache=local_checkpoint_cache
+                checkpoint_path,
+                checkpoint_type=checkpoint_type,
+                local_cache=local_checkpoint_cache,
+                # Before the first optimization step the optimizer state is
+                # empty. Model/trainer restoration is sufficient for this
+                # startup checkpoint smoke test, and avoids relying on PyTorch
+                # FSDP's version-sensitive empty optimizer-group conversion.
+                load_optimizer_state=False,
             )
             log.info("Checkpoint successfully loaded")
 

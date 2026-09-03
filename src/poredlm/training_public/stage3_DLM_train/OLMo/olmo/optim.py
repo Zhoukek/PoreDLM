@@ -868,6 +868,12 @@ def get_param_groups(cfg: TrainConfig, model: nn.Module) -> List[Dict[str, Any]]
                     no_decay.add(fpn)
             elif pn.endswith("weight") and isinstance(m, nn.Linear):
                 decay.add(fpn)
+            elif pn == "in_proj_weight" and isinstance(m, nn.MultiheadAttention):
+                # torch.nn.MultiheadAttention stores the Q/K/V projections in
+                # one packed parameter instead of child nn.Linear modules.
+                # Trainable Stage-2 BERT encoders therefore expose this name,
+                # which must follow the same decay policy as linear weights.
+                decay.add(fpn)
             elif pn.endswith("weight") and _is_norm_module(m):
                 if cfg.optimizer.decay_norm_and_bias:
                     decay.add(fpn)

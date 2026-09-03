@@ -19,7 +19,7 @@ esac
 
 # elf: original Stage-3 ELF objective; bert: same sampled target spans with
 # Stage-2 BERT's own MLM head. BERT mode automatically unfreezes BERT.
-DLM_OBJECTIVE=${DLM_OBJECTIVE:-elf}
+DLM_OBJECTIVE=${DLM_OBJECTIVE:-bert}
 case "${DLM_OBJECTIVE}" in
     elf) FREEZE_CONTEXT=true ;;
     bert) FREEZE_CONTEXT=false ;;
