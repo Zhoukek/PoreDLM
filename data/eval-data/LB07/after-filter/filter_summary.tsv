@@ -1,0 +1,9 @@
+file	input	unique_reads_input	min_len	q1	median	q3	max_len	iqr_lower	iqr_upper	length_outliers	missing_read_id	after_length	conflict_dropped	written	output_jsonl
+seq_1__124-128__TAAGC.jsonl	2354	2354	25	55.000	65.000	77.000	349	22.000	110.000	86	0	2268	1634	634	/home/shj/ZJ-lab/mod-data/LB07/new/seq_1__124-128__TAAGC.jsonl
+seq_1__31-35__CTCGA.jsonl	2577	2577	26	47.000	56.000	67.000	589	17.000	97.000	55	0	2522	1816	706	/home/shj/ZJ-lab/mod-data/LB07/new/seq_1__31-35__CTCGA.jsonl
+seq_1__6-10__GTGAA.jsonl	2770	2770	26	54.000	63.000	75.000	505	22.500	106.500	79	0	2691	1938	753	/home/shj/ZJ-lab/mod-data/LB07/new/seq_1__6-10__GTGAA.jsonl
+seq_1__75-79__AATAT.jsonl	2629	2629	24	46.000	55.000	66.000	248	16.000	96.000	65	0	2564	1847	717	/home/shj/ZJ-lab/mod-data/LB07/new/seq_1__75-79__AATAT.jsonl
+seq_7__103-107__TGCGG.jsonl	3357	3357	26	52.000	63.000	75.000	385	17.500	109.500	131	0	3226	1507	1719	/home/shj/ZJ-lab/mod-data/LB07/new/seq_7__103-107__TGCGG.jsonl
+seq_7__23-27__TTGTC.jsonl	3314	3314	26	55.000	67.000	82.000	1467	14.500	122.500	106	0	3208	1499	1709	/home/shj/ZJ-lab/mod-data/LB07/new/seq_7__23-27__TTGTC.jsonl
+seq_8__11-15__AGTCT.jsonl	1870	1870	28	57.000	66.500	79.000	570	24.000	112.000	53	0	1817	783	1034	/home/shj/ZJ-lab/mod-data/LB07/new/seq_8__11-15__AGTCT.jsonl
+seq_8__90-94__CAGGC.jsonl	1827	1827	28	47.000	55.000	65.000	194	20.000	92.000	49	0	1778	766	1012	/home/shj/ZJ-lab/mod-data/LB07/new/seq_8__90-94__CAGGC.jsonl

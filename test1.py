@@ -1,6 +1,7 @@
 # 读取npy文件并绘图
 import numpy as np
 import matplotlib.pyplot as plt
+from poreproc import SignalProcessor
 
 # 读取 npy 文件
 file_path = "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/basecall/eval/eval_00001/chunks_apple.npy"

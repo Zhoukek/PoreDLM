@@ -18,6 +18,10 @@ class PoreFeatureExtractor(SequenceFeatureExtractor):
     2. 'apple' pipeline (Default):
         - Includes all components of the 'mongo' pipeline.
         - Appends a high-frequency localized denoising layer via a continuous 1D median filter (medfilt).
+
+    3. 'stone' pipeline:
+        - Applies only global Median-MAD normalization.
+        - Matches `nanopore_process_signal(..., strategy="stone")` in `poredlm.utils.signal`.
     """
     model_input_names = ["signal"]
 
@@ -47,7 +51,7 @@ class PoreFeatureExtractor(SequenceFeatureExtractor):
         )
 
         # 统一转化为小写，防止大小写输入错误，并进行策略校验
-        supported_strategies = ["apple", "mongo"]
+        supported_strategies = ["apple", "mongo", "stone"]
         if strategy.lower() not in supported_strategies:
             raise ValueError(
                 f"Unsupported strategy: '{strategy}'. Choose from {supported_strategies}."
@@ -164,6 +168,14 @@ class PoreFeatureExtractor(SequenceFeatureExtractor):
         normalized = residual / global_MAD
         return normalized.astype(np.float32)
 
+    def _normalize_stone(self, signal: np.ndarray) -> np.ndarray:
+        """Apply the global Median-MAD normalization used by the stone pipeline."""
+        signal_median = np.median(signal)
+        global_mad = 1.4826 * np.median(np.abs(signal - signal_median))
+        global_mad = max(global_mad, 1.0)
+        normalized = (signal - signal_median) / global_mad
+        return normalized.astype(np.float32)
+
     def __call__(
         self,
         raw_signals: Union[torch.Tensor, np.ndarray, List[np.ndarray]],
@@ -194,22 +206,25 @@ class PoreFeatureExtractor(SequenceFeatureExtractor):
                 processed_signals.append(np.array([], dtype=np.float32))
                 continue
 
-            # 公共流水线步骤 1~3
-            sig_clear = self._repair_errors(sig_arr, min_value=1.0, max_value=220.0)
-            sig_elite = self._remove_spikes(sig_clear, window_size=6000, spike_threshold=5.0)
-            sig_normal = self._normalize_novel(sig_elite)
-
-            # 策略分支控制：如果是 apple 策略，额外注入 1D 中值滤波平滑层
-            if self.strategy == "apple":
-                sig_final = medfilt(sig_normal, kernel_size=5).astype(np.float32)
+            if self.strategy == "stone":
+                # Keep this branch identical to poredlm.utils.signal's stone
+                # preprocessing: no repair, despiking, filtering, or clipping.
+                sig_final = self._normalize_stone(sig_arr)
             else:
-                sig_final = sig_normal
+                # Common apple/mongo pipeline: repair, despike, and robustly normalize.
+                sig_clear = self._repair_errors(sig_arr, min_value=1.0, max_value=220.0)
+                sig_elite = self._remove_spikes(sig_clear, window_size=6000, spike_threshold=5.0)
+                sig_normal = self._normalize_novel(sig_elite)
 
-            # Step 5: Piecewise Smooth Clipping
-            if self.sclamp_linear_bound > 1e-6:
-                sig_final = self._sclamp_bounds(
-                    sig_final
-                )
+                # Apple additionally applies a localized median filter.
+                if self.strategy == "apple":
+                    sig_final = medfilt(sig_normal, kernel_size=5).astype(np.float32)
+                else:
+                    sig_final = sig_normal
+
+                # Smooth clipping belongs only to the apple/mongo pipelines.
+                if self.sclamp_linear_bound > 1e-6:
+                    sig_final = self._sclamp_bounds(sig_final)
 
             processed_signals.append(sig_final)
 
