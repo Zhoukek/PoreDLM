@@ -1,0 +1,16 @@
+from .config import *
+from .model import *
+from .model_porelm import *
+from .tokenizer import *
+
+
+def check_install(cuda: bool = False):
+    import torch
+
+    from .version import VERSION
+
+    if cuda:
+        assert torch.cuda.is_available(), "CUDA is not available!"
+        print("CUDA available")
+
+    print(f"PoreLM v{VERSION} installed")
