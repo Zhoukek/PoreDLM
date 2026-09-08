@@ -3,7 +3,7 @@ seed: 6198
 dry_run: false
 
 dlm:
-  context_encoder_path: /path/to/stage2/context_encoder
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V005/models/step_95000
   training_objective: flow_matching
   freeze_context_encoder: true
   max_length: 1536
@@ -96,7 +96,7 @@ scheduler:
   warmup_min_lr: 0
 
 tokenizer:
-  identifier: /path/to/tokenizer.json
+  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
   truncate_direction: right
 
 save_folder: save/porelm_output
@@ -138,7 +138,7 @@ evaluators:
       drop_last: true
       memmap_dtype: uint32
       paths:
-        - /path/to/eval_tokens
+        - /mnt/zzbnew/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/tokens_appleq50_pore_codec_vqe768c08a-005/eval/pore_tokens_rank0_0000.npy
 
 data:
   pad_direction: right
@@ -154,7 +154,7 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /path/to/train_tokens
+    - /mnt/zzbnew/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/tokens_appleq50_pore_codec_vqe768c08a-005/train
 
 wandb:
   entity: null
