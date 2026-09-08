@@ -958,7 +958,7 @@ class DLMConfig(BaseConfig):
 
     freeze_context_encoder: bool = True
     training_objective: str = "flow_matching"
-    """Stage-3 objective: flow matching or BERT's original masked-LM head (``bert``)."""
+    """Stage-3 objective: ``flow_matching``, ``self_flow``, or BERT's original masked-LM head (``bert``)."""
 
     max_length: Optional[int] = None
     max_input_length: Optional[int] = None
@@ -991,6 +991,24 @@ class DLMConfig(BaseConfig):
     self_cond_cfg_min: float = 0.0
     self_cond_cfg_max: float = 1.0
     label_drop_prob: float = 0.0
+
+    self_flow_mask_ratio: float = 0.25
+    """Fraction of target tokens assigned the second timestep in Dual-Timestep training."""
+
+    self_flow_student_layer: int = 8
+    """Student denoiser layer whose features receive the self-flow representation loss."""
+
+    self_flow_teacher_layer: int = 20
+    """EMA teacher denoiser layer used as the mature semantic target."""
+
+    self_flow_loss_weight: float = 0.1
+    """Weight for the teacher-to-student feature loss."""
+
+    self_flow_teacher_ema_decay: float = 0.9999
+    """EMA decay for updating the self-flow teacher after each optimizer step."""
+
+    self_flow_feature_loss: str = "cosine"
+    """Feature loss type for self-flow representation alignment: ``cosine`` or ``mse``."""
 
     conditioning_mode: str = "unconditional"
     """DLM training mode: ``unconditional``, ``conditional``, or ``mixed``."""

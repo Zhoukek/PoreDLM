@@ -24,6 +24,16 @@ class FlowMatchingBlock(nn.Module):
         return x
 
 
+class FeatureProjector(nn.Module):
+    def __init__(self, hidden_size: int):
+        super().__init__()
+        self.proj = init_linear(nn.Linear(hidden_size, hidden_size))
+        self.norm = RMSNorm(hidden_size, eps=1e-6)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.norm(F.silu(self.proj(x)))
+
+
 class FlowMatchingDenoiser(nn.Module):
     def __init__(self, text_encoder_dim: int, max_length: int, hidden_size: int = 1024, depth: int = 24, num_heads: int = 16, mlp_ratio: float = 4.0, attn_drop: float = 0.0, proj_drop: float = 0.0, bottleneck_dim: int = 128, num_time_tokens: int = 4, num_self_cond_cfg_tokens: int = 4, num_model_mode_tokens: int = 0, vocab_size: int = 0):
         super().__init__()
@@ -53,25 +63,46 @@ class FlowMatchingDenoiser(nn.Module):
         self.final_layer = FinalLayer(hidden_size, 1, text_encoder_dim)
         self.proj = init_linear(nn.Linear(hidden_size, text_encoder_dim))
         self.unembed = init_linear(nn.Linear(text_encoder_dim, vocab_size))
+        self.feature_projector = FeatureProjector(hidden_size)
 
     def build_context(self, t: torch.Tensor, self_cond_cfg_scale: Optional[torch.Tensor] = None) -> list[torch.Tensor]:
         prefix_tokens = []
         batch = t.shape[0]
         if self.num_time_tokens <= 0:
             raise ValueError("num_time_tokens must be positive for prefix time conditioning")
-        time_emb = self.t_embedder(t)
+        prefix_t = t.mean(dim=1) if t.ndim == 2 else t
+        time_emb = self.t_embedder(prefix_t)
         prefix_tokens.append(self.t_emb_tokens.expand(batch, -1, -1) + time_emb.unsqueeze(1))
         if self_cond_cfg_scale is not None and self.num_self_cond_cfg_tokens > 0:
             sc_emb = self.self_cond_cfg_embedder(self_cond_cfg_scale)
             prefix_tokens.append(self.self_cond_cfg_tokens.expand(batch, -1, -1) + sc_emb.unsqueeze(1))
         return prefix_tokens
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, attention_mask: Optional[torch.Tensor] = None, self_cond_cfg_scale: Optional[torch.Tensor] = None, decoder_step_active: Optional[torch.Tensor | bool] = None) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        self_cond_cfg_scale: Optional[torch.Tensor] = None,
+        decoder_step_active: Optional[torch.Tensor | bool] = None,
+        return_features: Optional[int] = None,
+        return_raw_features: Optional[int] = None,
+        use_per_token_time: bool = False,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]] | tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         head_dim = self.hidden_size // self.num_heads
         batch = x.shape[0]
+        seq_len = x.shape[1]
         if x.shape[-1] == 2 * self.text_encoder_dim:
             x = self.self_cond_proj(x)
         x = self.text_proj(x)
+        if t.ndim == 2:
+            if t.shape != (batch, seq_len):
+                raise ValueError(f"per-token timestep shape must be {(batch, seq_len)}, got {tuple(t.shape)}")
+            token_time_emb = self.t_embedder(t.reshape(-1)).reshape(batch, seq_len, self.hidden_size)
+            x = x + token_time_emb
+        elif use_per_token_time:
+            token_time_emb = self.t_embedder(t).unsqueeze(1)
+            x = x + token_time_emb
 
         model_mode_offset = 0
         if self.num_model_mode_tokens > 0:
@@ -98,8 +129,16 @@ class FlowMatchingDenoiser(nn.Module):
                 attention_mask = torch.cat([prefix_mask, attention_mask], dim=1)
 
         feat_rope = TextRotaryEmbeddingFast(dim=head_dim, pt_seq_len=self.max_length, num_empty_token=prefix_len + model_mode_offset)
-        for block in self.blocks:
+        requested_layer = return_features if return_features is not None else return_raw_features
+        captured_features = None
+        for layer_idx, block in enumerate(self.blocks, start=1):
             x = block(x, rope_fn=feat_rope, attention_mask=attention_mask)
+            if requested_layer is not None and layer_idx == requested_layer:
+                token_features = x[:, prefix_len + model_mode_offset :]
+                if return_features is not None:
+                    captured_features = self.feature_projector(token_features)
+                else:
+                    captured_features = token_features
         x = x[:, prefix_len + model_mode_offset :]
 
         decoder_logits = None
@@ -111,6 +150,8 @@ class FlowMatchingDenoiser(nn.Module):
                 decoder_logits = torch.zeros((*x.shape[:2], self.vocab_size), dtype=x.dtype, device=x.device)
 
         output = self.final_layer(x)
+        if requested_layer is not None:
+            return output, decoder_logits, captured_features
         return output, decoder_logits
 
 

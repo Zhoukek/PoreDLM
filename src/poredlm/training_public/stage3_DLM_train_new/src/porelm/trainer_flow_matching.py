@@ -59,7 +59,8 @@ class FlowMatchingTrainer(Trainer):
                 attention_bias=micro_batch.get("attention_bias"),
                 cond_seq_mask=micro_batch.get("cond_seq_mask"),
                 label_drop_mask=micro_batch.get("label_drop_mask"),
-                flow_matching=True,
+                flow_matching=objective == "flow_matching",
+                self_flow=objective == "self_flow",
                 label_drop_prob=self.cfg.dlm.label_drop_prob,
                 denoiser_p_mean=self.cfg.dlm.denoiser_p_mean,
                 denoiser_p_std=self.cfg.dlm.denoiser_p_std,
@@ -74,11 +75,17 @@ class FlowMatchingTrainer(Trainer):
                 self_cond_cfg_min=self.cfg.dlm.self_cond_cfg_min,
                 self_cond_cfg_max=self.cfg.dlm.self_cond_cfg_max,
                 num_self_cond_cfg_tokens=self.cfg.dlm.num_self_cond_cfg_tokens,
+                self_flow_mask_ratio=self.cfg.dlm.self_flow_mask_ratio,
+                self_flow_student_layer=self.cfg.dlm.self_flow_student_layer,
+                self_flow_teacher_layer=self.cfg.dlm.self_flow_teacher_layer,
+                self_flow_loss_weight=self.cfg.dlm.self_flow_loss_weight,
+                self_flow_feature_loss=self.cfg.dlm.self_flow_feature_loss,
             )
         loss = output.loss * self.cfg.dlm.loss_weight
         metrics = {
             "l2_loss": output.l2_loss.detach(),
             "ce_loss": output.ce_loss.detach(),
+            "self_flow_loss": output.self_flow_loss.detach(),
             "decoder_step_active": output.decoder_step_active.detach().to(dtype=torch.float32),
             "condition_token_frac": (
                 content_condition_mask.float().sum() / content_token_count
@@ -104,6 +111,7 @@ class FlowMatchingTrainer(Trainer):
         batch_loss = torch.tensor(0.0, device=self.device)
         batch_l2_loss = torch.tensor(0.0, device=self.device)
         batch_ce_loss = torch.tensor(0.0, device=self.device)
+        batch_self_flow_loss = torch.tensor(0.0, device=self.device)
         batch_decoder_frac = torch.tensor(0.0, device=self.device)
         batch_condition_token_frac = torch.tensor(0.0, device=self.device)
         batch_unconditional_example_frac = torch.tensor(0.0, device=self.device)
@@ -134,6 +142,7 @@ class FlowMatchingTrainer(Trainer):
                     if micro_metrics is not None:
                         batch_l2_loss += micro_metrics["l2_loss"] / num_micro_batches
                         batch_ce_loss += micro_metrics["ce_loss"] / num_micro_batches
+                        batch_self_flow_loss += micro_metrics["self_flow_loss"] / num_micro_batches
                         batch_decoder_frac += micro_metrics["decoder_step_active"] / num_micro_batches
                         batch_condition_token_frac += micro_metrics["condition_token_frac"] / num_micro_batches
                         batch_unconditional_example_frac += (
@@ -156,6 +165,7 @@ class FlowMatchingTrainer(Trainer):
         metrics = {
             "l2_loss": batch_l2_loss.detach(),
             "ce_loss": batch_ce_loss.detach(),
+            "self_flow_loss": batch_self_flow_loss.detach(),
             "decoder_step_frac": batch_decoder_frac.detach(),
             "condition_token_frac": batch_condition_token_frac.detach(),
             "unconditional_example_frac": batch_unconditional_example_frac.detach(),
@@ -207,6 +217,9 @@ class FlowMatchingTrainer(Trainer):
             )
 
         self.optim.step()
+        if str(getattr(self.cfg.dlm, "training_objective", "flow_matching")).lower() == "self_flow":
+            module = self.dist_model.module if hasattr(self.dist_model, "module") else self.dist_model
+            module.update_self_flow_teacher(self.cfg.dlm.self_flow_teacher_ema_decay)
 
         if torch.isnan(batch_loss):
             raise ValueError("nan flow matching loss encountered")
@@ -218,6 +231,7 @@ class FlowMatchingTrainer(Trainer):
         if dlm_metrics is not None:
             metrics["train/L2Loss"] = dlm_metrics["l2_loss"].item()
             metrics["train/CELoss"] = dlm_metrics["ce_loss"].item()
+            metrics["train/SelfFlowLoss"] = dlm_metrics["self_flow_loss"].item()
             metrics["train/DecoderStepFrac"] = dlm_metrics["decoder_step_frac"].item()
             metrics["train/ConditionTokenFrac"] = dlm_metrics["condition_token_frac"].item()
             metrics["train/UnconditionalExampleFrac"] = dlm_metrics[
@@ -240,7 +254,8 @@ class FlowMatchingTrainer(Trainer):
         batch = move_to_device(batch, self.device)
         with torch.no_grad():
             with torch.autocast("cuda", enabled=True, dtype=self.cfg.autocast_precision):
-                if str(getattr(self.cfg.dlm, "training_objective", "flow_matching")).lower() == "bert":
+                objective = str(getattr(self.cfg.dlm, "training_objective", "flow_matching")).lower()
+                if objective == "bert":
                     bert_output = self.dist_model(
                         input_ids=batch["input_ids"],
                         attention_mask=batch["attention_mask"],
@@ -262,7 +277,8 @@ class FlowMatchingTrainer(Trainer):
                     attention_bias=batch.get("attention_bias"),
                     cond_seq_mask=batch.get("cond_seq_mask"),
                     label_drop_mask=batch.get("label_drop_mask"),
-                    flow_matching=True,
+                    flow_matching=objective == "flow_matching",
+                    self_flow=objective == "self_flow",
                     label_drop_prob=0.0,
                     denoiser_p_mean=self.cfg.dlm.denoiser_p_mean,
                     denoiser_p_std=self.cfg.dlm.denoiser_p_std,
@@ -276,6 +292,11 @@ class FlowMatchingTrainer(Trainer):
                     self_cond_cfg_min=self.cfg.dlm.self_cond_cfg_min,
                     self_cond_cfg_max=self.cfg.dlm.self_cond_cfg_max,
                     num_self_cond_cfg_tokens=self.cfg.dlm.num_self_cond_cfg_tokens,
+                    self_flow_mask_ratio=self.cfg.dlm.self_flow_mask_ratio,
+                    self_flow_student_layer=self.cfg.dlm.self_flow_student_layer,
+                    self_flow_teacher_layer=self.cfg.dlm.self_flow_teacher_layer,
+                    self_flow_loss_weight=self.cfg.dlm.self_flow_loss_weight,
+                    self_flow_feature_loss=self.cfg.dlm.self_flow_feature_loss,
                 )
                 l2_output = self.dist_model(**common_kwargs, decoder_prob=0.0)
                 ce_output = self.dist_model(**common_kwargs, decoder_prob=1.0)

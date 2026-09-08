@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import sys
+from copy import deepcopy
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
@@ -1157,6 +1158,7 @@ class PoreLMFlowMatchingOutput(NamedTuple):
     loss: torch.FloatTensor
     l2_loss: torch.FloatTensor
     ce_loss: torch.FloatTensor
+    self_flow_loss: torch.FloatTensor
     decoder_step_active: torch.BoolTensor
     pred: Optional[torch.FloatTensor]
     target: Optional[torch.FloatTensor]
@@ -2361,8 +2363,8 @@ class PoreLM(nn.Module):
         self.context_encoder = _load_context_encoder(context_encoder_path)
         self.freeze_context_encoder = freeze_context_encoder
         self.training_objective = str(getattr(dlm_config, "training_objective", "flow_matching")).lower()
-        if self.training_objective not in {"flow_matching", "bert"}:
-            raise PoreLMConfigurationError("dlm.training_objective must be 'flow_matching' or 'bert'")
+        if self.training_objective not in {"flow_matching", "self_flow", "bert"}:
+            raise PoreLMConfigurationError("dlm.training_objective must be 'flow_matching', 'self_flow', or 'bert'")
         if self.training_objective == "bert" and freeze_context_encoder:
             raise PoreLMConfigurationError(
                 "BERT objective requires dlm.freeze_context_encoder=false"
@@ -2393,6 +2395,12 @@ class PoreLM(nn.Module):
         )
         if self.training_objective == "bert":
             for param in self.flow_denoiser.parameters():
+                param.requires_grad = False
+        self.self_flow_teacher: Optional[nn.Module] = None
+        if self.training_objective == "self_flow":
+            self.self_flow_teacher = deepcopy(self.flow_denoiser)
+            self.self_flow_teacher.eval()
+            for param in self.self_flow_teacher.parameters():
                 param.requires_grad = False
 
     def reset_parameters(self):
@@ -2429,7 +2437,19 @@ class PoreLM(nn.Module):
         super().train(mode)
         if getattr(self, "freeze_context_encoder", False):
             self.context_encoder.eval()
+        if getattr(self, "self_flow_teacher", None) is not None:
+            self.self_flow_teacher.eval()
         return self
+
+    @torch.no_grad()
+    def update_self_flow_teacher(self, decay: float) -> None:
+        if self.self_flow_teacher is None:
+            return
+        decay = float(decay)
+        for teacher_param, student_param in zip(self.self_flow_teacher.parameters(), self.flow_denoiser.parameters()):
+            teacher_param.data.mul_(decay).add_(student_param.data, alpha=1.0 - decay)
+        for teacher_buffer, student_buffer in zip(self.self_flow_teacher.buffers(), self.flow_denoiser.buffers()):
+            teacher_buffer.copy_(student_buffer)
 
     def forward(
         self,
@@ -2438,6 +2458,7 @@ class PoreLM(nn.Module):
         attention_bias: Optional[torch.Tensor] = None,
         diffusion: bool = False,
         flow_matching: bool = False,
+        self_flow: bool = False,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         cond_seq_mask: Optional[torch.Tensor] = None,
         label_drop_mask: Optional[torch.Tensor] = None,
@@ -2455,6 +2476,11 @@ class PoreLM(nn.Module):
         self_cond_cfg_min: float = 0.0,
         self_cond_cfg_max: float = 1.0,
         num_self_cond_cfg_tokens: int = 0,
+        self_flow_mask_ratio: float = 0.25,
+        self_flow_student_layer: int = 8,
+        self_flow_teacher_layer: int = 20,
+        self_flow_loss_weight: float = 0.1,
+        self_flow_feature_loss: str = "cosine",
         dlm_t_min: float = 1.0e-5,
         dlm_t_max: float = 1.0 - 1.0e-5,
         dlm_reduction: str = "mean",
@@ -2489,6 +2515,34 @@ class PoreLM(nn.Module):
                 self_cond_cfg_max=self_cond_cfg_max,
                 num_self_cond_cfg_tokens=num_self_cond_cfg_tokens,
             )
+        if self_flow:
+            return self.self_flow_forward(
+                input_ids=input_ids,
+                encoder_attention_mask=encoder_attention_mask,
+                attention_mask=attention_mask,
+                attention_bias=attention_bias,
+                cond_seq_mask=cond_seq_mask,
+                label_drop_mask=label_drop_mask,
+                label_drop_prob=label_drop_prob,
+                denoiser_p_mean=denoiser_p_mean,
+                denoiser_p_std=denoiser_p_std,
+                denoiser_noise_scale=denoiser_noise_scale,
+                t_eps=t_eps,
+                time_schedule=time_schedule,
+                decoder_prob=decoder_prob,
+                decoder_noise_scale=decoder_noise_scale,
+                decoder_p_mean=decoder_p_mean,
+                decoder_p_std=decoder_p_std,
+                self_cond_prob=self_cond_prob,
+                self_cond_cfg_min=self_cond_cfg_min,
+                self_cond_cfg_max=self_cond_cfg_max,
+                num_self_cond_cfg_tokens=num_self_cond_cfg_tokens,
+                self_flow_mask_ratio=self_flow_mask_ratio,
+                self_flow_student_layer=self_flow_student_layer,
+                self_flow_teacher_layer=self_flow_teacher_layer,
+                self_flow_loss_weight=self_flow_loss_weight,
+                self_flow_feature_loss=self_flow_feature_loss,
+            )
         if diffusion:
             return self.diffusion_forward(
                 input_ids=input_ids,
@@ -2498,7 +2552,7 @@ class PoreLM(nn.Module):
                 t_max=dlm_t_max,
                 reduction=dlm_reduction,
             )
-        raise PoreLMConfigurationError("PoreLM.forward() expects `flow_matching=True` for stage 3 training")
+        raise PoreLMConfigurationError("PoreLM.forward() expects `flow_matching=True` or `self_flow=True` for stage 3 training")
 
     def bert_masked_lm_forward(
         self,
@@ -2533,6 +2587,7 @@ class PoreLM(nn.Module):
             loss=ce_loss,
             l2_loss=zero,
             ce_loss=ce_loss.detach(),
+            self_flow_loss=zero,
             decoder_step_active=torch.tensor(True, device=input_ids.device),
             pred=logits,
             target=input_ids,
@@ -2580,17 +2635,32 @@ class PoreLM(nn.Module):
         attention_mask: Optional[torch.Tensor],
         self_cond_cfg_scale: Optional[torch.Tensor],
         decoder_step_active: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        denoiser: Optional[nn.Module] = None,
+        return_features: Optional[int] = None,
+        return_raw_features: Optional[int] = None,
+        use_per_token_time: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor] | Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         model_input = torch.cat([latent, self_cond], dim=-1) if self_cond is not None else latent
-        pred, decoder_logits = self.flow_denoiser(
+        active_denoiser = denoiser if denoiser is not None else self.flow_denoiser
+        output = active_denoiser(
             model_input,
             t,
             attention_mask=attention_mask,
             self_cond_cfg_scale=self_cond_cfg_scale,
             decoder_step_active=decoder_step_active,
+            return_features=return_features,
+            return_raw_features=return_raw_features,
+            use_per_token_time=use_per_token_time,
         )
+        if len(output) == 3:
+            pred, decoder_logits, features = output
+        else:
+            pred, decoder_logits = output
+            features = None
         if decoder_logits is None:
             decoder_logits = torch.empty((*pred.shape[:2], 0), device=pred.device, dtype=pred.dtype)
+        if return_features is not None or return_raw_features is not None:
+            return pred, decoder_logits, features
         return pred, decoder_logits
 
     def _zero_module_loss(self, module: nn.Module, *, device: torch.device) -> torch.Tensor:
@@ -2699,10 +2769,12 @@ class PoreLM(nn.Module):
             ce = -torch.gather(log_probs, dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)
             ce_loss = (ce * loss_mask.float()).sum() / torch.clamp(loss_mask.float().sum(), min=1.0)
             ce_loss = ce_loss + decoder_pred.float().sum() * 0.0
+            ce_loss = ce_loss + self._zero_module_loss(self.flow_denoiser.feature_projector, device=x0.device)
             return PoreLMFlowMatchingOutput(
                 loss=ce_loss,
                 l2_loss=zero_loss,
                 ce_loss=ce_loss.detach(),
+                self_flow_loss=zero_loss,
                 decoder_step_active=decoder_step_active,
                 pred=decoder_logits,
                 target=None,
@@ -2735,17 +2807,230 @@ class PoreLM(nn.Module):
         per_token_loss = per_dim_loss.mean(dim=-1)
         l2_loss = (per_token_loss * loss_mask.float()).sum() / torch.clamp(loss_mask.float().sum(), min=1.0)
         l2_loss = l2_loss + self._zero_module_loss(self.flow_denoiser.unembed, device=x0.device)
+        l2_loss = l2_loss + self._zero_module_loss(self.flow_denoiser.feature_projector, device=x0.device)
         if self_cond_prob <= 0:
             l2_loss = l2_loss + self._zero_module_loss(self.flow_denoiser.self_cond_proj, device=x0.device)
         return PoreLMFlowMatchingOutput(
             loss=l2_loss,
             l2_loss=l2_loss.detach(),
             ce_loss=zero_loss,
+            self_flow_loss=zero_loss,
             decoder_step_active=decoder_step_active,
             pred=pred_x0,
             target=x0,
             mask=loss_mask,
             t=t,
+        )
+
+    def self_flow_forward(
+        self,
+        input_ids: torch.LongTensor,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
+        cond_seq_mask: Optional[torch.Tensor] = None,
+        label_drop_mask: Optional[torch.Tensor] = None,
+        label_drop_prob: float = 0.0,
+        denoiser_p_mean: float = -1.5,
+        denoiser_p_std: float = 0.8,
+        denoiser_noise_scale: float = 2.0,
+        t_eps: float = 0.05,
+        time_schedule: str = "logit_normal",
+        decoder_prob: float = 0.2,
+        decoder_noise_scale: float = 5.0,
+        decoder_p_mean: float = 0.8,
+        decoder_p_std: float = 0.8,
+        self_cond_prob: float = 0.5,
+        self_cond_cfg_min: float = 0.0,
+        self_cond_cfg_max: float = 1.0,
+        num_self_cond_cfg_tokens: int = 0,
+        self_flow_mask_ratio: float = 0.25,
+        self_flow_student_layer: int = 8,
+        self_flow_teacher_layer: int = 20,
+        self_flow_loss_weight: float = 0.1,
+        self_flow_feature_loss: str = "cosine",
+    ) -> PoreLMFlowMatchingOutput:
+        del attention_bias
+        if self.self_flow_teacher is None:
+            raise PoreLMConfigurationError("Self-flow objective requires dlm.training_objective='self_flow'")
+
+        context_dtype = next(self.flow_denoiser.parameters()).dtype
+        if encoder_attention_mask is None:
+            encoder_attention_mask = attention_mask
+        if encoder_attention_mask is None:
+            encoder_attention_mask = input_ids.new_ones(input_ids.shape)
+        if attention_mask is None:
+            attention_mask = input_ids.new_ones(input_ids.shape)
+        if cond_seq_mask is None:
+            cond_seq_mask = torch.zeros_like(attention_mask, dtype=torch.float)
+
+        context_grad = torch.enable_grad() if any(p.requires_grad for p in self.context_encoder.parameters()) else torch.no_grad()
+        with context_grad:
+            x0 = self.context_encoder(
+                input_ids=input_ids,
+                attention_mask=encoder_attention_mask,
+                return_dict=True,
+            ).last_hidden_state
+        x0 = x0.to(dtype=context_dtype)
+
+        cond_seq_mask = cond_seq_mask.to(device=x0.device, dtype=x0.dtype)
+        cond_seq_mask_3d = cond_seq_mask.unsqueeze(-1)
+        if label_drop_prob > 0:
+            if label_drop_mask is None:
+                label_drop_mask = torch.rand(input_ids.shape[0], device=x0.device) < label_drop_prob
+            drop = label_drop_mask.to(device=x0.device, dtype=torch.bool)[:, None, None]
+            x0 = torch.where(drop & (cond_seq_mask_3d > 0), torch.zeros_like(x0), x0)
+
+        loss_mask = attention_mask.to(device=x0.device, dtype=x0.dtype) * (1.0 - cond_seq_mask)
+        loss_mask_bool = loss_mask.to(dtype=torch.bool)
+        batch_size, seq_length = x0.shape[:2]
+        t_a = self._sample_flow_timesteps(
+            batch_size,
+            device=x0.device,
+            dtype=x0.dtype,
+            p_mean=denoiser_p_mean,
+            p_std=denoiser_p_std,
+            time_schedule=time_schedule,
+        )
+        t_b = self._sample_flow_timesteps(
+            batch_size,
+            device=x0.device,
+            dtype=x0.dtype,
+            p_mean=denoiser_p_mean,
+            p_std=denoiser_p_std,
+            time_schedule=time_schedule,
+        )
+        dual_mask = (torch.rand(batch_size, seq_length, device=x0.device) < float(self_flow_mask_ratio)) & loss_mask_bool
+        student_t = t_a[:, None].expand(batch_size, seq_length).clone()
+        student_t = torch.where(dual_mask, t_b[:, None].expand_as(student_t), student_t)
+        student_t = torch.where(cond_seq_mask.to(dtype=torch.bool), torch.ones_like(student_t), student_t)
+        teacher_t = torch.minimum(t_a, t_b)
+
+        noise = torch.randn_like(x0)
+        student_t_3d = student_t.unsqueeze(-1)
+        teacher_t_3d = teacher_t.view(-1, 1, 1)
+        student_z = student_t_3d * x0 + (1.0 - student_t_3d) * noise * denoiser_noise_scale
+        teacher_z = teacher_t_3d * x0 + (1.0 - teacher_t_3d) * noise * denoiser_noise_scale
+        student_z = cond_seq_mask_3d * x0 + (1.0 - cond_seq_mask_3d) * student_z
+        teacher_z = cond_seq_mask_3d * x0 + (1.0 - cond_seq_mask_3d) * teacher_z
+        v_target = (x0 - student_z) / torch.clamp(1.0 - student_t_3d, min=t_eps)
+
+        decoder_step_active = torch.rand((), device=x0.device) < decoder_prob
+        if dist.is_available() and dist.is_initialized():
+            dist.broadcast(decoder_step_active, src=0)
+        zero_loss = torch.tensor(0.0, device=x0.device, dtype=torch.float32)
+        self_cond_cfg_scale = None
+        if num_self_cond_cfg_tokens > 0:
+            self_cond_cfg_scale = self._sample_flow_cfg_scale(
+                batch_size,
+                device=x0.device,
+                dtype=x0.dtype,
+                cfg_min=self_cond_cfg_min,
+                cfg_max=self_cond_cfg_max,
+            )
+
+        self_cond = None
+        teacher_self_cond = None
+        if self_cond_prob > 0:
+            with torch.no_grad():
+                init_pred, _ = self._flow_predict_from_latent(
+                    latent=student_z,
+                    t=student_t,
+                    self_cond=torch.zeros_like(student_z),
+                    attention_mask=attention_mask,
+                    self_cond_cfg_scale=self_cond_cfg_scale,
+                    decoder_step_active=torch.tensor(False, device=x0.device),
+                    use_per_token_time=True,
+                )
+            self_cond = init_pred
+            teacher_self_cond = torch.zeros_like(teacher_z)
+
+        depth = len(self.flow_denoiser.blocks)
+        student_layer = min(max(1, int(self_flow_student_layer)), depth)
+        teacher_layer = min(max(1, int(self_flow_teacher_layer)), depth)
+        if teacher_layer <= student_layer and student_layer < depth:
+            teacher_layer = depth
+
+        pred_x0, _, student_features = self._flow_predict_from_latent(
+            latent=student_z,
+            t=student_t,
+            self_cond=self_cond,
+            attention_mask=attention_mask,
+            self_cond_cfg_scale=self_cond_cfg_scale,
+            decoder_step_active=torch.tensor(False, device=x0.device),
+            return_features=student_layer,
+            use_per_token_time=True,
+        )
+        with torch.no_grad():
+            _, _, teacher_features = self._flow_predict_from_latent(
+                latent=teacher_z,
+                t=teacher_t,
+                self_cond=teacher_self_cond,
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=torch.tensor(False, device=x0.device),
+                denoiser=self.self_flow_teacher,
+                return_raw_features=teacher_layer,
+            )
+
+        v_pred = (pred_x0 - student_z) / torch.clamp(1.0 - student_t_3d, min=t_eps)
+        per_dim_loss = (v_pred - v_target) ** 2
+        per_token_loss = per_dim_loss.mean(dim=-1)
+        l2_loss = (per_token_loss * loss_mask.float()).sum() / torch.clamp(loss_mask.float().sum(), min=1.0)
+
+        if student_features is None or teacher_features is None:
+            raise PoreLMConfigurationError("Self-flow feature extraction did not return student and teacher features")
+        feature_mask = dual_mask
+        if not bool(feature_mask.any()):
+            feature_mask = loss_mask_bool
+        if self_flow_feature_loss == "cosine":
+            feature_per_token = 1.0 - F.cosine_similarity(
+                student_features.float(),
+                teacher_features.detach().float(),
+                dim=-1,
+            )
+        elif self_flow_feature_loss == "mse":
+            feature_per_token = (student_features.float() - teacher_features.detach().float()).pow(2).mean(dim=-1)
+        else:
+            raise PoreLMConfigurationError("dlm.self_flow_feature_loss must be 'cosine' or 'mse'")
+        self_flow_loss = (feature_per_token * feature_mask.float()).sum() / torch.clamp(feature_mask.float().sum(), min=1.0)
+
+        ce_loss = zero_loss
+        if bool(decoder_step_active.item()):
+            decoder_lambda = torch.sigmoid(
+                torch.randn(batch_size * seq_length, device=x0.device, dtype=x0.dtype) * decoder_p_std
+                + decoder_p_mean
+            ).view(batch_size, seq_length, 1)
+            decoder_noise = torch.randn_like(x0) * decoder_noise_scale
+            decoder_z = decoder_lambda * x0 + (1.0 - decoder_lambda) * decoder_noise
+            decoder_self_cond = torch.zeros_like(decoder_z) if self_cond_prob > 0 else None
+            decoder_pred, decoder_logits = self._flow_predict_from_latent(
+                latent=decoder_z,
+                t=torch.ones_like(t_a),
+                self_cond=decoder_self_cond,
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=decoder_step_active,
+            )
+            log_probs = F.log_softmax(decoder_logits.float(), dim=-1)
+            ce = -torch.gather(log_probs, dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)
+            ce_loss = (ce * loss_mask.float()).sum() / torch.clamp(loss_mask.float().sum(), min=1.0)
+            ce_loss = ce_loss + decoder_pred.float().sum() * 0.0
+
+        loss = l2_loss + float(self_flow_loss_weight) * self_flow_loss + ce_loss
+        loss = loss + self._zero_module_loss(self.flow_denoiser.unembed, device=x0.device)
+        if self_cond_prob <= 0:
+            loss = loss + self._zero_module_loss(self.flow_denoiser.self_cond_proj, device=x0.device)
+        return PoreLMFlowMatchingOutput(
+            loss=loss,
+            l2_loss=l2_loss.detach(),
+            ce_loss=ce_loss.detach(),
+            self_flow_loss=self_flow_loss.detach(),
+            decoder_step_active=decoder_step_active,
+            pred=pred_x0,
+            target=x0,
+            mask=loss_mask,
+            t=student_t,
         )
 
     def diffusion_forward(

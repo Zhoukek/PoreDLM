@@ -31,6 +31,13 @@ dlm:
   self_cond_cfg_min: 0.0
   self_cond_cfg_max: 1.0
 
+  self_flow_mask_ratio: 0.25
+  self_flow_student_layer: 6
+  self_flow_teacher_layer: 12
+  self_flow_loss_weight: 0.1
+  self_flow_teacher_ema_decay: 0.9999
+  self_flow_feature_loss: cosine
+
   conditioning_mode: mixed
   unconditional_prob: 0.2
   condition_pattern: mixed
