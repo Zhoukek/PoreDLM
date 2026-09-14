@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from .config import DDPGradSyncMode, DistributedStrategy
 from .eval import Evaluator
@@ -217,9 +218,18 @@ class FlowMatchingTrainer(Trainer):
             )
 
         self.optim.step()
+        self_flow_teacher_updated = False
         if str(getattr(self.cfg.dlm, "training_objective", "flow_matching")).lower() == "self_flow":
             module = self.dist_model.module if hasattr(self.dist_model, "module") else self.dist_model
-            module.update_self_flow_teacher(self.cfg.dlm.self_flow_teacher_ema_decay)
+            update_interval = max(1, int(getattr(self.cfg.dlm, "self_flow_teacher_update_interval", 1)))
+            if (self.global_step + 1) % update_interval == 0:
+                decay = float(self.cfg.dlm.self_flow_teacher_ema_decay) ** update_interval
+                if isinstance(self.dist_model, FSDP):
+                    with FSDP.summon_full_params(self.dist_model, writeback=True, recurse=True):
+                        module.update_self_flow_teacher(decay)
+                else:
+                    module.update_self_flow_teacher(decay)
+                self_flow_teacher_updated = True
 
         if torch.isnan(batch_loss):
             raise ValueError("nan flow matching loss encountered")
@@ -232,6 +242,7 @@ class FlowMatchingTrainer(Trainer):
             metrics["train/L2Loss"] = dlm_metrics["l2_loss"].item()
             metrics["train/CELoss"] = dlm_metrics["ce_loss"].item()
             metrics["train/SelfFlowLoss"] = dlm_metrics["self_flow_loss"].item()
+            metrics["train/SelfFlowTeacherUpdated"] = float(self_flow_teacher_updated)
             metrics["train/DecoderStepFrac"] = dlm_metrics["decoder_step_frac"].item()
             metrics["train/ConditionTokenFrac"] = dlm_metrics["condition_token_frac"].item()
             metrics["train/UnconditionalExampleFrac"] = dlm_metrics[

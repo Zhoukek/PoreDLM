@@ -56,11 +56,11 @@ scheduler:
 train_data:
   paths:
     # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_HEK293T_MIX_250NC02303011/trank_appleq50/train"
-    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/trank_appleq50/train"
+    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/trank_appleq50/train"
     # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_UMD_250F601844011/trank_appleq50/train"
     # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586012/trank_appleq50/train"
     # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_HEK293T_MIX_250NC02106021/trank_appleq50/train"
-    # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train"
+    - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train"
     # - "/mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/train"
     # - "/mnt/si002562jbsc/poregpt/datasets/RNA_S0_MOUSE00_MIX_250NC02165011/trank_appleq50/train"
   chunk_size: 6000

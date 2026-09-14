@@ -1007,6 +1007,9 @@ class DLMConfig(BaseConfig):
     self_flow_teacher_ema_decay: float = 0.9999
     """EMA decay for updating the self-flow teacher after each optimizer step."""
 
+    self_flow_teacher_update_interval: int = 1
+    """Update the EMA teacher every N optimizer steps; decay is exponentiated by N to preserve the EMA timescale."""
+
     self_flow_feature_loss: str = "cosine"
     """Feature loss type for self-flow representation alignment: ``cosine`` or ``mse``."""
 

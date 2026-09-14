@@ -1,10 +1,10 @@
-run_name: porelm-flow-matching
+run_name: porelm-self-flow-V003_1
 seed: 6198
 dry_run: false
 
 dlm:
-  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V005/models/step_95000
-  training_objective: flow_matching
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V003/models/step_240000
+  training_objective: self_flow
   freeze_context_encoder: true
   max_length: 1536
 
@@ -36,10 +36,11 @@ dlm:
   self_flow_teacher_layer: 12
   self_flow_loss_weight: 0.1
   self_flow_teacher_ema_decay: 0.9999
+  self_flow_teacher_update_interval: 1
   self_flow_feature_loss: cosine
 
   conditioning_mode: mixed
-  unconditional_prob: 0.2
+  unconditional_prob: 0.5
   condition_pattern: mixed
   condition_prefix_suffix_weight: 0.2
   condition_single_span_weight: 0.3
@@ -106,7 +107,7 @@ tokenizer:
   identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
   truncate_direction: right
 
-save_folder: save/porelm_output
+save_folder: runs/HF_VQE768C08A001_DNADLLM_V003_1
 save_overwrite: true
 save_interval: 1000
 save_interval_ephemeral: null
@@ -118,7 +119,7 @@ load_path: null
 max_duration: 5ep
 
 global_train_batch_size: 64
-device_train_microbatch_size: 8
+device_train_microbatch_size: 4
 precision: amp_bf16
 distributed_strategy: fsdp
 
@@ -145,7 +146,7 @@ evaluators:
       drop_last: true
       memmap_dtype: uint32
       paths:
-        - /mnt/zzbnew/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/tokens_appleq50_pore_codec_vqe768c08a-005/eval/pore_tokens_rank0_0000.npy
+        - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/eval/pore_tokens_rank0_0000.npy
 
 data:
   pad_direction: right
@@ -161,7 +162,7 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /mnt/zzbnew/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/tokens_appleq50_pore_codec_vqe768c08a-005/train
+    - /mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-002/train
 
 wandb:
   entity: null

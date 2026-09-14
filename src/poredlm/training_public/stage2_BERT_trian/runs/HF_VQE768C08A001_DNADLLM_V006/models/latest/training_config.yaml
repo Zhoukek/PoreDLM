@@ -3,8 +3,8 @@ reproducibility:
   seed: 42
 data:
   dataset_type: flowmap
-  train_dir: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-004/train
-  valid_dir: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/tokens_stoneq00_pore_codec_vqe768c08a-004/eval
+  train_dir: /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006/train
+  valid_dir: /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006/eval
   data_name: data
   file_pattern: '*.npy'
   token_dtype: uint32
@@ -56,8 +56,8 @@ training:
   log_every_steps: 10
   eval_every_steps: 1000
   max_eval_batches: 100
-  save_every_steps: 5000
+  save_every_steps: 10000
 wandb:
   use_wandb: true
   project: stage2_bert_public
-  name: stage2_bert_memmap_stone_V004
+  name: stage2_bert_memmap_v006

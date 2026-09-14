@@ -322,6 +322,92 @@ def metric_ratio(ode_value: float, context_value: float) -> float:
     return float(ode_value / context_value)
 
 
+def site_separation_metrics(vectors: np.ndarray, sites: list[str]) -> dict:
+    unique_sites = sorted(set(sites))
+    if not unique_sites:
+        return {}
+
+    centers = []
+    within_rms = []
+    within_pairwise = []
+    site_counts = []
+    for site in unique_sites:
+        idx = np.asarray([i for i, value in enumerate(sites) if value == site], dtype=np.int64)
+        site_vectors = vectors[idx]
+        site_metrics = cluster_metrics(site_vectors)
+        centers.append(site_vectors.mean(axis=0))
+        within_rms.append(site_metrics["centroid_rms_l2"])
+        within_pairwise.append(site_metrics["pairwise_mean_l2"])
+        site_counts.append(int(idx.size))
+
+    centers_arr = np.stack(centers, axis=0)
+    within_rms_arr = np.asarray(within_rms, dtype=np.float64)
+    within_pairwise_arr = np.asarray(within_pairwise, dtype=np.float64)
+    counts_arr = np.asarray(site_counts, dtype=np.float64)
+    weights = counts_arr / max(float(counts_arr.sum()), 1.0)
+
+    result = {
+        "n_sites": int(len(unique_sites)),
+        "within_site_rms_mean": float(np.nanmean(within_rms_arr)),
+        "within_site_rms_weighted_mean": float(np.nansum(within_rms_arr * weights)),
+        "within_site_pairwise_mean": float(np.nanmean(within_pairwise_arr)),
+        "within_site_pairwise_weighted_mean": float(np.nansum(within_pairwise_arr * weights)),
+        "between_site_center_l2_mean": float("nan"),
+        "between_site_center_l2_median": float("nan"),
+        "between_site_center_l2_min": float("nan"),
+        "between_site_center_cosine_mean": float("nan"),
+        "separation_over_within_rms": float("nan"),
+        "min_separation_over_within_rms": float("nan"),
+        "separation_over_within_pairwise": float("nan"),
+    }
+    if centers_arr.shape[0] < 2:
+        return result
+
+    upper = np.triu_indices(centers_arr.shape[0], k=1)
+    center_l2 = np.linalg.norm(centers_arr[upper[0]] - centers_arr[upper[1]], axis=1)
+    center_norms = np.linalg.norm(centers_arr, axis=1, keepdims=True)
+    center_normalized = centers_arr / np.maximum(center_norms, 1e-12)
+    center_cosine = 1.0 - np.sum(center_normalized[upper[0]] * center_normalized[upper[1]], axis=1)
+
+    mean_within_rms = result["within_site_rms_weighted_mean"]
+    mean_within_pairwise = result["within_site_pairwise_weighted_mean"]
+    result.update(
+        {
+            "between_site_center_l2_mean": float(np.mean(center_l2)),
+            "between_site_center_l2_median": float(np.median(center_l2)),
+            "between_site_center_l2_min": float(np.min(center_l2)),
+            "between_site_center_cosine_mean": float(np.mean(center_cosine)),
+            "separation_over_within_rms": metric_ratio(float(np.mean(center_l2)), mean_within_rms),
+            "min_separation_over_within_rms": metric_ratio(float(np.min(center_l2)), mean_within_rms),
+            "separation_over_within_pairwise": metric_ratio(float(np.mean(center_l2)), mean_within_pairwise),
+        }
+    )
+    return result
+
+
+def write_global_separation_metrics(path: Path, rows: list[dict]) -> None:
+    fields = [
+        "representation",
+        "n_sites",
+        "within_site_rms_mean",
+        "within_site_rms_weighted_mean",
+        "within_site_pairwise_mean",
+        "within_site_pairwise_weighted_mean",
+        "between_site_center_l2_mean",
+        "between_site_center_l2_median",
+        "between_site_center_l2_min",
+        "between_site_center_cosine_mean",
+        "separation_over_within_rms",
+        "min_separation_over_within_rms",
+        "separation_over_within_pairwise",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field) for field in fields})
+
+
 def save_plot(coords: np.ndarray, sites: list[str], title: str, out_png: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -724,6 +810,53 @@ def main() -> None:
         json.dumps(metrics_rows, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    context_separation = {
+        "representation": "context_hidden",
+        **site_separation_metrics(context_arr, sites),
+    }
+    ode_separation = {
+        "representation": "ode_hidden",
+        **site_separation_metrics(ode_arr, sites),
+    }
+    separation_comparison = {
+        "within_site_rms_ratio_ode_over_context": metric_ratio(
+            ode_separation["within_site_rms_weighted_mean"],
+            context_separation["within_site_rms_weighted_mean"],
+        ),
+        "within_site_pairwise_ratio_ode_over_context": metric_ratio(
+            ode_separation["within_site_pairwise_weighted_mean"],
+            context_separation["within_site_pairwise_weighted_mean"],
+        ),
+        "between_site_center_l2_ratio_ode_over_context": metric_ratio(
+            ode_separation["between_site_center_l2_mean"],
+            context_separation["between_site_center_l2_mean"],
+        ),
+        "min_between_site_center_l2_ratio_ode_over_context": metric_ratio(
+            ode_separation["between_site_center_l2_min"],
+            context_separation["between_site_center_l2_min"],
+        ),
+        "separation_over_within_rms_ratio_ode_over_context": metric_ratio(
+            ode_separation["separation_over_within_rms"],
+            context_separation["separation_over_within_rms"],
+        ),
+        "min_separation_over_within_rms_ratio_ode_over_context": metric_ratio(
+            ode_separation["min_separation_over_within_rms"],
+            context_separation["min_separation_over_within_rms"],
+        ),
+    }
+    global_separation_rows = [context_separation, ode_separation]
+    write_global_separation_metrics(output_dir / "global_site_separation_metrics.csv", global_separation_rows)
+    (output_dir / "global_site_separation_metrics.json").write_text(
+        json.dumps(
+            {
+                "representations": global_separation_rows,
+                "comparison": separation_comparison,
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     summary = {
         "input_dir": str(input_dir),
@@ -738,7 +871,9 @@ def main() -> None:
         "pad_token_id": int(pad_token_id),
         "per_site_plot_dir": str(per_site_dir),
         "per_site_metrics_csv": str(output_dir / "per_site_compactness_metrics.csv"),
+        "global_site_separation_metrics_csv": str(output_dir / "global_site_separation_metrics.csv"),
         "global_joint_plot": str(output_dir / "all_sites_context_vs_ode_pca.png"),
+        **separation_comparison,
         **global_joint_metrics,
     }
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")

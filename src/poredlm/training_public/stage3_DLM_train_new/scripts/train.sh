@@ -12,5 +12,5 @@ export PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH:-}"
 export WANDB_API_KEY=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
 
 
-torchrun --standalone --nproc-per-node="${NUM_PROCESSES}" \
+nohup torchrun --standalone --nproc-per-node="${NUM_PROCESSES}" \
   "${ROOT_DIR}/scripts/train_porelm.py" "${CONFIG_PATH}" "${@:2}"

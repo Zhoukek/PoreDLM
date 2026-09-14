@@ -863,6 +863,8 @@ def parse_args():
                    help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden-layer).")
     p.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "sde_hidden", "embedding", "vq_embedding"], default="hidden",
                    help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, input embeddings, or VQ codebook embeddings.")
+    p.add_argument("--feature_l2_normalize", "--feature-l2-normalize", action="store_true",
+                   help="L2-normalize backbone hidden features along the channel dimension before the pre-head.")
     p.add_argument("--vq_device", type=str, default="cuda",
                    help="Device used when loading VQETokenizer for --feature_source vq_embedding.")
     p.add_argument("--vq_token_batch_size", type=int, default=100,
@@ -1069,7 +1071,8 @@ def main():
         logger.info(f"[PreHead] type={args.pre_head_type} transformer_nhead={args.pre_head_transformer_nhead}")
         logger.info(
             f"[FeatureSource] source={args.feature_source} hidden_layer={args.hidden_layer} "
-            f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers}"
+            f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers} "
+            f"feature_l2_normalize={args.feature_l2_normalize}"
         )
         logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
         if args.feature_source == "ode_hidden":
@@ -1115,6 +1118,7 @@ def main():
         hidden_layer=args.hidden_layer,
         learnable_fuse_last_n_layers=args.learnable_fuse_last_n_layers,
         feature_source=args.feature_source,
+        feature_l2_normalize=args.feature_l2_normalize,
         vq_device=args.vq_device,
         vq_token_batch_size=args.vq_token_batch_size,
         freeze_backbone=bool(args.freeze_backbone),

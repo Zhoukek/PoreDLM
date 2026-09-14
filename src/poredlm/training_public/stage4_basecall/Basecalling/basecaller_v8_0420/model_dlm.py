@@ -5,6 +5,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from .signal_tokenizer import BwavTokenizer
@@ -35,6 +36,7 @@ class BasecallModel(nn.Module):
         hidden_layer: int = -1,
         learnable_fuse_last_n_layers: int = 0,
         feature_source: str = "hidden",
+        feature_l2_normalize: bool = False,
         vq_device: str = "cuda",
         vq_token_batch_size: int = 100,
         freeze_backbone: bool = False,
@@ -70,6 +72,7 @@ class BasecallModel(nn.Module):
         self.backbone_type = str(backbone_type).lower()
         self.learnable_fuse_last_n_layers = max(0, int(learnable_fuse_last_n_layers))
         self.feature_source = feature_source
+        self.feature_l2_normalize = bool(feature_l2_normalize)
         self.freeze_backbone = bool(freeze_backbone)
         self.unfreeze_last_n_layers = max(0, int(unfreeze_last_n_layers))
         self.unfreeze_target = str(unfreeze_target)
@@ -428,6 +431,8 @@ class BasecallModel(nn.Module):
                 attention_mask=attention_mask,
             )
 
+        if self.feature_l2_normalize:
+            hidden = F.normalize(hidden, p=2, dim=-1)
         hidden = self.pre_head(hidden)
         logits_btc = self.base_head(hidden)
         if return_token_logits:

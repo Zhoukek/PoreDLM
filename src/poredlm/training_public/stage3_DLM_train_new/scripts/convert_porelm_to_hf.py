@@ -916,15 +916,36 @@ def _write_config(output_dir: Path, model: PoreLM, cfg: TrainConfig) -> None:
         "context_encoder_config": context_encoder_config,
         "dlm_config": _json_safe(cfg.dlm.asdict()),
         "model_config": _json_safe(cfg.model.asdict()),
-        "flow_matching_src_path": str(FLOW_MATCHING_SRC) if FLOW_MATCHING_SRC.is_dir() else None,
+        "flow_matching_src_path": None,
         "torch_dtype": "float32",
     }
     (output_dir / "config.json").write_text(json.dumps(hf_config, indent=2, ensure_ascii=False), encoding="utf-8")
     (output_dir / "modeling_poredlm.py").write_text(MODELING_POREDLM.lstrip(), encoding="utf-8")
 
 
+def _copy_runtime_sources(output_dir: Path) -> None:
+    source_dir = FLOW_MATCHING_SRC / "porelm" / "flow_matching_core"
+    if not source_dir.is_dir():
+        raise FileNotFoundError(f"Missing flow matching runtime sources: {source_dir}")
+    runtime_pkg = output_dir / "flow_matching_core" / "src" / "porelm"
+    target_dir = runtime_pkg / "flow_matching_core"
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    runtime_pkg.mkdir(parents=True, exist_ok=True)
+    (runtime_pkg / "__init__.py").write_text("", encoding="utf-8")
+    shutil.copytree(
+        source_dir,
+        target_dir,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+
+
 def _write_weights(output_dir: Path, model: PoreLM, safe_serialization: bool) -> None:
-    state_dict = {key: tensor.detach().cpu().contiguous() for key, tensor in model.state_dict().items()}
+    state_dict = {
+        key: tensor.detach().cpu().contiguous()
+        for key, tensor in model.state_dict().items()
+        if not key.startswith("self_flow_teacher.")
+    }
     if safe_serialization:
         if save_safetensors is None:
             raise RuntimeError("safetensors is not installed; pass --no_safe_serialization to write pytorch_model.bin.")
@@ -981,6 +1002,7 @@ def convert(
 
     model, cfg = _load_model(input_dir)
     _write_config(output_dir, model, cfg)
+    _copy_runtime_sources(output_dir)
     _write_weights(output_dir, model, safe_serialization=safe_serialization)
     if include_tokenizer:
         _write_tokenizer(output_dir, tokenizer_json_path, cfg)
