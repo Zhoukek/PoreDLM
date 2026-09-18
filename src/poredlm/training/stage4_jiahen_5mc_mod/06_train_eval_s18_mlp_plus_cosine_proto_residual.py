@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 
-MODELS = ("V610_Apple",)
+MODELS = ("V003_Stone",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,23 +35,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--bootstrap", type=int, default=1000)
+    parser.add_argument("--mix-logit-init", type=float, default=0.0)
     return parser.parse_args()
 
 
-class BaselineHead:
-    """Small shared architecture used after baseline-relative embedding features."""
+class MLPPlusCosinePrototypeResidualHead:
+    """MLP over [z, abs(z), prototype distances] plus a cosine branch over z."""
 
     @staticmethod
-    def make(torch):
+    def make(torch, input_dim: int, mix_logit_init: float):
         import torch.nn as nn
+        import torch.nn.functional as F
 
-        return nn.Sequential(
-            nn.LayerNorm(1536),
-            nn.Linear(1536, 768),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(768, 1),
-        )
+        class Head(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.mlp = nn.Sequential(
+                    nn.LayerNorm(input_dim),
+                    nn.Linear(input_dim, 256),
+                    nn.GELU(),
+                    nn.Dropout(0.2),
+                    nn.Linear(256, 1),
+                )
+                self.cosine_weight = nn.Parameter(torch.empty(2, 768))
+                self.cosine_bias = nn.Parameter(torch.zeros(2))
+                self.cosine_log_scale = nn.Parameter(torch.log(torch.tensor(32.0)))
+                self.mix_logit = nn.Parameter(torch.tensor(0.0))
+                nn.init.xavier_uniform_(self.cosine_weight)
+
+            def forward(self, x):
+                mlp_logit = self.mlp(x)
+                z = x[:, :768]
+                z = F.normalize(z, p=2, dim=-1)
+                weight = F.normalize(self.cosine_weight, p=2, dim=-1)
+                scale = self.cosine_log_scale.exp().clamp(1.0, 100.0)
+                cosine_logits = scale * (z @ weight.t()) + self.cosine_bias
+                cosine_logit = cosine_logits[:, 1:2] - cosine_logits[:, 0:1]
+                alpha = torch.sigmoid(self.mix_logit)
+                return mlp_logit + alpha * cosine_logit
+
+        return Head()
 
 
 def patch_torch_optimizer(torch):
@@ -149,6 +172,39 @@ def make_features(
     return np.concatenate((z, np.abs(z)), axis=1)
 
 
+def fit_prototypes(features: np.ndarray, labels: np.ndarray) -> dict[str, np.ndarray]:
+    z = np.asarray(features[:, :768], dtype=np.float32)
+    labels = np.asarray(labels, dtype=np.int8)
+    if not np.any(labels == 0) or not np.any(labels == 1):
+        raise RuntimeError("Prototype features require both classes in the training fold")
+    proto_neg = z[labels == 0].mean(axis=0).astype(np.float32)
+    proto_pos = z[labels == 1].mean(axis=0).astype(np.float32)
+    return {"neg": proto_neg, "pos": proto_pos}
+
+
+def append_prototype_features(features: np.ndarray, prototypes: dict[str, np.ndarray]) -> np.ndarray:
+    z = np.asarray(features[:, :768], dtype=np.float32)
+    eps = np.float32(1e-6)
+    z_norm = z / np.maximum(np.linalg.norm(z, axis=1, keepdims=True), eps)
+    proto_neg = prototypes["neg"].astype(np.float32)
+    proto_pos = prototypes["pos"].astype(np.float32)
+    proto_neg_norm = proto_neg / max(float(np.linalg.norm(proto_neg)), 1e-6)
+    proto_pos_norm = proto_pos / max(float(np.linalg.norm(proto_pos)), 1e-6)
+    cos_neg = z_norm @ proto_neg_norm
+    cos_pos = z_norm @ proto_pos_norm
+    dist_neg = np.linalg.norm(z - proto_neg[None, :], axis=1)
+    dist_pos = np.linalg.norm(z - proto_pos[None, :], axis=1)
+    extra = np.stack((
+        cos_pos,
+        cos_neg,
+        cos_pos - cos_neg,
+        dist_pos,
+        dist_neg,
+        dist_neg - dist_pos,
+    ), axis=1).astype(np.float32)
+    return np.concatenate((features, extra), axis=1).astype(np.float32, copy=False)
+
+
 def sigmoid(values: np.ndarray) -> np.ndarray:
     values = np.asarray(values, dtype=np.float64)
     return 1.0 / (1.0 + np.exp(-np.clip(values, -60.0, 60.0)))
@@ -157,7 +213,7 @@ def sigmoid(values: np.ndarray) -> np.ndarray:
 def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str, device, torch):
     torch.manual_seed(1700 + fold)
     random.seed(1700 + fold)
-    head = BaselineHead.make(torch).to(device)
+    head = MLPPlusCosinePrototypeResidualHead.make(torch, X_train.shape[1], args.mix_logit_init).to(device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-4)
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_x = torch.from_numpy(np.ascontiguousarray(X_train))
@@ -389,11 +445,11 @@ def main() -> int:
 
     for model_name, model_key in (
         # ("V600_Apple", "v600"),
-        ("V610_Apple", "v610"),
-        # ("V003_Stone", "v003"),
+        # ("V610_Apple", "v610"),
+        ("V003_Stone", "v003"),
     ):
-        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_l2_full.npy", chr19_meta["label"].size)
-        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_l2_full.npy", chr16_meta["label"].size)
+        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_ode_s1_t097_full.npy", chr19_meta["label"].size)
+        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_ode_s1_t097_full.npy", chr16_meta["label"].size)
         oof_logits = np.full(chr19_meta["label"].size, np.nan, dtype=np.float32)
         fold_test_logits: list[np.ndarray] = []
         fold_no_target_logits: list[np.ndarray] = []
@@ -405,6 +461,9 @@ def main() -> int:
             scale19 = robust_scale(emb19, neg_train, k19, centers19)
             X_train = make_features(emb19, train_idx, k19, centers19, scale19)
             X_val = make_features(emb19, val_idx, k19, centers19, scale19)
+            prototypes = fit_prototypes(X_train, chr19_meta["label"][train_idx])
+            X_train = append_prototype_features(X_train, prototypes)
+            X_val = append_prototype_features(X_val, prototypes)
             head, val_logits, best_epoch, best_auc, history = train_head(
                 X_train, chr19_meta["label"][train_idx], X_val,
                 chr19_meta["label"][val_idx], args, fold, model_name,
@@ -417,12 +476,22 @@ def main() -> int:
             centers16 = robust_centers(emb16, baseline16, k16, len(common_kmers))
             X_test = make_features(emb16, test16, k16, centers16, scale19)
             X_no_target = make_features(emb16, test16, k16, centers19, scale19)
+            X_test = append_prototype_features(X_test, prototypes)
+            X_no_target = append_prototype_features(X_no_target, prototypes)
             with torch.inference_mode():
                 fold_test_logits.append(head(torch.from_numpy(X_test).to(args.device)).squeeze(-1).float().cpu().numpy())
                 fold_no_target_logits.append(head(torch.from_numpy(X_no_target).to(args.device)).squeeze(-1).float().cpu().numpy())
-            np.savez_compressed(weight_dir / f"{model_key}_fold{fold}_baseline.npz", centers=centers19, scale=scale19, target_centers=centers16, kmers=np.asarray(common_kmers))
+            np.savez_compressed(
+                weight_dir / f"{model_key}_fold{fold}_baseline.npz",
+                centers=centers19,
+                scale=scale19,
+                target_centers=centers16,
+                proto_neg=prototypes["neg"],
+                proto_pos=prototypes["pos"],
+                kmers=np.asarray(common_kmers),
+            )
             fold_metrics.append({"model": model_name, "fold": fold, "best_epoch": best_epoch, "val_auroc": best_auc, "train_rows": train_idx.size, "val_rows": val_idx.size})
-            del X_train, X_val, X_test, X_no_target, head, centers19, centers16, scale19
+            del X_train, X_val, X_test, X_no_target, head, centers19, centers16, scale19, prototypes
             gc.collect()
             torch.cuda.empty_cache()
 
@@ -499,7 +568,14 @@ def main() -> int:
         "chr16_test_rows": int(test16.size), "chr16_test_sites": int(site_labels.size),
         "chr16_test_sites_coverage_ge2": int((site_read_counts >= 2).sum()),
         "thresholds": thresholds, "device": "physical GPU 0 via CUDA_VISIBLE_DEVICES=0",
-        "training": {"backbone": "frozen", "head": "LayerNorm(1536)-Linear(256)-GELU-Dropout(0.2)-Linear(1)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
+        "training": {
+            "backbone": "frozen",
+            "head": "MLPPlusCosinePrototypeResidualHead: MLP([z, abs(z), cos_pos, cos_neg, cos_delta, l2_pos, l2_neg, l2_delta]) + sigmoid(alpha) * cosine_logit(normalize(z)); prototypes fitted on each chr19 training fold only",
+            "epochs_max": args.epochs,
+            "batch_size": args.batch_size,
+            "patience": args.patience,
+            "mix_logit_init": args.mix_logit_init,
+        },
         "v003": "Stone tokens, hf_dlm ode_hidden_state, ode_steps=2, ode_start_t=0.98, self_cond_cfg_scale=0.5",
         "v610": "Apple tokens, OLMo2 base last hidden state",
         "seconds": time.time() - started,

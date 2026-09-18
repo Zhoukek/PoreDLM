@@ -3,7 +3,7 @@ seed: 6198
 dry_run: false
 
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V007/models/step_60000
+  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V007/models/step_50000
   training_objective: self_flow
   freeze_context_encoder: true
   max_length: 1536
@@ -75,8 +75,8 @@ model:
   residual_dropout: 0.0
   embedding_dropout: 0.0
   max_sequence_length: 1536
-  vocab_size: 65664
-  embedding_size: 65664
+  vocab_size: 8320
+  embedding_size: 8320
   eos_token_id: 3
   pad_token_id: 1
   init_device: cuda
@@ -104,7 +104,7 @@ scheduler:
   warmup_min_lr: 0
 
 tokenizer:
-  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json
+  identifier: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json
   truncate_direction: right
 
 save_folder: runs/HF_VQE768C08A001_DNADLLM_V007_self_flow

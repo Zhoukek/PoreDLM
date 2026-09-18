@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 
-MODELS = ("V610_Apple",)
+MODELS = ("V003_Stone",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,23 +35,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--bootstrap", type=int, default=1000)
+    parser.add_argument("--prototypes-per-class", type=int, default=16)
+    parser.add_argument("--prototype-method", choices=("kmeans", "random"), default="kmeans")
     return parser.parse_args()
 
 
-class BaselineHead:
-    """Small shared architecture used after baseline-relative embedding features."""
+class MultiPrototypeHead:
+    """Multi-prototype metric classifier over residual z."""
 
     @staticmethod
-    def make(torch):
+    def make(torch, proto_neg: np.ndarray, proto_pos: np.ndarray):
         import torch.nn as nn
+        import torch.nn.functional as F
 
-        return nn.Sequential(
-            nn.LayerNorm(1536),
-            nn.Linear(1536, 768),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(768, 1),
-        )
+        class Head(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("proto_neg", torch.as_tensor(proto_neg, dtype=torch.float32))
+                self.register_buffer("proto_pos", torch.as_tensor(proto_pos, dtype=torch.float32))
+                self.log_scale = nn.Parameter(torch.log(torch.tensor(16.0)))
+                self.bias = nn.Parameter(torch.tensor(0.0))
+
+            def forward(self, x):
+                z = x[:, :768]
+                z = F.normalize(z, p=2, dim=-1)
+                proto_neg = F.normalize(self.proto_neg, p=2, dim=-1)
+                proto_pos = F.normalize(self.proto_pos, p=2, dim=-1)
+                scale = self.log_scale.exp().clamp(1.0, 100.0)
+                neg_score = torch.logsumexp(scale * (z @ proto_neg.t()), dim=1, keepdim=True)
+                pos_score = torch.logsumexp(scale * (z @ proto_pos.t()), dim=1, keepdim=True)
+                return pos_score - neg_score + self.bias
+
+        return Head()
 
 
 def patch_torch_optimizer(torch):
@@ -149,6 +164,62 @@ def make_features(
     return np.concatenate((z, np.abs(z)), axis=1)
 
 
+def _fit_class_prototypes(
+    z: np.ndarray,
+    count: int,
+    method: str,
+    seed: int,
+) -> np.ndarray:
+    count = min(int(count), z.shape[0])
+    if count <= 0:
+        raise RuntimeError("Cannot fit prototypes from an empty class")
+    z = z.astype(np.float32, copy=False)
+    norms = np.linalg.norm(z, axis=1, keepdims=True)
+    z = z / np.maximum(norms, 1e-6)
+    if method == "random" or count == z.shape[0]:
+        rng = np.random.default_rng(seed)
+        selected = rng.choice(z.shape[0], size=count, replace=False)
+        return z[selected].astype(np.float32)
+    try:
+        from sklearn.cluster import MiniBatchKMeans
+        kmeans = MiniBatchKMeans(
+            n_clusters=count,
+            random_state=seed,
+            batch_size=min(4096, max(256, z.shape[0])),
+            n_init=3,
+            max_iter=100,
+        )
+        centers = kmeans.fit(z).cluster_centers_.astype(np.float32)
+        center_norms = np.linalg.norm(centers, axis=1, keepdims=True)
+        return centers / np.maximum(center_norms, 1e-6)
+    except Exception as exc:
+        print(json.dumps({
+            "stage": "prototype_fallback",
+            "method": method,
+            "fallback": "random",
+            "reason": repr(exc),
+        }), flush=True)
+        rng = np.random.default_rng(seed)
+        selected = rng.choice(z.shape[0], size=count, replace=False)
+        return z[selected].astype(np.float32)
+
+
+def fit_prototypes(
+    features: np.ndarray,
+    labels: np.ndarray,
+    prototypes_per_class: int,
+    method: str,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    z = np.asarray(features[:, :768], dtype=np.float32)
+    labels = np.asarray(labels, dtype=np.int8)
+    if not np.any(labels == 0) or not np.any(labels == 1):
+        raise RuntimeError("Multi-prototype head requires both classes in the training fold")
+    proto_neg = _fit_class_prototypes(z[labels == 0], prototypes_per_class, method, seed)
+    proto_pos = _fit_class_prototypes(z[labels == 1], prototypes_per_class, method, seed + 17)
+    return proto_neg.astype(np.float32), proto_pos.astype(np.float32)
+
+
 def sigmoid(values: np.ndarray) -> np.ndarray:
     values = np.asarray(values, dtype=np.float64)
     return 1.0 / (1.0 + np.exp(-np.clip(values, -60.0, 60.0)))
@@ -157,7 +228,14 @@ def sigmoid(values: np.ndarray) -> np.ndarray:
 def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str, device, torch):
     torch.manual_seed(1700 + fold)
     random.seed(1700 + fold)
-    head = BaselineHead.make(torch).to(device)
+    proto_neg, proto_pos = fit_prototypes(
+        X_train,
+        y_train,
+        args.prototypes_per_class,
+        args.prototype_method,
+        1700 + fold,
+    )
+    head = MultiPrototypeHead.make(torch, proto_neg, proto_pos).to(device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-4)
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_x = torch.from_numpy(np.ascontiguousarray(X_train))
@@ -389,11 +467,11 @@ def main() -> int:
 
     for model_name, model_key in (
         # ("V600_Apple", "v600"),
-        ("V610_Apple", "v610"),
-        # ("V003_Stone", "v003"),
+        # ("V610_Apple", "v610"),
+        ("V003_Stone", "v003"),
     ):
-        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_l2_full.npy", chr19_meta["label"].size)
-        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_l2_full.npy", chr16_meta["label"].size)
+        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_ode_s1_t097_full.npy", chr19_meta["label"].size)
+        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_ode_s1_t097_full.npy", chr16_meta["label"].size)
         oof_logits = np.full(chr19_meta["label"].size, np.nan, dtype=np.float32)
         fold_test_logits: list[np.ndarray] = []
         fold_no_target_logits: list[np.ndarray] = []
@@ -412,7 +490,7 @@ def main() -> int:
             )
             oof_logits[val_idx] = val_logits
             histories.extend(history)
-            torch.save({"state_dict": head.state_dict(), "model": model_name, "fold": fold}, weight_dir / f"{model_key}_fold{fold}.pt")
+            torch.save({"state_dict": head.state_dict(), "model": model_name, "fold": fold, "head": "multi_proto"}, weight_dir / f"{model_key}_fold{fold}.pt")
 
             centers16 = robust_centers(emb16, baseline16, k16, len(common_kmers))
             X_test = make_features(emb16, test16, k16, centers16, scale19)
@@ -499,7 +577,15 @@ def main() -> int:
         "chr16_test_rows": int(test16.size), "chr16_test_sites": int(site_labels.size),
         "chr16_test_sites_coverage_ge2": int((site_read_counts >= 2).sum()),
         "thresholds": thresholds, "device": "physical GPU 0 via CUDA_VISIBLE_DEVICES=0",
-        "training": {"backbone": "frozen", "head": "LayerNorm(1536)-Linear(256)-GELU-Dropout(0.2)-Linear(1)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
+        "training": {
+            "backbone": "frozen",
+            "head": "MultiPrototypeHead: fixed train-fold positive/negative prototype sets over normalized residual z; score = logsumexp(scale*cos(z, pos_prototypes)) - logsumexp(scale*cos(z, neg_prototypes)) + bias",
+            "epochs_max": args.epochs,
+            "batch_size": args.batch_size,
+            "patience": args.patience,
+            "prototypes_per_class": args.prototypes_per_class,
+            "prototype_method": args.prototype_method,
+        },
         "v003": "Stone tokens, hf_dlm ode_hidden_state, ode_steps=2, ode_start_t=0.98, self_cond_cfg_scale=0.5",
         "v610": "Apple tokens, OLMo2 base last hidden state",
         "seconds": time.time() - started,

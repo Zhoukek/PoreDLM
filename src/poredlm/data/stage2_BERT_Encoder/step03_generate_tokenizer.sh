@@ -4,10 +4,10 @@
 # 功能：根据指定的K值生成tokenizer.json文件
 
 # 设置K值（码本大小）- 请在此处修改K值
-K=65536
+K=8192
 
 # 设置输出文件路径 - 请在此处修改输出文件名
-OUTPUT="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json"
+OUTPUT="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json"
 
 # 打印执行信息
 echo "生成tokenizer，K=$K，输出到 $OUTPUT"

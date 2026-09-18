@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 
-MODELS = ("V610_Apple",)
+MODELS = ("V003_Stone",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,23 +35,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--bootstrap", type=int, default=1000)
+    parser.add_argument("--anchors-per-class", type=int, default=32)
+    parser.add_argument("--kernel-gamma", type=float, default=2.0)
     return parser.parse_args()
 
 
-class BaselineHead:
-    """Small shared architecture used after baseline-relative embedding features."""
+class RBFKernelHead:
+    """RBF anchor classifier over residual z."""
 
     @staticmethod
-    def make(torch):
+    def make(torch, anchors: np.ndarray, gamma: float):
         import torch.nn as nn
+        import torch.nn.functional as F
 
-        return nn.Sequential(
-            nn.LayerNorm(1536),
-            nn.Linear(1536, 768),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(768, 1),
-        )
+        class Head(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.register_buffer("anchors", torch.as_tensor(anchors, dtype=torch.float32))
+                self.gamma = float(gamma)
+                self.linear = nn.Linear(anchors.shape[0], 1)
+
+            def forward(self, x):
+                z = x[:, :768]
+                z = F.normalize(z, p=2, dim=-1)
+                anchors = F.normalize(self.anchors, p=2, dim=-1)
+                sqdist = torch.cdist(z, anchors, p=2).square()
+                kernel = torch.exp(-self.gamma * sqdist)
+                return self.linear(kernel)
+
+        return Head()
 
 
 def patch_torch_optimizer(torch):
@@ -149,6 +161,23 @@ def make_features(
     return np.concatenate((z, np.abs(z)), axis=1)
 
 
+def select_anchors(features: np.ndarray, labels: np.ndarray, per_class: int, seed: int) -> np.ndarray:
+    z = np.asarray(features[:, :768], dtype=np.float32)
+    labels = np.asarray(labels, dtype=np.int8)
+    rng = np.random.default_rng(seed)
+    selected_parts = []
+    for label in (0, 1):
+        candidates = np.flatnonzero(labels == label)
+        if candidates.size == 0:
+            raise RuntimeError("RBF kernel head requires both classes in the training fold")
+        count = min(int(per_class), candidates.size)
+        selected = rng.choice(candidates, size=count, replace=False)
+        selected_parts.append(z[selected])
+    anchors = np.concatenate(selected_parts, axis=0).astype(np.float32)
+    norms = np.linalg.norm(anchors, axis=1, keepdims=True)
+    return anchors / np.maximum(norms, 1e-6)
+
+
 def sigmoid(values: np.ndarray) -> np.ndarray:
     values = np.asarray(values, dtype=np.float64)
     return 1.0 / (1.0 + np.exp(-np.clip(values, -60.0, 60.0)))
@@ -157,7 +186,8 @@ def sigmoid(values: np.ndarray) -> np.ndarray:
 def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str, device, torch):
     torch.manual_seed(1700 + fold)
     random.seed(1700 + fold)
-    head = BaselineHead.make(torch).to(device)
+    anchors = select_anchors(X_train, y_train, args.anchors_per_class, 1700 + fold)
+    head = RBFKernelHead.make(torch, anchors, args.kernel_gamma).to(device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-4)
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_x = torch.from_numpy(np.ascontiguousarray(X_train))
@@ -389,11 +419,11 @@ def main() -> int:
 
     for model_name, model_key in (
         # ("V600_Apple", "v600"),
-        ("V610_Apple", "v610"),
-        # ("V003_Stone", "v003"),
+        # ("V610_Apple", "v610"),
+        ("V003_Stone", "v003"),
     ):
-        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_l2_full.npy", chr19_meta["label"].size)
-        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_l2_full.npy", chr16_meta["label"].size)
+        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_ode_s1_t097_full.npy", chr19_meta["label"].size)
+        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_ode_s1_t097_full.npy", chr16_meta["label"].size)
         oof_logits = np.full(chr19_meta["label"].size, np.nan, dtype=np.float32)
         fold_test_logits: list[np.ndarray] = []
         fold_no_target_logits: list[np.ndarray] = []
@@ -412,7 +442,7 @@ def main() -> int:
             )
             oof_logits[val_idx] = val_logits
             histories.extend(history)
-            torch.save({"state_dict": head.state_dict(), "model": model_name, "fold": fold}, weight_dir / f"{model_key}_fold{fold}.pt")
+            torch.save({"state_dict": head.state_dict(), "model": model_name, "fold": fold, "head": "rbf_kernel"}, weight_dir / f"{model_key}_fold{fold}.pt")
 
             centers16 = robust_centers(emb16, baseline16, k16, len(common_kmers))
             X_test = make_features(emb16, test16, k16, centers16, scale19)
@@ -499,7 +529,15 @@ def main() -> int:
         "chr16_test_rows": int(test16.size), "chr16_test_sites": int(site_labels.size),
         "chr16_test_sites_coverage_ge2": int((site_read_counts >= 2).sum()),
         "thresholds": thresholds, "device": "physical GPU 0 via CUDA_VISIBLE_DEVICES=0",
-        "training": {"backbone": "frozen", "head": "LayerNorm(1536)-Linear(256)-GELU-Dropout(0.2)-Linear(1)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
+        "training": {
+            "backbone": "frozen",
+            "head": "RBFKernelHead: fixed class-balanced train-fold anchors over normalized residual z; learned linear classifier over exp(-gamma * squared_distance_to_anchor)",
+            "epochs_max": args.epochs,
+            "batch_size": args.batch_size,
+            "patience": args.patience,
+            "anchors_per_class": args.anchors_per_class,
+            "kernel_gamma": args.kernel_gamma,
+        },
         "v003": "Stone tokens, hf_dlm ode_hidden_state, ode_steps=2, ode_start_t=0.98, self_cond_cfg_scale=0.5",
         "v610": "Apple tokens, OLMo2 base last hidden state",
         "seconds": time.time() - started,

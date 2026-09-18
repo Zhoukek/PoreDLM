@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 
-MODELS = ("V610_Apple",)
+MODELS = ("V003_Stone",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,23 +35,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--bootstrap", type=int, default=1000)
+    parser.add_argument("--cosine-aux-weight", type=float, default=0.1)
+    parser.add_argument("--mix-logit-init", type=float, default=0.0)
     return parser.parse_args()
 
 
-class BaselineHead:
-    """Small shared architecture used after baseline-relative embedding features."""
+class MLPPlusCosineAuxResidualHead:
+    """MLP over [z, abs(z)] plus a cosine branch over z."""
 
     @staticmethod
-    def make(torch):
+    def make(torch, mix_logit_init: float):
         import torch.nn as nn
+        import torch.nn.functional as F
 
-        return nn.Sequential(
-            nn.LayerNorm(1536),
-            nn.Linear(1536, 768),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(768, 1),
-        )
+        class Head(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.mlp = nn.Sequential(
+                    nn.LayerNorm(1536),
+                    nn.Linear(1536, 256),
+                    nn.GELU(),
+                    nn.Dropout(0.2),
+                    nn.Linear(256, 1),
+                )
+                self.cosine_weight = nn.Parameter(torch.empty(2, 768))
+                self.cosine_bias = nn.Parameter(torch.zeros(2))
+                self.cosine_log_scale = nn.Parameter(torch.log(torch.tensor(16.0)))
+                self.mix_logit = nn.Parameter(torch.tensor(float(mix_logit_init)))
+                nn.init.xavier_uniform_(self.cosine_weight)
+
+            def forward_parts(self, x):
+                mlp_logit = self.mlp(x)
+                z = x[:, :768]
+                z = F.normalize(z, p=2, dim=-1)
+                weight = F.normalize(self.cosine_weight, p=2, dim=-1)
+                scale = self.cosine_log_scale.exp().clamp(1.0, 100.0)
+                cosine_logits = scale * (z @ weight.t()) + self.cosine_bias
+                cosine_logit = cosine_logits[:, 1:2] - cosine_logits[:, 0:1]
+                alpha = torch.sigmoid(self.mix_logit)
+                final_logit = mlp_logit + alpha * cosine_logit
+                return final_logit, cosine_logit, mlp_logit, alpha
+
+            def forward(self, x):
+                return self.forward_parts(x)[0]
+
+        return Head()
 
 
 def patch_torch_optimizer(torch):
@@ -157,7 +185,7 @@ def sigmoid(values: np.ndarray) -> np.ndarray:
 def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str, device, torch):
     torch.manual_seed(1700 + fold)
     random.seed(1700 + fold)
-    head = BaselineHead.make(torch).to(device)
+    head = MLPPlusCosineAuxResidualHead.make(torch, args.mix_logit_init).to(device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-4)
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_x = torch.from_numpy(np.ascontiguousarray(X_train))
@@ -176,22 +204,39 @@ def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str,
     for epoch in range(1, args.epochs + 1):
         head.train()
         total_loss = 0.0
+        total_main_loss = 0.0
+        total_aux_loss = 0.0
         total_rows = 0
         for batch_x, batch_y in loader:
             batch_x = batch_x.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            loss = loss_fn(head(batch_x).squeeze(-1), batch_y)
+            final_logit, cosine_logit, _, _ = head.forward_parts(batch_x)
+            main_loss = loss_fn(final_logit.squeeze(-1), batch_y)
+            aux_loss = loss_fn(cosine_logit.squeeze(-1), batch_y)
+            loss = main_loss + args.cosine_aux_weight * aux_loss
             loss.backward()
             optimizer.step()
             total_loss += float(loss.detach()) * batch_x.shape[0]
+            total_main_loss += float(main_loss.detach()) * batch_x.shape[0]
+            total_aux_loss += float(aux_loss.detach()) * batch_x.shape[0]
             total_rows += batch_x.shape[0]
         head.eval()
         with torch.inference_mode():
             val_logits = head(val_x).squeeze(-1).float().cpu().numpy()
         val_prob = sigmoid(val_logits)
         val_auc = float(roc_auc_score(y_val, val_prob))
-        row = {"model": model_name, "fold": fold, "epoch": epoch, "loss": total_loss / max(total_rows, 1), "val_auroc": val_auc}
+        row = {
+            "model": model_name,
+            "fold": fold,
+            "epoch": epoch,
+            "loss": total_loss / max(total_rows, 1),
+            "main_loss": total_main_loss / max(total_rows, 1),
+            "cosine_aux_loss": total_aux_loss / max(total_rows, 1),
+            "cosine_aux_weight": args.cosine_aux_weight,
+            "mix_alpha": float(torch.sigmoid(head.mix_logit).detach().cpu()),
+            "val_auroc": val_auc,
+        }
         history.append(row)
         print(json.dumps({"stage": "train", **row}), flush=True)
         if val_auc > best_auc + 1e-6:
@@ -389,11 +434,11 @@ def main() -> int:
 
     for model_name, model_key in (
         # ("V600_Apple", "v600"),
-        ("V610_Apple", "v610"),
-        # ("V003_Stone", "v003"),
+        # ("V610_Apple", "v610"),
+        ("V003_Stone", "v003"),
     ):
-        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_l2_full.npy", chr19_meta["label"].size)
-        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_l2_full.npy", chr16_meta["label"].size)
+        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_ode_s1_t097_full.npy", chr19_meta["label"].size)
+        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_ode_s1_t097_full.npy", chr16_meta["label"].size)
         oof_logits = np.full(chr19_meta["label"].size, np.nan, dtype=np.float32)
         fold_test_logits: list[np.ndarray] = []
         fold_no_target_logits: list[np.ndarray] = []
@@ -499,7 +544,15 @@ def main() -> int:
         "chr16_test_rows": int(test16.size), "chr16_test_sites": int(site_labels.size),
         "chr16_test_sites_coverage_ge2": int((site_read_counts >= 2).sum()),
         "thresholds": thresholds, "device": "physical GPU 0 via CUDA_VISIBLE_DEVICES=0",
-        "training": {"backbone": "frozen", "head": "LayerNorm(1536)-Linear(256)-GELU-Dropout(0.2)-Linear(1)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
+        "training": {
+            "backbone": "frozen",
+            "head": "MLPPlusCosineAuxResidualHead: MLP([z, abs(z)]) + sigmoid(alpha) * cosine_logit(normalize(z)); optimized with BCE(final_logit) + cosine_aux_weight * BCE(cosine_logit)",
+            "epochs_max": args.epochs,
+            "batch_size": args.batch_size,
+            "patience": args.patience,
+            "cosine_aux_weight": args.cosine_aux_weight,
+            "mix_logit_init": args.mix_logit_init,
+        },
         "v003": "Stone tokens, hf_dlm ode_hidden_state, ode_steps=2, ode_start_t=0.98, self_cond_cfg_scale=0.5",
         "v610": "Apple tokens, OLMo2 base last hidden state",
         "seconds": time.time() - started,

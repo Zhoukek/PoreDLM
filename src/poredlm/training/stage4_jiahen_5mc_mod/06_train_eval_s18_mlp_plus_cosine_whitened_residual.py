@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 
-MODELS = ("V610_Apple",)
+MODELS = ("V003_Stone",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,23 +35,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--bootstrap", type=int, default=1000)
+    parser.add_argument("--mix-logit-init", type=float, default=0.0)
+    parser.add_argument("--whiten-eps", type=float, default=1e-3)
+    parser.add_argument("--whiten-shrinkage", type=float, default=0.05)
+    parser.add_argument("--whiten-components", type=int, default=768)
     return parser.parse_args()
 
 
-class BaselineHead:
-    """Small shared architecture used after baseline-relative embedding features."""
+class MLPPlusCosinePCAWhitenedResidualHead:
+    """MLP over PCA-whitened [z, abs(z)] plus a cosine branch over z."""
 
     @staticmethod
-    def make(torch):
+    def make(torch, z_dim: int, mix_logit_init: float):
         import torch.nn as nn
+        import torch.nn.functional as F
 
-        return nn.Sequential(
-            nn.LayerNorm(1536),
-            nn.Linear(1536, 768),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(768, 1),
-        )
+        class Head(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.mlp = nn.Sequential(
+                    nn.LayerNorm(z_dim * 2),
+                    nn.Linear(z_dim * 2, 256),
+                    nn.GELU(),
+                    nn.Dropout(0.2),
+                    nn.Linear(256,1),
+                )
+                self.cosine_weight = nn.Parameter(torch.empty(2, z_dim))
+                self.cosine_bias = nn.Parameter(torch.zeros(2))
+                self.cosine_log_scale = nn.Parameter(torch.log(torch.tensor(32.0)))
+                self.mix_logit = nn.Parameter(torch.tensor(float(mix_logit_init)))
+                nn.init.xavier_uniform_(self.cosine_weight)
+
+            def forward(self, x):
+                mlp_logit = self.mlp(x)
+                z = x[:, :self.cosine_weight.shape[1]]
+                z = F.normalize(z, p=2, dim=-1)
+                weight = F.normalize(self.cosine_weight, p=2, dim=-1)
+                scale = self.cosine_log_scale.exp().clamp(1.0, 100.0)
+                cosine_logits = scale * (z @ weight.t()) + self.cosine_bias
+                cosine_logit = cosine_logits[:, 1:2] - cosine_logits[:, 0:1]
+                # cosine_logit = cosine_logits[:, 1:2]
+                alpha = torch.sigmoid(self.mix_logit)
+                return mlp_logit + alpha * cosine_logit
+                # return mlp_logit
+
+        return Head()
 
 
 def patch_torch_optimizer(torch):
@@ -134,17 +162,50 @@ def robust_scale(
     return np.maximum(scale.astype(np.float32), 1e-3)
 
 
+def fit_residual_whitener(
+    embedding: np.ndarray,
+    indices: np.ndarray,
+    kmer_ids: np.ndarray,
+    centers: np.ndarray,
+    eps: float,
+    shrinkage: float,
+    components: int,
+) -> dict[str, np.ndarray]:
+    if components <= 0 or components > 768:
+        raise ValueError(f"--whiten-components must be in [1, 768], got {components}")
+    values = np.asarray(embedding[indices], dtype=np.float32)
+    residual = values - centers[kmer_ids[indices]]
+    residual = residual.astype(np.float64, copy=False)
+    cov = (residual.T @ residual) / max(residual.shape[0] - 1, 1)
+    mean_diag = float(np.mean(np.diag(cov)))
+    shrinkage = float(np.clip(shrinkage, 0.0, 1.0))
+    cov = (1.0 - shrinkage) * cov + shrinkage * mean_diag * np.eye(cov.shape[0], dtype=np.float64)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    eigvals = np.maximum(eigvals, float(eps))
+    order = np.argsort(eigvals)[::-1][:components]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+    inv_sqrt = 1.0 / np.sqrt(eigvals)
+    whitener = eigvecs * inv_sqrt[None, :]
+    return {
+        "whitener": whitener.astype(np.float32),
+        "eigvals": eigvals.astype(np.float32),
+        "components": np.asarray([components], dtype=np.int32),
+    }
+
+
 def make_features(
     embedding: np.ndarray,
     indices: np.ndarray,
     kmer_ids: np.ndarray,
     centers: np.ndarray,
-    scale: np.ndarray,
+    whitener: np.ndarray,
 ) -> np.ndarray:
     values = np.asarray(embedding[indices], dtype=np.float32)
-    z = (values - centers[kmer_ids[indices]]) / scale
+    residual = values - centers[kmer_ids[indices]]
+    z = residual @ whitener
     if not np.isfinite(z).all():
-        raise RuntimeError("Non-finite baseline-relative features")
+        raise RuntimeError("Non-finite whitened residual features")
     z = np.clip(z, -8.0, 8.0).astype(np.float32)
     return np.concatenate((z, np.abs(z)), axis=1)
 
@@ -157,8 +218,8 @@ def sigmoid(values: np.ndarray) -> np.ndarray:
 def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str, device, torch):
     torch.manual_seed(1700 + fold)
     random.seed(1700 + fold)
-    head = BaselineHead.make(torch).to(device)
-    optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-4)
+    head = MLPPlusCosinePCAWhitenedResidualHead.make(torch, X_train.shape[1] // 2, args.mix_logit_init).to(device)
+    optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-3)
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_x = torch.from_numpy(np.ascontiguousarray(X_train))
     train_y = torch.from_numpy(np.asarray(y_train, dtype=np.float32))
@@ -389,11 +450,13 @@ def main() -> int:
 
     for model_name, model_key in (
         # ("V600_Apple", "v600"),
-        ("V610_Apple", "v610"),
-        # ("V003_Stone", "v003"),
+        # ("V610_Apple", "v610"),
+        ("V003_Stone", "v007"),
     ):
-        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_l2_full.npy", chr19_meta["label"].size)
-        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_l2_full.npy", chr16_meta["label"].size)
+        # emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_ode_l2_s2_t098_full.npy", chr19_meta["label"].size)
+        # emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_ode_l2_s2_t098_full.npy", chr16_meta["label"].size)
+        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_full.npy", chr19_meta["label"].size)
+        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_full.npy", chr16_meta["label"].size)
         oof_logits = np.full(chr19_meta["label"].size, np.nan, dtype=np.float32)
         fold_test_logits: list[np.ndarray] = []
         fold_no_target_logits: list[np.ndarray] = []
@@ -402,9 +465,17 @@ def main() -> int:
             val_idx = np.flatnonzero(chr19_meta["fold"] == fold)
             neg_train = train_idx[chr19_meta["label"][train_idx] == 0]
             centers19 = robust_centers(emb19, neg_train, k19, len(common_kmers))
-            scale19 = robust_scale(emb19, neg_train, k19, centers19)
-            X_train = make_features(emb19, train_idx, k19, centers19, scale19)
-            X_val = make_features(emb19, val_idx, k19, centers19, scale19)
+            whiten19 = fit_residual_whitener(
+                emb19,
+                neg_train,
+                k19,
+                centers19,
+                args.whiten_eps,
+                args.whiten_shrinkage,
+                args.whiten_components,
+            )
+            X_train = make_features(emb19, train_idx, k19, centers19, whiten19["whitener"])
+            X_val = make_features(emb19, val_idx, k19, centers19, whiten19["whitener"])
             head, val_logits, best_epoch, best_auc, history = train_head(
                 X_train, chr19_meta["label"][train_idx], X_val,
                 chr19_meta["label"][val_idx], args, fold, model_name,
@@ -415,14 +486,22 @@ def main() -> int:
             torch.save({"state_dict": head.state_dict(), "model": model_name, "fold": fold}, weight_dir / f"{model_key}_fold{fold}.pt")
 
             centers16 = robust_centers(emb16, baseline16, k16, len(common_kmers))
-            X_test = make_features(emb16, test16, k16, centers16, scale19)
-            X_no_target = make_features(emb16, test16, k16, centers19, scale19)
+            X_test = make_features(emb16, test16, k16, centers16, whiten19["whitener"])
+            X_no_target = make_features(emb16, test16, k16, centers19, whiten19["whitener"])
             with torch.inference_mode():
                 fold_test_logits.append(head(torch.from_numpy(X_test).to(args.device)).squeeze(-1).float().cpu().numpy())
                 fold_no_target_logits.append(head(torch.from_numpy(X_no_target).to(args.device)).squeeze(-1).float().cpu().numpy())
-            np.savez_compressed(weight_dir / f"{model_key}_fold{fold}_baseline.npz", centers=centers19, scale=scale19, target_centers=centers16, kmers=np.asarray(common_kmers))
+            np.savez_compressed(
+                weight_dir / f"{model_key}_fold{fold}_baseline.npz",
+                centers=centers19,
+                whitener=whiten19["whitener"],
+                whiten_eigvals=whiten19["eigvals"],
+                whiten_components=whiten19["components"],
+                target_centers=centers16,
+                kmers=np.asarray(common_kmers),
+            )
             fold_metrics.append({"model": model_name, "fold": fold, "best_epoch": best_epoch, "val_auroc": best_auc, "train_rows": train_idx.size, "val_rows": val_idx.size})
-            del X_train, X_val, X_test, X_no_target, head, centers19, centers16, scale19
+            del X_train, X_val, X_test, X_no_target, head, centers19, centers16, whiten19
             gc.collect()
             torch.cuda.empty_cache()
 
@@ -499,7 +578,18 @@ def main() -> int:
         "chr16_test_rows": int(test16.size), "chr16_test_sites": int(site_labels.size),
         "chr16_test_sites_coverage_ge2": int((site_read_counts >= 2).sum()),
         "thresholds": thresholds, "device": "physical GPU 0 via CUDA_VISIBLE_DEVICES=0",
-        "training": {"backbone": "frozen", "head": "LayerNorm(1536)-Linear(256)-GELU-Dropout(0.2)-Linear(1)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
+        "training": {
+            "backbone": "frozen",
+            "feature": "PCA-whitened residual z = (embedding - per-7mer unmodified center) @ topK_eigvecs @ diag(1/sqrt(eigvals)), fitted on train negative residuals with covariance shrinkage and eigenvalue floor",
+            "head": "MLPPlusCosinePCAWhitenedResidualHead: MLP([z_pca_white, abs(z_pca_white)]) + sigmoid(alpha) * cosine_logit(normalize(z_pca_white)); learned 2-class cosine directions and scale",
+            "epochs_max": args.epochs,
+            "batch_size": args.batch_size,
+            "patience": args.patience,
+            "mix_logit_init": args.mix_logit_init,
+            "whiten_eps": args.whiten_eps,
+            "whiten_shrinkage": args.whiten_shrinkage,
+            "whiten_components": args.whiten_components,
+        },
         "v003": "Stone tokens, hf_dlm ode_hidden_state, ode_steps=2, ode_start_t=0.98, self_cond_cfg_scale=0.5",
         "v610": "Apple tokens, OLMo2 base last hidden state",
         "seconds": time.time() - started,

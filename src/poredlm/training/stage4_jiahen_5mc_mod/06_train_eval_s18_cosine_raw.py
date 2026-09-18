@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 
 
-MODELS = ("V610_Apple",)
+MODELS = ("V003_Stone",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,20 +38,30 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-class BaselineHead:
-    """Small shared architecture used after baseline-relative embedding features."""
+class CosineRawHead:
+    """Cosine classifier over raw pooled embeddings."""
 
     @staticmethod
     def make(torch):
         import torch.nn as nn
+        import torch.nn.functional as F
 
-        return nn.Sequential(
-            nn.LayerNorm(1536),
-            nn.Linear(1536, 768),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(768, 1),
-        )
+        class Head(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.weight = nn.Parameter(torch.empty(2, 768))
+                self.bias = nn.Parameter(torch.zeros(2))
+                self.log_scale = nn.Parameter(torch.log(torch.tensor(16.0)))
+                nn.init.xavier_uniform_(self.weight)
+
+            def forward(self, x):
+                x = F.normalize(x, p=2, dim=-1)
+                weight = F.normalize(self.weight, p=2, dim=-1)
+                scale = self.log_scale.exp().clamp(1.0, 100.0)
+                logits = scale * (x @ weight.t()) + self.bias
+                return logits[:, 1:2] - logits[:, 0:1]
+
+        return Head()
 
 
 def patch_torch_optimizer(torch):
@@ -141,12 +151,11 @@ def make_features(
     centers: np.ndarray,
     scale: np.ndarray,
 ) -> np.ndarray:
+    del kmer_ids, centers, scale
     values = np.asarray(embedding[indices], dtype=np.float32)
-    z = (values - centers[kmer_ids[indices]]) / scale
-    if not np.isfinite(z).all():
-        raise RuntimeError("Non-finite baseline-relative features")
-    z = np.clip(z, -8.0, 8.0).astype(np.float32)
-    return np.concatenate((z, np.abs(z)), axis=1)
+    if not np.isfinite(values).all():
+        raise RuntimeError("Non-finite raw embedding features")
+    return values.astype(np.float32)
 
 
 def sigmoid(values: np.ndarray) -> np.ndarray:
@@ -157,7 +166,7 @@ def sigmoid(values: np.ndarray) -> np.ndarray:
 def train_head(X_train, y_train, X_val, y_val, args, fold: int, model_name: str, device, torch):
     torch.manual_seed(1700 + fold)
     random.seed(1700 + fold)
-    head = BaselineHead.make(torch).to(device)
+    head = CosineRawHead.make(torch).to(device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=1e-4)
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_x = torch.from_numpy(np.ascontiguousarray(X_train))
@@ -389,11 +398,11 @@ def main() -> int:
 
     for model_name, model_key in (
         # ("V600_Apple", "v600"),
-        ("V610_Apple", "v610"),
-        # ("V003_Stone", "v003"),
+        # ("V610_Apple", "v610"),
+        ("V003_Stone", "v003"),
     ):
-        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_l2_full.npy", chr19_meta["label"].size)
-        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_l2_full.npy", chr16_meta["label"].size)
+        emb19 = load_embedding(embedding_dir / f"chr19_{model_key}_ode_s1_t097_full.npy", chr19_meta["label"].size)
+        emb16 = load_embedding(embedding_dir / f"chr16_{model_key}_ode_s1_t097_full.npy", chr16_meta["label"].size)
         oof_logits = np.full(chr19_meta["label"].size, np.nan, dtype=np.float32)
         fold_test_logits: list[np.ndarray] = []
         fold_no_target_logits: list[np.ndarray] = []
@@ -499,7 +508,7 @@ def main() -> int:
         "chr16_test_rows": int(test16.size), "chr16_test_sites": int(site_labels.size),
         "chr16_test_sites_coverage_ge2": int((site_read_counts >= 2).sum()),
         "thresholds": thresholds, "device": "physical GPU 0 via CUDA_VISIBLE_DEVICES=0",
-        "training": {"backbone": "frozen", "head": "LayerNorm(1536)-Linear(256)-GELU-Dropout(0.2)-Linear(1)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
+        "training": {"backbone": "frozen", "head": "CosineRawHead(normalize(h), learned 2-class directions, learned scale, BCE on logit_mod-logit_unmod)", "epochs_max": args.epochs, "batch_size": args.batch_size, "patience": args.patience},
         "v003": "Stone tokens, hf_dlm ode_hidden_state, ode_steps=2, ode_start_t=0.98, self_cond_cfg_scale=0.5",
         "v610": "Apple tokens, OLMo2 base last hidden state",
         "seconds": time.time() - started,
