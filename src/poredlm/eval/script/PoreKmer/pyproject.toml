@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "porekmer"
+dynamic = ["version"]
+description = "Boundary-conditioned nanopore k-mer classification and Stone-table experiments"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24,<3", "torch>=2.1,<3"]
+keywords = ["nanopore", "kmer", "signal", "representation", "bioinformatics"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.scripts]
+porekmer = "porekmer.cli:entrypoint"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["porekmer*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "porekmer.__version__"}

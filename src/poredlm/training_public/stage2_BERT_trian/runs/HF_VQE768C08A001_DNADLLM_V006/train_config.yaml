@@ -6,8 +6,8 @@ reproducibility:
 data:
   # Team-required loader. FlowMapDataset reads samples from `data_name`.
   dataset_type: "flowmap"
-  train_dir: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006/train"
-  valid_dir: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006/eval"
+  train_dir: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/train"
+  valid_dir: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/eval"
   data_name: "data"
   file_pattern: "*.npy"
   token_dtype: "uint32"
@@ -69,4 +69,4 @@ training:
 wandb:
   use_wandb: true
   project: "stage2_bert_public"
-  name: "stage2_bert_memmap_v006"
+  name: "stage2_bert_memmap_v006-new"

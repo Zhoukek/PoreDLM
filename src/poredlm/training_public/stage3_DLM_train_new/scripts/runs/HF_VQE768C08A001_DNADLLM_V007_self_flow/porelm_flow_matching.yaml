@@ -3,7 +3,7 @@ seed: 6198
 dry_run: false
 
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V007/models/step_50000
+  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V007/models/step_60000
   training_objective: self_flow
   freeze_context_encoder: true
   max_length: 1536

@@ -4,7 +4,7 @@ dry_run: false
 
 # Stage 3 DLM uses the trained Stage 2 BERT encoder as the context encoder.
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V006/models/step_190000
+  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V006/models/step_250000
   # elf: freeze BERT and train only ELF. bert: train BERT encoder + its original MLM head.
   training_objective: elf
   freeze_context_encoder: true
@@ -373,7 +373,7 @@ evaluators:
      memmap_dtype: uint32
      datasets:
        small_eval:
-        - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006/eval/pore_tokens_rank0_0000.npy
+        - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/eval/pore_tokens_rank0_0000.npy
 
 
   ##########################
@@ -396,4 +396,4 @@ data:
     repetition_min_period: 1
     repetition_max_count: 32
   paths:
-    - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006/train
+    - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/train

@@ -1,0 +1,8 @@
+include README.md CHANGELOG.md DISTRIBUTION.md pyproject.toml
+recursive-include docs *.md
+recursive-include examples *.json
+recursive-include tests *.py
+recursive-include scripts *.py
+global-exclude __pycache__ *.py[cod]
+prune dist
+prune build

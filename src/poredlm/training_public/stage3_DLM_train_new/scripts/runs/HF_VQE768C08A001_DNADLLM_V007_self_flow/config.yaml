@@ -1,4 +1,4 @@
-run_name: porelm-self-flow-V007-self-flow
+run_name: porelm-self-flow-V006-self-flow
 seed: 6198
 epoch: null
 dry_run: false
@@ -33,8 +33,8 @@ model:
   include_bias: false
   bias_for_layer_norm: false
   scale_logits: false
-  vocab_size: 8320
-  embedding_size: 8320
+  vocab_size: 65664
+  embedding_size: 65664
   weight_tying: false
   eos_token_id: 3
   pad_token_id: 1
@@ -47,7 +47,7 @@ model:
   emb_init_std: null
   norm_after: true
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V007/models/step_50000
+  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V006/models/step_250000
   freeze_context_encoder: true
   training_objective: self_flow
   max_length: 1536
@@ -84,7 +84,7 @@ dlm:
   self_flow_teacher_update_interval: 1
   self_flow_feature_loss: cosine
   conditioning_mode: mixed
-  unconditional_prob: 0.5
+  unconditional_prob: 0.2
   condition_pattern: mixed
   condition_min_mask_ratio: 0.1
   condition_max_mask_ratio: 0.5
@@ -134,7 +134,7 @@ scheduler:
   warmup_min_lr: 0.0
 data:
   paths:
-  - /mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/tokens_appleq50_pore_codec_vqe768c08a-007/train
+  - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/train
   memmap_dtype: uint32
   datasets: null
   label_mask_paths: null
@@ -160,7 +160,7 @@ evaluators:
   type: lm
   data:
     paths:
-    - /mnt/si002562jbsc/poregpt/datasets/DNA_S0_HG00200_MIX_250F701586013/tokens_appleq50_pore_codec_vqe768c08a-007/eval/pore_tokens_rank0_0000.npy
+    - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/eval/pore_tokens_rank0_0000.npy
     memmap_dtype: uint32
     datasets: null
     label_mask_paths: null
@@ -180,7 +180,7 @@ evaluators:
   subset_num_batches: null
 eval_interval: 10000
 tokenizer:
-  identifier: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json
+  identifier: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
   truncate_direction: right
 save_folder: runs/HF_VQE768C08A001_DNADLLM_V007_self_flow
 remote_save_folder: null
@@ -201,13 +201,13 @@ reset_trainer_state: false
 sharded_checkpointer: porelm_core
 new_style_checkpoints: null
 max_duration: 5ep
-global_train_batch_size: 64
-device_train_batch_size: 16
-device_train_microbatch_size: 8
-device_eval_batch_size: 8
+global_train_batch_size: 48
+device_train_batch_size: 6
+device_train_microbatch_size: 6
+device_eval_batch_size: 6
 eval_subset_num_batches: -1
 eval_on_load: false
-device_train_grad_accum: 2
+device_train_grad_accum: 1
 max_grad_norm: 1.0
 max_grad_norm_ratio: null
 precision: amp_bf16
@@ -215,7 +215,7 @@ wandb:
   project: porelm-stage3
   entity: null
   group: null
-  name: porelm-self-flow-V007-self-flow
+  name: porelm-self-flow-V006-self-flow
   tags:
   - watching
   log_artifacts: false
