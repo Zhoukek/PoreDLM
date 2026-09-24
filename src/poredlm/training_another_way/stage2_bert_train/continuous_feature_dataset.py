@@ -23,7 +23,7 @@ class FeatureShard:
 
 class ContinuousFeatureDataset(IterableDataset):
     def __init__(self, data_dir: str, feature_dim: int, max_length: int,
-                 pattern: str = "features.npy", shuffle_files: bool = True,
+                 pattern: str = "features*.npy", shuffle_files: bool = True,
                  repeat: bool = True, seed: int = 42, dtype: str = "float16") -> None:
         super().__init__()
         self.data_dir = Path(data_dir)

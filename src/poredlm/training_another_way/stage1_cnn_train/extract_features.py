@@ -6,6 +6,7 @@ import argparse
 import csv
 import gzip
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +41,11 @@ def main() -> None:
     loader = torch.utils.data.DataLoader(dataset, batch_size=cfg["training"]["device_micro_batch_size"],
                                          num_workers=0, pin_memory=True)
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
-    data_path = out / "features.npy"; index_path = out / "features.csv.gz"
+    rank = int(os.environ.get("RANK", "0"))
+    world_size = max(1, int(os.environ.get("WORLD_SIZE", "1")))
+    suffix = f"_rank{rank:05d}" if world_size > 1 else ""
+    data_path = out / f"features{suffix}.npy"
+    index_path = out / f"features{suffix}.csv.gz"
     output_dtype = np.dtype(args.dtype)
     offset = 0; sample_count = 0; feature_length = None
     with data_path.open("wb") as data_handle, gzip.open(index_path, "wt", newline="", encoding="utf-8") as index_handle:
@@ -63,9 +68,9 @@ def main() -> None:
                 writer.writerow([offset, offset + flat.size, int(sample_id)])
                 offset += flat.size; sample_count += 1
     metadata = {"feature_dim": int(model.hidden_size), "feature_length": feature_length,
-                "cnn_stride": int(model.stride),
-                "dtype": args.dtype, "num_samples": sample_count}
-    (out / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+                "cnn_stride": int(model.stride), "dtype": args.dtype,
+                "num_samples": sample_count, "rank": rank, "world_size": world_size}
+    (out / f"metadata{suffix}.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print(json.dumps(metadata, indent=2))
 
 

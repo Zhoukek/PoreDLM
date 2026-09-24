@@ -8,3 +8,6 @@ continuous vectors. There is no vocabulary or token classification head.
 ```bash
 bash runs/continuous_bert/run_train.sh
 ```
+
+The launcher uses `torchrun`; set `CUDA_VISIBLE_DEVICES` and
+`NPROC_PER_NODE` to match the available GPUs.
