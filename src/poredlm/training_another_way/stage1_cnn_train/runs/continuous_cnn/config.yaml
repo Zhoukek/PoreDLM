@@ -1,0 +1,36 @@
+seed: 42
+model:
+  hidden_size: 768
+  cnn_type: 0
+  noise_std: 0.03
+data:
+  train:
+    paths: []
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 20000
+    num_workers: 4
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 2
+  valid:
+    paths: []
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 0
+    num_workers: 2
+    pin_memory: true
+    persistent_workers: false
+    prefetch_factor: 2
+training:
+  max_train_steps: 100000
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  device_train_microbatch_size: 16
+  mixed_precision: bf16
+  gradient_clipping: 1.0
+  log_every_steps: 10
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  output_dir: save/continuous_cnn

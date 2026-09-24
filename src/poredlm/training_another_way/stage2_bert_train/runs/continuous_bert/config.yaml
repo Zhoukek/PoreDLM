@@ -1,0 +1,37 @@
+seed: 42
+model:
+  feature_dim: 768
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  dropout: 0.1
+  max_position_embeddings: 1280
+  mask_probability: 0.15
+data:
+  train:
+    directory: ""
+    dtype: float16
+    num_workers: 4
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 2
+  valid:
+    directory: ""
+    dtype: float16
+    num_workers: 2
+    pin_memory: true
+    persistent_workers: false
+    prefetch_factor: 2
+training:
+  max_train_steps: 200000
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  device_train_microbatch_size: 8
+  mixed_precision: bf16
+  gradient_clipping: 1.0
+  log_every_steps: 10
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  output_dir: save/continuous_bert
