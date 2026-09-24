@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -40,12 +41,58 @@ def build_loader(cfg: dict, train: bool):
     )
 
 
+def save_hf_checkpoint(
+    accelerator: Accelerator,
+    model: torch.nn.Module,
+    output_dir: str | os.PathLike[str],
+    step_name: str,
+    global_step: int,
+    config: dict,
+) -> None:
+    """Save a Stage 1 checkpoint in the same directory style as training_public."""
+    accelerator.wait_for_everyone()
+    if not accelerator.is_main_process:
+        return
+
+    save_dir = Path(output_dir) / str(step_name)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    unwrapped = accelerator.unwrap_model(model)
+    unwrapped.config.architectures = ["ContinuousSignalCNN"]
+    unwrapped.config.auto_map = {
+        "AutoConfig": "modeling_continuous_cnn.ContinuousCNNConfig",
+        "AutoModel": "modeling_continuous_cnn.ContinuousSignalCNN",
+    }
+    unwrapped.save_pretrained(save_dir, safe_serialization=True)
+    shutil.copy2(Path(__file__).with_name("modeling_continuous_cnn.py"), save_dir / "modeling_continuous_cnn.py")
+    with (save_dir / "training_config.yaml").open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, sort_keys=False, allow_unicode=True)
+    torch.save({"global_step": int(global_step), "model_format": "hf_pretrained"}, save_dir / "trainer_state.pt")
+
+    latest_dir = Path(output_dir) / "latest"
+    if latest_dir.exists() or latest_dir.is_symlink():
+        if latest_dir.is_symlink() or latest_dir.is_file():
+            latest_dir.unlink()
+        else:
+            shutil.rmtree(latest_dir)
+    shutil.copytree(save_dir, latest_dir)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     args = parser.parse_args()
     with open(args.config, "r", encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle)
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+    print(
+        f"rank={os.environ.get('RANK', '0')} "
+        f"local_rank={local_rank} "
+        f"world_size={os.environ.get('WORLD_SIZE', '1')} "
+        f"device={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}",
+        flush=True,
+    )
     seed_everything(int(cfg.get("seed", 42)))
     accelerator = Accelerator(mixed_precision=cfg["training"].get("mixed_precision", "no"))
     model = ContinuousSignalCNN(ContinuousCNNConfig(**cfg.get("model", {})))
@@ -77,13 +124,10 @@ def main() -> None:
                 mean_loss = torch.stack(losses).mean() if losses else torch.tensor(0.0, device=accelerator.device)
                 mean_loss = accelerator.gather_for_metrics(mean_loss.unsqueeze(0)).mean().item()
                 if accelerator.is_local_main_process: accelerator.print(f"step={step} eval_loss={mean_loss:.6f}")
-            if step % save_every == 0 and accelerator.is_local_main_process:
-                unwrapped = accelerator.unwrap_model(model)
-                torch.save({"model": unwrapped.state_dict(), "step": step, "config": cfg}, output_dir / f"step_{step}.pt")
+            if step % save_every == 0:
+                save_hf_checkpoint(accelerator, model, output_dir, f"step_{step}", step, cfg)
             if step >= max_steps: break
-    if accelerator.is_local_main_process:
-        unwrapped = accelerator.unwrap_model(model)
-        torch.save({"model": unwrapped.state_dict(), "step": step, "config": cfg}, output_dir / "last.pt")
+    save_hf_checkpoint(accelerator, model, output_dir, "final", step, cfg)
     progress.close()
 
 

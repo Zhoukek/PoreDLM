@@ -5,18 +5,26 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from torch import nn
+from transformers import AutoConfig, AutoModel, PreTrainedModel, PretrainedConfig
 
 from poredlm.training_public.stage1_tokenizer_train.modeling_pore_vq_codec import SignalCNN
 
 
-class ContinuousCNNConfig:
-    def __init__(self, hidden_size: int = 768, cnn_type: int = 0, noise_std: float = 0.03):
+MODEL_TYPE = "continuous_signal_cnn"
+
+
+class ContinuousCNNConfig(PretrainedConfig):
+    model_type = MODEL_TYPE
+
+    def __init__(self, hidden_size: int = 768, cnn_type: int = 0,
+                 noise_std: float = 0.03, **kwargs):
+        super().__init__(**kwargs)
         self.hidden_size = int(hidden_size)
         self.cnn_type = int(cnn_type)
         self.noise_std = float(noise_std)
 
 
-class ContinuousSignalCNN(nn.Module):
+class ContinuousSignalCNN(PreTrainedModel):
     """The public VQ-CNN backbone without quantization or codebook layers.
 
     This reuses ``SignalCNN`` from the public VQ codec. Only its CNN
@@ -25,9 +33,12 @@ class ContinuousSignalCNN(nn.Module):
 
     stride = 4
 
+    config_class = ContinuousCNNConfig
+    _no_split_modules = ["SignalCNN"]
+
     def __init__(self, config: ContinuousCNNConfig | None = None):
-        super().__init__()
         config = config or ContinuousCNNConfig()
+        super().__init__(config)
         self.cnn_model = SignalCNN(cnn_type=config.cnn_type)
         if self.cnn_model.out_channels != config.hidden_size:
             raise ValueError(
@@ -59,3 +70,7 @@ class ContinuousSignalCNN(nn.Module):
         reconstruction = self.decode(latent, signal.shape[-1])
         loss = F.smooth_l1_loss(reconstruction, signal)
         return {"loss": loss, "reconstruction": reconstruction, "latent": latent}
+
+
+AutoConfig.register(MODEL_TYPE, ContinuousCNNConfig)
+AutoModel.register(ContinuousCNNConfig, ContinuousSignalCNN)

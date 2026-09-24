@@ -30,9 +30,15 @@ def main() -> None:
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ContinuousSignalCNN(ContinuousCNNConfig(**cfg.get("model", {}))).to(device)
-    state = torch.load(args.checkpoint, map_location="cpu")
-    model.load_state_dict(state.get("model", state), strict=True)
+    checkpoint_path = Path(args.checkpoint)
+    if checkpoint_path.is_dir():
+        model = ContinuousSignalCNN.from_pretrained(checkpoint_path)
+    else:
+        # Backward compatibility with the old single-file .pt checkpoints.
+        model = ContinuousSignalCNN(ContinuousCNNConfig(**cfg.get("model", {})))
+        state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(state.get("model", state), strict=True)
+    model = model.to(device)
     model.eval()
     data_cfg = cfg["data"][args.split]
     dataset = PoreSignalDataset(data_cfg["paths"], chunk_size=data_cfg.get("chunk_size", 6000),
