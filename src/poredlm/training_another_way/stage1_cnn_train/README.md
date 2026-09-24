@@ -16,6 +16,19 @@ stage.
 bash runs/continuous_cnn/run_train.sh
 ```
 
+The default config enables W&B logging with project name
+`continuous_cnn`. Authenticate once on the training machine before starting:
+
+```bash
+wandb login
+```
+
+You can set the W&B project, entity, or run name in
+`runs/continuous_cnn/config.yaml`. Only the main DDP process creates and logs
+to the W&B run. To disable logging, set `wandb.enabled: false`. The launcher
+uses `WANDB_MODE=online` by default; use `WANDB_MODE=offline` for a local run
+that can be uploaded later with `wandb sync`.
+
 The launcher uses `torchrun`. By default it uses eight visible GPUs; override
 both variables together when using another GPU layout:
 
@@ -74,6 +87,10 @@ features/train/
 With multi-GPU extraction, the files are written as rank-specific shards such
 as `features_rank00000.npy` and `features_rank00000.csv.gz`. Stage 2 reads
 these feature directories directly.
+
+The raw-signal dataset assigns input shards across DDP ranks and DataLoader
+workers. For efficient extraction, provide at least as many raw input shards
+as the number of processes; otherwise some ranks will be idle.
 
 For backward compatibility, `extract_features.py` can still load the old
 single-file `.pt` checkpoints.

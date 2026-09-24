@@ -1,13 +1,20 @@
 seed: 42
 wandb:
   enabled: true
-  project: "training_another_way_stage1_cnn_train"
-  entity: "zhoukek-zhejiang-university"
-  name: "continuous_cnn_v1"
+  project: training_another_way_stage2_bert_train
+  entity: zhoukek-zhejiang-university
+  name: continuous_bert_v1
+cnn:
+  checkpoint: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage1_cnn_train/runs/continuous_cnn/save/continuous_cnn/step_5000
 model:
+  feature_dim: 768
   hidden_size: 768
-  cnn_type: 0
-  noise_std: 0.03
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  dropout: 0.1
+  max_position_embeddings: 1536
+  mask_probability: 0.15
 data:
   train:
     paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/train
@@ -28,8 +35,8 @@ data:
     persistent_workers: false
     prefetch_factor: 2
 training:
-  max_train_steps: 100000
-  learning_rate: 0.0003
+  max_train_steps: 200000
+  learning_rate: 0.0005
   weight_decay: 0.01
   device_train_microbatch_size: 64
   mixed_precision: bf16
@@ -38,4 +45,4 @@ training:
   eval_every_steps: 1000
   max_eval_batches: 20
   save_every_steps: 5000
-  output_dir: save/continuous_cnn
+  output_dir: save/continuous_bert

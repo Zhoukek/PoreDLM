@@ -1,4 +1,11 @@
 seed: 42
+wandb:
+  enabled: true
+  project: "training_another_way_stage2_bert_train"
+  entity: "zhoukek-zhejiang-university"
+  name: "continuous_bert_v1"
+cnn:
+  checkpoint: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage1_cnn_train/runs/continuous_cnn/save/continuous_cnn/step_5000
 model:
   feature_dim: 768
   hidden_size: 768
@@ -6,19 +13,23 @@ model:
   num_attention_heads: 12
   intermediate_size: 3072
   dropout: 0.1
-  max_position_embeddings: 1280
+  max_position_embeddings: 1536
   mask_probability: 0.15
 data:
   train:
-    directory: ""
-    dtype: float16
+    paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/train
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 20000
     num_workers: 4
     pin_memory: true
     persistent_workers: true
     prefetch_factor: 2
   valid:
-    directory: ""
-    dtype: float16
+    paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/eval
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 0
     num_workers: 2
     pin_memory: true
     persistent_workers: false
@@ -27,7 +38,7 @@ training:
   max_train_steps: 200000
   learning_rate: 0.0005
   weight_decay: 0.01
-  device_train_microbatch_size: 8
+  device_train_microbatch_size: 64
   mixed_precision: bf16
   gradient_clipping: 1.0
   log_every_steps: 10

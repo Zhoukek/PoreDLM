@@ -1,9 +1,9 @@
 seed: 42
 wandb:
   enabled: true
-  project: "training_another_way_stage1_cnn_train"
-  entity: "zhoukek-zhejiang-university"
-  name: "continuous_cnn_v1"
+  project: training_another_way_stage1_cnn_train
+  entity: zhoukek-zhejiang-university
+  name: continuous_cnn_v1
 model:
   hidden_size: 768
   cnn_type: 0

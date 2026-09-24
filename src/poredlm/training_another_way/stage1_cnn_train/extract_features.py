@@ -29,6 +29,9 @@ def main() -> None:
     parser.add_argument("--dtype", choices=["float32", "float16"], default="float16")
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint_path = Path(args.checkpoint)
     if checkpoint_path.is_dir():
@@ -40,11 +43,22 @@ def main() -> None:
         model.load_state_dict(state.get("model", state), strict=True)
     model = model.to(device)
     model.eval()
+    print(
+        f"rank={os.environ.get('RANK', '0')} "
+        f"local_rank={local_rank} "
+        f"world_size={os.environ.get('WORLD_SIZE', '1')} "
+        f"device={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}",
+        flush=True,
+    )
     data_cfg = cfg["data"][args.split]
     dataset = PoreSignalDataset(data_cfg["paths"], chunk_size=data_cfg.get("chunk_size", 6000),
                                 memmap_dtype=data_cfg.get("memmap_dtype", "float32"), buffer_size=0,
                                 shuffle_buffer=False, repeat=False, seed=cfg.get("seed", 42))
-    loader = torch.utils.data.DataLoader(dataset, batch_size=cfg["training"]["device_micro_batch_size"],
+    batch_size = cfg["training"].get(
+        "device_micro_batch_size",
+        cfg["training"].get("device_train_microbatch_size", 8),
+    )
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                          num_workers=0, pin_memory=True)
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     rank = int(os.environ.get("RANK", "0"))

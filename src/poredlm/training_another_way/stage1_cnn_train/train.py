@@ -95,6 +95,25 @@ def main() -> None:
     )
     seed_everything(int(cfg.get("seed", 42)))
     accelerator = Accelerator(mixed_precision=cfg["training"].get("mixed_precision", "no"))
+    wandb_run = None
+    wandb_cfg = cfg.get("wandb", {})
+    if accelerator.is_main_process and wandb_cfg.get("enabled", False):
+        try:
+            import wandb
+        except ImportError as exc:
+            raise RuntimeError(
+                "W&B logging is enabled, but the `wandb` package is not installed."
+            ) from exc
+        init_kwargs = {
+            "project": wandb_cfg.get("project", "continuous_cnn"),
+            "config": cfg,
+            "mode": os.environ.get("WANDB_MODE", "online"),
+        }
+        if wandb_cfg.get("entity"):
+            init_kwargs["entity"] = wandb_cfg["entity"]
+        if wandb_cfg.get("name"):
+            init_kwargs["name"] = wandb_cfg["name"]
+        wandb_run = wandb.init(**init_kwargs)
     model = ContinuousSignalCNN(ContinuousCNNConfig(**cfg.get("model", {})))
     optimizer = AdamW(model.parameters(), lr=cfg["training"]["learning_rate"], weight_decay=cfg["training"].get("weight_decay", 0.01))
     train_loader = build_loader(cfg, True)
@@ -115,6 +134,8 @@ def main() -> None:
             optimizer.step(); step += 1; progress.update(1)
             if accelerator.is_local_main_process and step % cfg["training"].get("log_every_steps", 10) == 0:
                 progress.set_postfix(loss=f"{outputs['loss'].item():.5f}")
+                if wandb_run is not None:
+                    wandb_run.log({"train/loss": outputs["loss"].item()}, step=step)
             if step % eval_every == 0:
                 model.eval(); losses = []
                 with torch.no_grad():
@@ -124,10 +145,14 @@ def main() -> None:
                 mean_loss = torch.stack(losses).mean() if losses else torch.tensor(0.0, device=accelerator.device)
                 mean_loss = accelerator.gather_for_metrics(mean_loss.unsqueeze(0)).mean().item()
                 if accelerator.is_local_main_process: accelerator.print(f"step={step} eval_loss={mean_loss:.6f}")
+                if wandb_run is not None:
+                    wandb_run.log({"valid/loss": mean_loss}, step=step)
             if step % save_every == 0:
                 save_hf_checkpoint(accelerator, model, output_dir, f"step_{step}", step, cfg)
             if step >= max_steps: break
     save_hf_checkpoint(accelerator, model, output_dir, "final", step, cfg)
+    if wandb_run is not None:
+        wandb_run.finish()
     progress.close()
 
 

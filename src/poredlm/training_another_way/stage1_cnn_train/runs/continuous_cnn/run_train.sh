@@ -14,6 +14,8 @@ if [[ -f "${ENV_SCRIPT}" ]]; then source "${ENV_SCRIPT}"; fi
 
 export PYTHONPATH="${PROJECT_ROOT}/src:${TRAIN_DIR}:${PROJECT_ROOT}/src/poredlm:${PYTHONPATH:-}"
 export WANDB_MODE="${WANDB_MODE:-online}"
+export WANDB_API_KEY=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
+
 
 CONFIG_PATH="${CONFIG_PATH:-${RUN_DIR}/config.yaml}"
 MASTER_PORT="${MASTER_PORT:-29530}"
