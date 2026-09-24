@@ -1,0 +1,42 @@
+# ==============================================================================
+# 🚀 Pore RSQ Codec to Dolma Tokenizer 工业级高性能预处理管线配置
+# ==============================================================================
+
+model:
+  model_dir: "/mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/encoder"    # 量化编码器模型路径；可替换为本地 VQ/VQ-distill save_pretrained 输出目录
+  target_layer: 1                                      # RSQ 使用目标量化层级；VQ/VQ-distill 会兼容该字段但实际忽略
+
+dataset:
+  # -------------------- 基础 I/O 航道配置 --------------------
+  input_data_paths:                                    # 原始电信号文件/目录列表
+    # - "/mnt/zzbnew/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train"
+    - "/mnt/zzbnew/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/trank_appleq50/eval"
+  
+  save_folder: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/eval_test_r10"                  # 转换后标准 Dolma 格式存放目录
+  output_prefix: "pore_tokens"                         # 输出文件名前缀
+
+  # 🌟 ----------------- 🚀 新增：内存流式蓄水池控制 -----------------
+  # 1GB (1024*1024*1024 Bytes) 内存缓冲区。
+  # 作用：保护磁盘进行大块顺序 I/O 预读；若在训练集管线中，则作为滑窗二次洗牌池。
+  buffer_size: 65536 
+  logic_chunk_size: 6000                              # 输入 tokenizer 的 signal 固定长度，需和 stage1 训练 chunk_size 对齐
+  memmap_dtype: "float32"                             # 原始 signal memmap dtype
+  shuffle_buffer: false                               # 推理/tokenize 阶段建议关闭 shuffle，保持输出顺序稳定
+
+  # -------------------- 核心算力与批处理控制 --------------------
+  batch_size: 8                                       # 批处理大小
+  feature_extraction: false                            # 是否启用前置特征提取器
+
+  # -------------------- 高性能 DataLoader 流式加速参数 --------------------
+  num_workers: 4                                       # 每张 GPU 挂载的 CPU 子进程数
+  pin_memory: true                                     # 锁页内存开关，加速 DMA 砸进 GPU
+  prefetch_factor: 64                                   # 每个 Worker 的预加载深度
+  persistent_workers: true                             # 跨文件句柄保护，保持 Worker 进程不销毁
+
+dolma_spec:
+  # -------------------- Dolma 标准落盘规范 --------------------
+  items_per_file: 10000                                # 每累积 256k条序列，强制打包落盘
+  memmap_dtype: "uint32"                               # 离散 Token 存储精度；64K codebook + token_offset=128 不能用 uint16
+  token_offset: 128                                    # 输出 token 偏移；若下游不需要 bwav 128 偏移，可设为 0
+  bos_token_id: 2                                      # 序列起始守卫 Token
+  eos_token_id: 3                                      # 序列结束守卫 Token

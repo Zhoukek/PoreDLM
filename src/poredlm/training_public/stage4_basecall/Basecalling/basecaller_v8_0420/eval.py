@@ -38,7 +38,7 @@ from .data_multifolder import (
 )
 from .ctc_crf import decode as ctc_crf_decode
 from .metrics import ctc_viterbi_decode, koi_beam_search_decode, batch_bonito_accuracy, cal_bonito_accuracy, parasail_error_counts
-from .model import BasecallModel
+from .model_dlm import BasecallModel
 from .utils import (
     ID2BASE,
     BLANK_IDX,

@@ -23,7 +23,7 @@ OUTPUT_DIR="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basec
 
 
 # 模型检查点路径
-MODEL_CHECKPOINT="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/encoder"
+MODEL_CHECKPOINT="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/encoder"
 
 # Path to your trained VQ tokenizer model checkpoint (.pth file)
 

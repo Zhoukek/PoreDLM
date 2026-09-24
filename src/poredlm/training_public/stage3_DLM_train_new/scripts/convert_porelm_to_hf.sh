@@ -15,9 +15,9 @@ export PYTHONPATH="${STAGE3_ROOT}/src:${PROJECT_ROOT}/src:${PYTHONPATH:-}"
 export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_VQE768C08A001_DNADLLM_V007_self_flow/step34000-unsharded"
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_VQE768C08A001_DNADLLM_V007_self_flow/hf_dlm_step34000"
-TOKENIZER_JSON_PATH="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-8k.json"
+INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_VQE768C08A001_DNADLLM_V006_self_flow/step96000-unsharded"
+OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_VQE768C08A001_DNADLLM_V006_self_flow/hf_dlm_step96000"
+TOKENIZER_JSON_PATH="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json"
 
 ARGS=(
   --input_dir "${INPUT_DIR}"

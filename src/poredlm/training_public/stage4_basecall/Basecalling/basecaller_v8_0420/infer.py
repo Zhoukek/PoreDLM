@@ -19,7 +19,7 @@ import torch
 from tqdm import tqdm
 
 from .ctc_crf import decode as ctc_crf_decode
-from .model import BasecallModel
+from .model_dlm import BasecallModel
 from .utils import (
     ID2BASE,
     BLANK_IDX,

@@ -47,7 +47,7 @@ model:
   emb_init_std: null
   norm_after: true
 dlm:
-  context_encoder_path: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V006/models/step_250000
+  context_encoder_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage2_BERT_trian/runs/HF_VQE768C08A001_DNADLLM_V006/models/step_250000
   freeze_context_encoder: true
   training_objective: self_flow
   max_length: 1536
@@ -134,7 +134,7 @@ scheduler:
   warmup_min_lr: 0.0
 data:
   paths:
-  - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/train
+  - /mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/train
   memmap_dtype: uint32
   datasets: null
   label_mask_paths: null
@@ -160,7 +160,7 @@ evaluators:
   type: lm
   data:
     paths:
-    - /mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/eval/pore_tokens_rank0_0000.npy
+    - /mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-006-new/eval/pore_tokens_rank0_0000.npy
     memmap_dtype: uint32
     datasets: null
     label_mask_paths: null
@@ -180,7 +180,7 @@ evaluators:
   subset_num_batches: null
 eval_interval: 10000
 tokenizer:
-  identifier: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
+  identifier: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/data/stage2_BERT_Encoder/tokenizer-64k.json
   truncate_direction: right
 save_folder: runs/HF_VQE768C08A001_DNADLLM_V007_self_flow
 remote_save_folder: null
