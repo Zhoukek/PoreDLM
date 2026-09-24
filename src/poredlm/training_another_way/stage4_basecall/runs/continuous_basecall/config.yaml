@@ -1,0 +1,42 @@
+seed: 42
+backbone:
+  cnn_checkpoint: /path/to/stage1/save/continuous_cnn/latest
+  bert_checkpoint: /path/to/stage2/save/continuous_bert/latest
+  freeze_cnn: true
+  freeze_bert: true
+model:
+  num_classes: 5
+  head_type: ctc
+  ctc_crf_state_len: 5
+  ctc_crf_blank_score: 2.0
+  pre_head_type: tcn
+  pre_head_transformer_nhead: 8
+  head_output_activation: null
+  head_output_scale: null
+data:
+  train:
+    paths: []
+    num_workers: 8
+  valid:
+    paths: []
+    num_workers: 4
+training:
+  max_train_steps: 100000
+  learning_rate: 0.0003
+  weight_decay: 0.001
+  warmup_ratio: 0.02
+  min_lr: 0.000001
+  device_micro_batch_size: 8
+  mixed_precision: bf16
+  gradient_clipping: 2.0
+  log_every_steps: 10
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  resume_checkpoint: null
+  output_dir: save/continuous_basecall
+wandb:
+  enabled: true
+  project: continuous_basecall
+  entity: null
+  name: null
