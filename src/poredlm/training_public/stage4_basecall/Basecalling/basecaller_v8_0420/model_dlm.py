@@ -22,6 +22,72 @@ from .model import (
 from .utils import ID2BASE, NUM_CLASSES
 
 
+class CodebookFeatureFusion(nn.Module):
+    """Fuse sequence hidden states with token-id codebook/embedding features."""
+
+    def __init__(
+        self,
+        hidden_size: int,
+        codebook_dim: int,
+        mode: str,
+        dropout: float = 0.1,
+        gate_bias: float = -2.0,
+    ) -> None:
+        super().__init__()
+        self.mode = str(mode)
+        self.code_proj = (
+            nn.Identity()
+            if int(codebook_dim) == int(hidden_size)
+            else nn.Linear(int(codebook_dim), int(hidden_size))
+        )
+        self.dropout = nn.Dropout(float(dropout))
+        self.norm = nn.LayerNorm(int(hidden_size))
+
+        if self.mode == "add":
+            self.fuse = None
+        elif self.mode == "concat":
+            self.fuse = nn.Sequential(
+                nn.Linear(int(hidden_size) * 2, int(hidden_size)),
+                nn.GELU(),
+                nn.LayerNorm(int(hidden_size)),
+            )
+        elif self.mode == "gate":
+            self.fuse = nn.Linear(int(hidden_size) * 2, int(hidden_size))
+            nn.init.constant_(self.fuse.bias, float(gate_bias))
+        else:
+            raise ValueError(f"Unsupported codebook fusion mode: {self.mode!r}.")
+
+    def forward(self, hidden: torch.Tensor, code_features: torch.Tensor) -> torch.Tensor:
+        code = self.dropout(self.code_proj(code_features))
+        if self.mode == "add":
+            return self.norm(hidden + code)
+        if self.mode == "concat":
+            return self.fuse(torch.cat([hidden, code], dim=-1))
+        if self.mode == "gate":
+            gate = torch.sigmoid(self.fuse(torch.cat([hidden, code], dim=-1)))
+            return self.norm(hidden + gate * code)
+        raise RuntimeError(f"Unexpected codebook fusion mode: {self.mode!r}.")
+
+
+class ExternalCodebookLookup(nn.Module):
+    """Lookup raw tokenizer codebook rows with a bwav token offset."""
+
+    def __init__(self, codebook: torch.Tensor, token_offset: int, freeze: bool = True) -> None:
+        super().__init__()
+        if codebook.ndim != 2:
+            raise ValueError(f"External codebook must have shape [K, D], got {tuple(codebook.shape)}.")
+        self.embedding = nn.Embedding.from_pretrained(codebook.to(dtype=torch.float32), freeze=bool(freeze))
+        self.token_offset = int(token_offset)
+        self.embedding_dim = int(codebook.shape[1])
+
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        code_ids = input_ids.to(dtype=torch.long) - self.token_offset
+        valid = (code_ids >= 0) & (code_ids < self.embedding.num_embeddings)
+        safe_ids = torch.where(valid, code_ids, torch.zeros_like(code_ids))
+        features = self.embedding(safe_ids)
+        return torch.where(valid.unsqueeze(-1), features, torch.zeros_like(features))
+
+
 class BasecallModel(nn.Module):
     """Basecaller adapter for the Stage 3 PoreDLM HF wrapper."""
 
@@ -56,6 +122,12 @@ class BasecallModel(nn.Module):
         pre_head_type: str = "none",
         pre_head_transformer_nhead: int = 8,
         head_type: str = "ctc_crf",
+        codebook_fusion: str = "none",
+        codebook_fusion_dropout: float = 0.1,
+        codebook_fusion_gate_bias: float = -2.0,
+        codebook_feature_path: str | None = None,
+        codebook_feature_token_offset: int | None = None,
+        codebook_feature_trainable: bool = False,
         backbone_chunk_size: int = 600,
         elf_ode_steps: int = 4,
         elf_ode_start_t: float = 0.85,
@@ -73,6 +145,16 @@ class BasecallModel(nn.Module):
         self.learnable_fuse_last_n_layers = max(0, int(learnable_fuse_last_n_layers))
         self.feature_source = feature_source
         self.feature_l2_normalize = bool(feature_l2_normalize)
+        self.codebook_fusion = str(codebook_fusion).lower()
+        self.codebook_fusion_dropout = float(codebook_fusion_dropout)
+        self.codebook_fusion_gate_bias = float(codebook_fusion_gate_bias)
+        self.codebook_feature_path = codebook_feature_path
+        self.codebook_feature_token_offset = (
+            int(tokenizer_token_offset)
+            if codebook_feature_token_offset is None
+            else int(codebook_feature_token_offset)
+        )
+        self.codebook_feature_trainable = bool(codebook_feature_trainable)
         self.freeze_backbone = bool(freeze_backbone)
         self.unfreeze_last_n_layers = max(0, int(unfreeze_last_n_layers))
         self.unfreeze_target = str(unfreeze_target)
@@ -106,6 +188,9 @@ class BasecallModel(nn.Module):
                 "model_dlm.BasecallModel supports feature_source in "
                 f"{sorted(allowed_feature_sources)}."
             )
+        allowed_codebook_fusions = {"none", "add", "concat", "gate"}
+        if self.codebook_fusion not in allowed_codebook_fusions:
+            raise ValueError(f"codebook_fusion must be one of {sorted(allowed_codebook_fusions)}.")
         if not 0.0 < self.elf_ode_start_t <= 1.0:
             raise ValueError("--elf_ode_start_t must be in (0, 1].")
         if not 0.0 < self.elf_sde_start_t <= 1.0:
@@ -213,6 +298,26 @@ class BasecallModel(nn.Module):
         show_layer_trainable_status(self.backbone)
 
         hidden_size = self._infer_hidden_size()
+        self.codebook_feature_embedding = (
+            self._build_codebook_feature_embedding() if self.codebook_fusion != "none" else None
+        )
+        if self.codebook_feature_embedding is not None:
+            codebook_dim = int(self.codebook_feature_embedding.embedding_dim)
+        else:
+            codebook_dim = hidden_size
+        self.codebook_feature_fuser = self._build_codebook_feature_fuser(
+            mode=self.codebook_fusion,
+            hidden_size=hidden_size,
+            codebook_dim=codebook_dim,
+            dropout=self.codebook_fusion_dropout,
+            gate_bias=self.codebook_fusion_gate_bias,
+        )
+        if self.codebook_fusion != "none":
+            print(
+                f"[CodebookFusion] mode={self.codebook_fusion} "
+                f"codebook_dim={codebook_dim} hidden_size={hidden_size} "
+                f"dropout={self.codebook_fusion_dropout} gate_bias={self.codebook_fusion_gate_bias}"
+            )
         self.head_type = head_type
         self.pre_head = self._build_pre_head(
             pre_head_type=pre_head_type,
@@ -266,6 +371,110 @@ class BasecallModel(nn.Module):
         if hasattr(self.backbone, "context_hidden_size"):
             return int(self.backbone.context_hidden_size)
         raise ValueError("Cannot infer hidden_size from PoreDLM backbone config.")
+
+    def _build_codebook_feature_embedding(self) -> nn.Module:
+        if self.codebook_feature_path:
+            codebook = self._load_external_codebook(self.codebook_feature_path)
+            print(
+                f"[CodebookFusion] using external codebook path={self.codebook_feature_path} "
+                f"shape={tuple(codebook.shape)} token_offset={self.codebook_feature_token_offset} "
+                f"trainable={self.codebook_feature_trainable}"
+            )
+            return ExternalCodebookLookup(
+                codebook=codebook,
+                token_offset=self.codebook_feature_token_offset,
+                freeze=not self.codebook_feature_trainable,
+            )
+        return self._find_token_embedding_module()
+
+    @staticmethod
+    def _load_external_codebook(path: str) -> torch.Tensor:
+        import os
+
+        if os.path.isdir(path):
+            try:
+                from poregpt.tokenizers import VQETokenizer
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "--codebook_feature_path points to a tokenizer checkpoint directory; "
+                    "`poregpt` is required to load VQETokenizer._get_codebook_embed()."
+                ) from exc
+            vq_tokenizer = VQETokenizer(model_ckpt=path, device="cpu")
+            codebook = vq_tokenizer._get_codebook_embed()
+            return torch.as_tensor(codebook.detach().cpu() if hasattr(codebook, "detach") else codebook)
+
+        if path.endswith(".npy"):
+            import numpy as np
+
+            return torch.as_tensor(np.load(path), dtype=torch.float32)
+
+        obj = torch.load(path, map_location="cpu")
+        if isinstance(obj, torch.Tensor):
+            return obj.to(dtype=torch.float32)
+        if isinstance(obj, dict):
+            for key in ("codebook", "codebook_embed", "embedding", "embeddings", "weight"):
+                value = obj.get(key)
+                if isinstance(value, torch.Tensor):
+                    return value.to(dtype=torch.float32)
+            state = obj.get("state_dict")
+            if isinstance(state, dict):
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor) and value.ndim == 2 and "codebook" in key:
+                        return value.to(dtype=torch.float32)
+        raise ValueError(f"Cannot find a [K, D] codebook tensor in {path!r}.")
+
+    def _find_token_embedding_module(self) -> nn.Embedding:
+        """Return the token-id embedding table used by the context encoder."""
+        context_encoder = getattr(self.backbone, "context_encoder", None)
+        if context_encoder is None:
+            raise ValueError("--codebook_fusion requires a DLM backbone with context_encoder.")
+
+        candidates = [
+            ("context_encoder.token_embedding", context_encoder),
+            ("context_encoder.token_embeddings", context_encoder),
+        ]
+        hf_embeddings = getattr(context_encoder, "embeddings", None)
+        if hf_embeddings is not None:
+            candidates.append(("context_encoder.embeddings.word_embeddings", hf_embeddings))
+        wrapped_context = getattr(context_encoder, "model", None)
+        if wrapped_context is not None:
+            candidates.extend(
+                [
+                    ("context_encoder.model.token_embeddings", wrapped_context),
+                    ("context_encoder.model.embeddings.word_embeddings", getattr(wrapped_context, "embeddings", None)),
+                ]
+            )
+
+        for name, owner in candidates:
+            if owner is None:
+                continue
+            attr_name = name.rsplit(".", 1)[-1]
+            embedding = getattr(owner, attr_name, None)
+            if isinstance(embedding, nn.Embedding):
+                print(f"[CodebookFusion] using token features from {name}")
+                return embedding
+
+        raise ValueError(
+            "--codebook_fusion was enabled, but no token embedding table was found on the context encoder."
+        )
+
+    @staticmethod
+    def _build_codebook_feature_fuser(
+        mode: str,
+        hidden_size: int,
+        codebook_dim: int,
+        dropout: float,
+        gate_bias: float,
+    ) -> nn.Module | None:
+        if mode == "none":
+            return None
+        return CodebookFeatureFusion(
+            hidden_size=hidden_size,
+            codebook_dim=codebook_dim,
+            mode=mode,
+            dropout=dropout,
+            gate_bias=gate_bias,
+        )
 
     @staticmethod
     def _build_pre_head(
@@ -433,12 +642,30 @@ class BasecallModel(nn.Module):
 
         if self.feature_l2_normalize:
             hidden = F.normalize(hidden, p=2, dim=-1)
+        hidden = self._fuse_codebook_features(hidden, input_ids)
         hidden = self.pre_head(hidden)
         logits_btc = self.base_head(hidden)
         if return_token_logits:
             token_logits = self.token_prediction_head(hidden)
             return logits_btc, token_logits
         return logits_btc
+
+    def _lookup_codebook_features(self, input_ids: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+        if self.codebook_feature_embedding is None:
+            raise ValueError("codebook_feature_embedding is not initialized.")
+        code_features = self.codebook_feature_embedding(input_ids)
+        return code_features.to(dtype=dtype)
+
+    def _fuse_codebook_features(self, hidden: torch.Tensor, input_ids: torch.Tensor) -> torch.Tensor:
+        if self.codebook_feature_fuser is None:
+            return hidden
+        code_features = self._lookup_codebook_features(input_ids, dtype=hidden.dtype)
+        if code_features.shape[:2] != hidden.shape[:2]:
+            raise ValueError(
+                "Codebook feature shape does not match hidden sequence shape: "
+                f"codebook={tuple(code_features.shape)} hidden={tuple(hidden.shape)}."
+            )
+        return self.codebook_feature_fuser(hidden, code_features)
 
     def _forward_backbone_hidden(
         self,

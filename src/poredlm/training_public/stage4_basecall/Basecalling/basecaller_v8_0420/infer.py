@@ -228,6 +228,18 @@ def main():
                     help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden_layer).")
     ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "embedding"], default="hidden",
                     help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, or input embeddings as head input features.")
+    ap.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "add", "concat", "gate"], default="none",
+                    help="Fuse the selected backbone feature with token-id embedding/codebook features before the pre-head.")
+    ap.add_argument("--codebook_fusion_dropout", "--codebook-fusion-dropout", type=float, default=0.1,
+                    help="Dropout applied to projected token-id codebook features before fusion.")
+    ap.add_argument("--codebook_fusion_gate_bias", "--codebook-fusion-gate-bias", type=float, default=-2.0,
+                    help="Initial gate bias for --codebook_fusion gate.")
+    ap.add_argument("--codebook_feature_path", "--codebook-feature-path", type=str, default=None,
+                    help="Optional external tokenizer/codebook checkpoint, .pt/.pth, or .npy used for token-id feature lookup.")
+    ap.add_argument("--codebook_feature_token_offset", "--codebook-feature-token-offset", type=int, default=None,
+                    help="Offset subtracted from bwav token ids before external codebook lookup.")
+    ap.add_argument("--codebook_feature_trainable", "--codebook-feature-trainable", action="store_true",
+                    help="Allow gradients to update external codebook features. Usually off for inference.")
     ap.add_argument("--elf_ode_steps", type=int, default=4,
                     help="For --feature_source ode_hidden, number of deterministic ELF ODE steps without adding noise.")
     ap.add_argument("--elf_ode_start_t", type=float, default=0.85,
@@ -302,6 +314,12 @@ def main():
         pre_head_type=pre_head_type,
         pre_head_transformer_nhead=args.pre_head_transformer_nhead,
         head_type=head_type,
+        codebook_fusion=args.codebook_fusion,
+        codebook_fusion_dropout=args.codebook_fusion_dropout,
+        codebook_fusion_gate_bias=args.codebook_fusion_gate_bias,
+        codebook_feature_path=args.codebook_feature_path,
+        codebook_feature_token_offset=args.codebook_feature_token_offset,
+        codebook_feature_trainable=args.codebook_feature_trainable,
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
         head_crf_state_len=state_len,

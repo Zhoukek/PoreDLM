@@ -865,6 +865,18 @@ def parse_args():
                    help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, input embeddings, or VQ codebook embeddings.")
     p.add_argument("--feature_l2_normalize", "--feature-l2-normalize", action="store_true",
                    help="L2-normalize backbone hidden features along the channel dimension before the pre-head.")
+    p.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "add", "concat", "gate"], default="none",
+                   help="Fuse the selected backbone feature with token-id embedding/codebook features before the pre-head.")
+    p.add_argument("--codebook_fusion_dropout", "--codebook-fusion-dropout", type=float, default=0.1,
+                   help="Dropout applied to projected token-id codebook features before fusion.")
+    p.add_argument("--codebook_fusion_gate_bias", "--codebook-fusion-gate-bias", type=float, default=-2.0,
+                   help="Initial gate bias for --codebook_fusion gate; negative values start close to the original hidden feature.")
+    p.add_argument("--codebook_feature_path", "--codebook-feature-path", type=str, default=None,
+                   help="Optional external tokenizer/codebook checkpoint, .pt/.pth, or .npy used for token-id feature lookup. If omitted, use context encoder token embeddings.")
+    p.add_argument("--codebook_feature_token_offset", "--codebook-feature-token-offset", type=int, default=None,
+                   help="Offset subtracted from bwav token ids before external codebook lookup. Defaults to --tokenizer_token_offset.")
+    p.add_argument("--codebook_feature_trainable", "--codebook-feature-trainable", action="store_true",
+                   help="Allow gradients to update external codebook features during basecalling training.")
     p.add_argument("--vq_device", type=str, default="cuda",
                    help="Device used when loading VQETokenizer for --feature_source vq_embedding.")
     p.add_argument("--vq_token_batch_size", type=int, default=100,
@@ -1031,6 +1043,10 @@ def main():
         raise ValueError("--backbone_lr must be > 0 when provided.")
     if float(args.label_smooth_weight) < 0:
         raise ValueError("--label_smooth_weight must be >= 0.")
+    if float(args.codebook_fusion_dropout) < 0:
+        raise ValueError("--codebook_fusion_dropout must be >= 0.")
+    if args.codebook_feature_token_offset is not None and int(args.codebook_feature_token_offset) < 0:
+        raise ValueError("--codebook_feature_token_offset must be >= 0.")
     apply_quick_overrides(args)
     backend, backend_note = resolve_distributed_backend(args)
     ddp_kwargs = DistributedDataParallelKwargs(
@@ -1073,6 +1089,13 @@ def main():
             f"[FeatureSource] source={args.feature_source} hidden_layer={args.hidden_layer} "
             f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers} "
             f"feature_l2_normalize={args.feature_l2_normalize}"
+        )
+        logger.info(
+            f"[CodebookFusion] mode={args.codebook_fusion} "
+            f"dropout={args.codebook_fusion_dropout} gate_bias={args.codebook_fusion_gate_bias} "
+            f"feature_path={args.codebook_feature_path} "
+            f"feature_token_offset={args.codebook_feature_token_offset} "
+            f"feature_trainable={args.codebook_feature_trainable}"
         )
         logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
         if args.feature_source == "ode_hidden":
@@ -1134,6 +1157,12 @@ def main():
         pre_head_type=args.pre_head_type,
         pre_head_transformer_nhead=args.pre_head_transformer_nhead,
         head_type=args.head_type,
+        codebook_fusion=args.codebook_fusion,
+        codebook_fusion_dropout=args.codebook_fusion_dropout,
+        codebook_fusion_gate_bias=args.codebook_fusion_gate_bias,
+        codebook_feature_path=args.codebook_feature_path,
+        codebook_feature_token_offset=args.codebook_feature_token_offset,
+        codebook_feature_trainable=args.codebook_feature_trainable,
         backbone_chunk_size=args.backbone_chunk_size,
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
