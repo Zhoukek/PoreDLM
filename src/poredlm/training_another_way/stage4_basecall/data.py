@@ -11,7 +11,10 @@ import torch
 from torch.utils.data import Dataset
 
 
-def find_signal_reference_pairs(paths: list[str]) -> list[tuple[str, str]]:
+def find_signal_reference_pairs(paths: str | list[str]) -> list[tuple[str, str]]:
+    # Accept both YAML forms: `paths: /data/dir` and `paths: [/data/dir, ...]`.
+    if isinstance(paths, (str, os.PathLike)):
+        paths = [str(paths)]
     pairs: list[tuple[str, str]] = []
     for item in paths:
         path = Path(item)
@@ -40,14 +43,14 @@ def find_signal_reference_pairs(paths: list[str]) -> list[tuple[str, str]]:
 
 
 class SignalReferenceDataset(Dataset):
-    def __init__(self, paths: list[str]):
+    def __init__(self, paths: str | list[str]):
         self.pairs = find_signal_reference_pairs(paths)
         self.entries: list[tuple[int, int]] = []
         self._signals: dict[int, np.ndarray] = {}
         self._references: dict[int, np.ndarray] = {}
         for file_index, (signal_path, reference_path) in enumerate(self.pairs):
-            signal = np.load(signal_path, mmap_mode="r")
-            reference = np.load(reference_path, mmap_mode="r")
+            signal = np.load(signal_path, allow_pickle=True)
+            reference = np.load(reference_path, allow_pickle=True)
             if signal.ndim != 2 or reference.ndim != 2 or signal.shape[0] != reference.shape[0]:
                 raise ValueError(
                     f"Invalid signal/reference shapes: {signal_path}={signal.shape}, "
@@ -63,8 +66,8 @@ class SignalReferenceDataset(Dataset):
         file_index, row = self.entries[index]
         if file_index not in self._signals:
             signal_path, reference_path = self.pairs[file_index]
-            self._signals[file_index] = np.load(signal_path, mmap_mode="r")
-            self._references[file_index] = np.load(reference_path, mmap_mode="r")
+            self._signals[file_index] = np.load(signal_path, allow_pickle=True)
+            self._references[file_index] = np.load(reference_path, allow_pickle=True)
         signal = torch.from_numpy(np.asarray(self._signals[file_index][row], dtype=np.float32).copy())
         reference = np.asarray(self._references[file_index][row]).reshape(-1)
         labels = torch.from_numpy(reference[reference > 0].astype(np.int64, copy=False))

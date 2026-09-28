@@ -22,6 +22,23 @@ The reference values use the public base labels: `0` is padding/blank and
 `1..4` are `A/C/G/T`. Set the two checkpoint paths and raw data paths in
 `runs/continuous_basecall/config.yaml`.
 
+By default, `data.split_mode: explicit` reads the separate paths under
+`data.train` and `data.valid`. To reproduce the old record-level split, put
+all paired NPY files under one directory and use:
+
+```yaml
+data:
+  split_mode: record
+  record:
+    paths: /path/to/all_records
+    train_ratio: 0.9
+    valid_ratio: 0.1
+    seed: 42
+```
+
+This shuffles individual reads with a fixed seed and then creates train and
+validation subsets. It does not split at file level.
+
 Start training with:
 
 ```bash
@@ -37,12 +54,14 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=29540 \
   USE_NOHUP=0 bash runs/continuous_basecall/run_train.sh
 ```
 
-The training implementation supports ordinary CTC and the public Bonito
-CTC-CRF head, TCN/BiLSTM/Transformer pre-heads, warmup plus cosine learning
-rate decay, validation basecalling accuracy, W&B metrics, resume, and
-`best.pt`/`last.pt` checkpoints. Set `model.head_type: ctc_crf` only when the
-`ont-koi` dependency is available; ordinary CTC is the default for a simpler
-first run.
+The training implementation is epoch-based, matching
+`training_public/stage4_basecall`: one full pass over the training set is
+followed by validation and checkpointing. It supports ordinary CTC and the
+public Bonito CTC-CRF head, TCN/BiLSTM/Transformer pre-heads, warmup plus
+cosine learning rate decay, validation basecalling accuracy, W&B metrics,
+resume, and `epoch_*.pt`, `ckpt_best.pt`, and `ckpt_last.pt` checkpoints.
+Set `model.head_type: ctc_crf` only when the `ont-koi` dependency is
+available; ordinary CTC is the default for a simpler first run.
 
 The CNN and BERT parameters are frozen by default, so the initial experiment
 trains only the basecalling head. Set `freeze_bert: false` to fine-tune

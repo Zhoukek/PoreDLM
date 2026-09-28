@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import yaml
 from accelerate import Accelerator
 from torch.optim import AdamW
@@ -56,6 +57,27 @@ def make_mask(attention_mask: torch.Tensor, probability: float) -> torch.Tensor:
         if valid.numel() and not mask[row].any():
             mask[row, valid[torch.randint(valid.numel(), (1,), device=mask.device)]] = True
     return mask
+
+
+def embedding_metrics(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    mask_positions: torch.Tensor,
+    attention_mask: torch.Tensor,
+) -> dict[str, torch.Tensor]:
+    """Break the continuous reconstruction objective into monitorable scalars."""
+    pred = predictions[mask_positions]
+    target = targets[mask_positions]
+    smooth_l1 = F.smooth_l1_loss(pred, target)
+    cosine = (1.0 - F.cosine_similarity(pred, target, dim=-1)).mean()
+    valid_count = attention_mask.sum().clamp_min(1)
+    return {
+        "smooth_l1": smooth_l1.detach(),
+        "cosine": cosine.detach(),
+        "mask_ratio": mask_positions.sum().float().detach() / valid_count.float().detach(),
+        "prediction_norm": pred.norm(dim=-1).mean().detach(),
+        "target_norm": target.norm(dim=-1).mean().detach(),
+    }
 
 
 def save_hf_checkpoint(
@@ -159,14 +181,32 @@ def main() -> None:
             positions = make_mask(attention, cfg["model"].get("mask_probability", 0.15))
             outputs = model(embeddings, attention, embeddings.detach(), positions)
             accelerator.backward(outputs.loss)
-            accelerator.clip_grad_norm_(model.parameters(), cfg["training"].get("gradient_clipping", 1.0))
+            grad_norm = accelerator.clip_grad_norm_(
+                model.parameters(), cfg["training"].get("gradient_clipping", 1.0)
+            )
             optimizer.step(); step += 1; progress.update(1)
             if accelerator.is_local_main_process and step % cfg["training"].get("log_every_steps", 10) == 0:
                 progress.set_postfix(loss=f"{outputs.loss.item():.5f}")
                 if wandb_run is not None:
-                    wandb_run.log({"train/loss": outputs.loss.item()}, step=step)
+                    train_metrics = embedding_metrics(
+                        outputs.predictions, embeddings.detach(), positions, attention
+                    )
+                    wandb_run.log(
+                        {
+                            "train/loss": float(outputs.loss.item()),
+                            "train/smooth_l1": float(train_metrics["smooth_l1"].item()),
+                            "train/cosine_loss": float(train_metrics["cosine"].item()),
+                            "train/mask_ratio": float(train_metrics["mask_ratio"].item()),
+                            "train/prediction_norm": float(train_metrics["prediction_norm"].item()),
+                            "train/target_norm": float(train_metrics["target_norm"].item()),
+                            "train/grad_norm": float(grad_norm),
+                            "lr": float(optimizer.param_groups[0]["lr"]),
+                            "step": step,
+                        },
+                        step=step,
+                    )
             if step % cfg["training"].get("eval_every_steps", 1000) == 0:
-                model.eval(); values = []
+                model.eval(); values = []; metric_values = []
                 with torch.no_grad():
                     for index, valid_batch in enumerate(valid_loader):
                         valid_signals = valid_batch["signal"].to(accelerator.device, non_blocking=True)
@@ -177,13 +217,50 @@ def main() -> None:
                         )
                         valid_mask = make_mask(valid_attention, cfg["model"].get("mask_probability", 0.15))
                         result = model(valid_embeddings, valid_attention, valid_embeddings, valid_mask)
-                        if result.loss is not None: values.append(result.loss)
+                        if result.loss is not None:
+                            values.append(result.loss)
+                            metric_values.append(
+                                embedding_metrics(
+                                    result.predictions,
+                                    valid_embeddings,
+                                    valid_mask,
+                                    valid_attention,
+                                )
+                            )
                         if index + 1 >= cfg["training"].get("max_eval_batches", 20): break
                 loss = torch.stack(values).mean() if values else torch.tensor(0.0, device=accelerator.device)
                 loss = accelerator.gather_for_metrics(loss.unsqueeze(0)).mean().item()
+                metric_names = (
+                    "smooth_l1",
+                    "cosine",
+                    "mask_ratio",
+                    "prediction_norm",
+                    "target_norm",
+                )
+                valid_metrics = {}
+                for key in metric_names:
+                    local_value = (
+                        torch.stack([item[key] for item in metric_values]).mean()
+                        if metric_values
+                        else torch.tensor(0.0, device=accelerator.device)
+                    )
+                    valid_metrics[key] = accelerator.gather_for_metrics(
+                        local_value.reshape(1)
+                    ).mean().item()
                 if accelerator.is_local_main_process: accelerator.print(f"step={step} eval_loss={loss:.6f}")
                 if wandb_run is not None:
-                    wandb_run.log({"valid/loss": loss}, step=step)
+                    wandb_run.log(
+                        {
+                            "valid/loss": float(loss),
+                            "valid/smooth_l1": float(valid_metrics["smooth_l1"]),
+                            "valid/cosine_loss": float(valid_metrics["cosine"]),
+                            "valid/mask_ratio": float(valid_metrics["mask_ratio"]),
+                            "valid/prediction_norm": float(valid_metrics["prediction_norm"]),
+                            "valid/target_norm": float(valid_metrics["target_norm"]),
+                            "step": step,
+                        },
+                        step=step,
+                    )
             if step % cfg["training"].get("save_every_steps", 5000) == 0:
                 save_hf_checkpoint(accelerator, model, output_dir, f"step_{step}", step, cfg)
             if step >= max_steps: break

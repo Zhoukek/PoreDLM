@@ -25,6 +25,7 @@ class ContinuousBasecallModel(nn.Module):
         num_classes: int = 5,
         freeze_cnn: bool = True,
         freeze_bert: bool = True,
+        bert_trainable_last_n_layers: int | None = None,
         head_type: str = "ctc",
         ctc_crf_state_len: int = 5,
         ctc_crf_blank_score: float = 2.0,
@@ -80,12 +81,24 @@ class ContinuousBasecallModel(nn.Module):
             raise ValueError(f"Unsupported head_type: {head_type}")
         self.freeze_cnn = bool(freeze_cnn)
         self.freeze_bert = bool(freeze_bert)
+        self.bert_trainable_last_n_layers = bert_trainable_last_n_layers
         if self.freeze_cnn:
             for parameter in self.cnn.parameters():
                 parameter.requires_grad_(False)
         if self.freeze_bert:
             for parameter in self.bert.parameters():
                 parameter.requires_grad_(False)
+        elif bert_trainable_last_n_layers is not None:
+            n_layers = int(bert_trainable_last_n_layers)
+            if n_layers < 1:
+                raise ValueError("bert_trainable_last_n_layers must be >= 1 when specified.")
+            for parameter in self.bert.parameters():
+                parameter.requires_grad_(False)
+            for layer in self.bert.encoder.layers[-n_layers:]:
+                for parameter in layer.parameters():
+                    parameter.requires_grad_(True)
+            for parameter in self.bert.final_norm.parameters():
+                parameter.requires_grad_(True)
 
     def train(self, mode: bool = True):
         super().train(mode)

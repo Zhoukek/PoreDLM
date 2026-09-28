@@ -1,0 +1,51 @@
+seed: 42
+backbone:
+  cnn_checkpoint: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage1_cnn_train/runs/continuous_cnn_cyclone_s1_mix_r10/save/continuous_cnn_cyclone_s1_mix_r10/step_10000
+  bert_checkpoint: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage2_bert_train/runs/continuous_bert_r9_r10_mix/save/continuous_bert/step_15000
+  freeze_cnn: true
+  freeze_bert: false
+  bert_trainable_last_n_layers: 4
+model:
+  num_classes: 5
+  head_type: ctc
+  ctc_crf_state_len: 5
+  ctc_crf_blank_score: 2.0
+  pre_head_type: tcn
+  pre_head_transformer_nhead: 8
+  head_output_activation: null
+  head_output_scale: null
+data:
+  # `explicit` uses separate train/valid paths. Use `record` to randomly split
+  # reads from one combined dataset, matching the previous basecall trainer.
+  split_mode: record
+  train:
+    paths: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage4_basecall/cyclone_s1_r10/cyclone_s1/train
+    num_workers: 1
+  valid:
+    paths: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage4_basecall/cyclone_s1_r10/cyclone_s1/eval
+    num_workers: 1
+  record:
+    paths: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage4_basecall/cyclone_s1_r10/cyclone_s1/train
+    train_ratio: 0.9
+    valid_ratio: 0.1
+    seed: 42
+training:
+  num_epochs: 50
+  learning_rate: 0.0003
+  weight_decay: 0.001
+  warmup_ratio: 0.02
+  min_lr: 0.000001
+  device_micro_batch_size: 64
+  mixed_precision: bf16
+  gradient_clipping: 2.0
+  log_every_steps: 10
+  max_eval_batches: 20
+  save_every_epochs: 1
+  resume_checkpoint: null
+  output_dir: save/continuous_basecall_BERT_last_4_layers
+  
+wandb:
+  enabled: true
+  project: "training_another_way_stage3_basecall_train"
+  entity: "zhoukek-zhejiang-university"
+  name: "basecall_s1"

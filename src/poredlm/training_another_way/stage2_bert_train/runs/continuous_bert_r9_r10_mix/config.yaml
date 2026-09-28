@@ -1,0 +1,52 @@
+seed: 42
+wandb:
+  enabled: true
+  project: "training_another_way_stage2_bert_train"
+  entity: "zhoukek-zhejiang-university"
+  name: "continuous_bert_r9_r10_mix"
+cnn:
+  checkpoint: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage1_cnn_train/runs/continuous_cnn_cyclone_s1_mix_r10/save/continuous_cnn_cyclone_s1_mix_r10/step_10000
+model:
+  feature_dim: 768
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  dropout: 0.1
+  max_position_embeddings: 1536
+  mask_probability: 0.15
+data:
+  train:
+    paths: 
+      - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train
+      - /mnt/si002562jbsc/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/trank_appleq50/train
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 20000
+    num_workers: 4
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 2
+  valid:
+    paths: 
+      - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/eval
+      - /mnt/si002562jbsc/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/trank_appleq50/eval
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 0
+    num_workers: 2
+    pin_memory: true
+    persistent_workers: false
+    prefetch_factor: 2
+training:
+  max_train_steps: 200000
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  device_train_microbatch_size: 64
+  mixed_precision: bf16
+  gradient_clipping: 1.0
+  log_every_steps: 10
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  output_dir: save/continuous_bert

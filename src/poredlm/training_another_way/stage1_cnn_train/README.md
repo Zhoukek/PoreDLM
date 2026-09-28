@@ -1,9 +1,16 @@
 # Stage 1: Continuous CNN
 
-This stage reuses `SignalCNN` from
-`training_public/stage1_tokenizer_train/modeling_pore_vq_codec.py` with
-`cnn_type: 0`. It uses the 768-channel encoder and stride 5, but never calls
-the VQ module or creates a codebook.
+This stage uses the same `cnn_type: 0` architecture as the public
+`SignalCNN`, with a 768-channel encoder and stride 5, but defines the CNN
+locally and never calls the vector-quantization codebook. New HF checkpoints
+therefore include a self-contained `modeling_continuous_cnn.py` and do not
+depend on the public VQ model source file.
+
+Older checkpoints created before this self-contained definition was added may
+still contain a `modeling_continuous_cnn.py` that imports
+`training_public.stage1_tokenizer_train.modeling_pore_vq_codec`. Keep the
+project source available for those checkpoints, or replace their copied model
+file with the current one before moving them to an isolated environment.
 
 For a 6000-sample input chunk, the feature sequence is approximately
 `[1200, 768]`. The CNN is trained with noisy-input reconstruction and is

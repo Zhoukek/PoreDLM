@@ -1,0 +1,45 @@
+seed: 42
+wandb:
+  enabled: true
+  project: "training_another_way_stage1_cnn_train"
+  entity: "zhoukek-zhejiang-university"
+  name: "continuous_cnn_v1"
+model:
+  hidden_size: 768
+  cnn_type: 0
+  noise_std: 0.00
+data:
+  train:
+    paths: 
+      - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/train
+      - /mnt/si002562jbsc/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/trank_appleq50/train
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 20000
+    num_workers: 4
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 2
+  valid:
+    paths: 
+      - /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_appleq50/eval
+      - /mnt/si002562jbsc/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/trank_appleq50/eval
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 0
+    num_workers: 2
+    pin_memory: true
+    persistent_workers: false
+    prefetch_factor: 2
+training:
+  max_train_steps: 100000
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  device_train_microbatch_size: 128
+  mixed_precision: bf16
+  gradient_clipping: 1.0
+  log_every_steps: 10
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  output_dir: save/continuous_cnn_cyclone_s1_mix_r10

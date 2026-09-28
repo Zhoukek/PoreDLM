@@ -1,7 +1,7 @@
 seed: 42
 backbone:
-  cnn_checkpoint: /path/to/stage1/save/continuous_cnn/latest
-  bert_checkpoint: /path/to/stage2/save/continuous_bert/latest
+  cnn_checkpoint: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage1_cnn_train/runs/continuous_cnn/save/continuous_cnn/step_5000
+  bert_checkpoint: /mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way/stage2_bert_train/runs/continuous_bert/save/continuous_bert/step_5000
   freeze_cnn: true
   freeze_bert: true
 model:
@@ -14,14 +14,22 @@ model:
   head_output_activation: null
   head_output_scale: null
 data:
+  # `explicit` uses separate train/valid paths. Use `record` to randomly split
+  # reads from one combined dataset, matching the previous basecall trainer.
+  split_mode: record
   train:
-    paths: []
-    num_workers: 8
+    paths: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/small_train
+    num_workers: 1
   valid:
-    paths: []
-    num_workers: 4
+    paths: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/small_eval
+    num_workers: 1
+  record:
+    paths: /mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V003/basecall/small_train
+    train_ratio: 0.9
+    valid_ratio: 0.1
+    seed: 42
 training:
-  max_train_steps: 100000
+  num_epochs: 50
   learning_rate: 0.0003
   weight_decay: 0.001
   warmup_ratio: 0.02
@@ -30,13 +38,13 @@ training:
   mixed_precision: bf16
   gradient_clipping: 2.0
   log_every_steps: 10
-  eval_every_steps: 1000
   max_eval_batches: 20
-  save_every_steps: 5000
+  save_every_epochs: 1
   resume_checkpoint: null
   output_dir: save/continuous_basecall
+  
 wandb:
   enabled: true
-  project: continuous_basecall
-  entity: null
-  name: null
+  project: "training_another_way_stage3_basecall_train"
+  entity: "zhoukek-zhejiang-university"
+  name: "basecall_v1"
