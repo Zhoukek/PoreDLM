@@ -127,6 +127,28 @@ def main() -> None:
     for parameter in stage1.parameters():
         parameter.requires_grad_(False)
 
+    wandb_run = None
+    wandb_cfg = cfg.get("wandb", {})
+    if accelerator.is_main_process and wandb_cfg.get("enabled", False):
+        try:
+            import wandb
+        except ImportError as exc:
+            raise RuntimeError(
+                "W&B logging is enabled, but the `wandb` package is not installed."
+            ) from exc
+        init_kwargs = {
+            "project": wandb_cfg.get("project", "training_another_way_v1_stage2_vq_target"),
+            "config": cfg,
+            "mode": os.environ.get("WANDB_MODE", "online"),
+        }
+        if wandb_cfg.get("entity"):
+            init_kwargs["entity"] = wandb_cfg["entity"]
+        if wandb_cfg.get("name"):
+            init_kwargs["name"] = wandb_cfg["name"]
+        if wandb_cfg.get("group"):
+            init_kwargs["group"] = wandb_cfg["group"]
+        wandb_run = wandb.init(**init_kwargs)
+
     model = _make_model(cfg)
     optimizer = AdamW(
         model.parameters(),
@@ -159,7 +181,7 @@ def main() -> None:
             signal = batch["signal"].to(accelerator.device, non_blocking=True)
             lengths = batch["length"].to(accelerator.device, non_blocking=True)
             with torch.no_grad():
-                embeddings, target_embeddings, _ = _stage1_features_and_targets(stage1, signal)
+                embeddings, target_embeddings, indices = _stage1_features_and_targets(stage1, signal)
             encoded_attention = _encoded_attention(
                 lengths, embeddings.shape[1], stride
             )
@@ -185,15 +207,40 @@ def main() -> None:
                     smooth=f"{outputs.smooth_l1_loss.item():.4f}",
                     cosine=f"{outputs.cosine_loss.item():.4f}",
                 )
+                if wandb_run is not None and step % int(cfg["training"].get("log_every_steps", 10)) == 0:
+                    selected = mask_positions
+                    prediction_norm = outputs.predictions[selected].norm(dim=-1).mean()
+                    target_norm = target_embeddings[selected].norm(dim=-1).mean()
+                    mask_ratio = selected.sum().float() / encoded_attention.sum().clamp_min(1).float()
+                    wandb_run.log(
+                        {
+                            "train/loss": float(outputs.loss.item()),
+                            "train/smooth_l1": float(outputs.smooth_l1_loss.item()),
+                            "train/cosine_loss": float(outputs.cosine_loss.item()),
+                            "train/mask_ratio": float(mask_ratio.item()),
+                            "train/prediction_norm": float(prediction_norm.item()),
+                            "train/target_norm": float(target_norm.item()),
+                            "train/codebook_usage_ratio": float(
+                                torch.unique(indices.detach()).numel() / max(1, stage1.codebook_size)
+                            ),
+                            "train/learning_rate": float(optimizer.param_groups[0]["lr"]),
+                            "step": step,
+                        },
+                        step=step,
+                    )
 
             if step % eval_every == 0:
                 model.eval()
                 values = []
+                smooth_values = []
+                cosine_values = []
+                mask_ratios = []
+                codebook_usages = []
                 with torch.no_grad():
                     for index, valid_batch in enumerate(valid_loader):
                         valid_signal = valid_batch["signal"].to(accelerator.device, non_blocking=True)
                         valid_lengths = valid_batch["length"].to(accelerator.device, non_blocking=True)
-                        valid_embeddings, valid_targets, _ = _stage1_features_and_targets(
+                        valid_embeddings, valid_targets, valid_indices = _stage1_features_and_targets(
                             stage1, valid_signal
                         )
                         valid_attention = _encoded_attention(
@@ -210,20 +257,55 @@ def main() -> None:
                         )
                         if result.loss is not None:
                             values.append(result.loss.detach())
+                            smooth_values.append(result.smooth_l1_loss.detach())
+                            cosine_values.append(result.cosine_loss.detach())
+                            mask_ratios.append(
+                                valid_mask.sum().float()
+                                / valid_attention.sum().clamp_min(1).float()
+                            )
+                            codebook_usages.append(
+                                torch.unique(valid_indices.detach()).numel()
+                                / max(1, stage1.codebook_size)
+                            )
                         if index + 1 >= max_eval_batches:
                             break
                 if values:
                     eval_loss = accelerator.gather_for_metrics(torch.stack(values)).mean().item()
+                    eval_smooth = accelerator.gather_for_metrics(
+                        torch.stack(smooth_values)
+                    ).mean().item()
+                    eval_cosine = accelerator.gather_for_metrics(
+                        torch.stack(cosine_values)
+                    ).mean().item()
+                    eval_mask_ratio = accelerator.gather_for_metrics(
+                        torch.stack(mask_ratios)
+                    ).mean().item()
+                    eval_codebook_usage = accelerator.gather_for_metrics(
+                        torch.tensor(codebook_usages, device=accelerator.device)
+                    ).mean().item()
                     if accelerator.is_local_main_process:
                         accelerator.print(f"step={step} valid_loss={eval_loss:.6f}")
+                        if wandb_run is not None:
+                            wandb_run.log(
+                                {
+                                    "valid/loss": float(eval_loss),
+                                    "valid/smooth_l1": float(eval_smooth),
+                                    "valid/cosine_loss": float(eval_cosine),
+                                    "valid/mask_ratio": float(eval_mask_ratio),
+                                    "valid/codebook_usage_ratio": float(eval_codebook_usage),
+                                    "step": step,
+                                },
+                                step=step,
+                            )
 
             if step % save_every == 0:
                 _save_checkpoint(accelerator, model, output_dir, step, cfg)
             if step >= max_steps:
                 break
     _save_checkpoint(accelerator, model, output_dir, step, cfg)
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == "__main__":
     main()
-

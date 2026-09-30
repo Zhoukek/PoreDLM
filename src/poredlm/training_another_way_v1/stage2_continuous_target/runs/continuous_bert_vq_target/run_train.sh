@@ -12,6 +12,7 @@ ENV_SCRIPT="${ENV_SCRIPT:-${PROJECT_ROOT}/src/poredlm/training/set_env.sh}"
 if [[ -f "${ENV_SCRIPT}" ]]; then source "${ENV_SCRIPT}"; fi
 
 export PYTHONPATH="${PROJECT_ROOT}/src:${TRAIN_DIR}:${PROJECT_ROOT}/src/poredlm:${PYTHONPATH:-}"
+export WANDB_MODE="${WANDB_MODE:-online}"
 CONFIG_PATH="${CONFIG_PATH:-${RUN_DIR}/config.yaml}"
 LOG_FILE="${LOG_FILE:-${RUN_DIR}/run.log}"
 USE_NOHUP="${USE_NOHUP:-1}"
@@ -24,6 +25,7 @@ echo "CONFIG_PATH=${CONFIG_PATH}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "NPROC_PER_NODE=${NPROC_PER_NODE}"
 echo "MASTER_PORT=${MASTER_PORT}"
+echo "WANDB_MODE=${WANDB_MODE}"
 
 cmd=(
   torchrun
@@ -40,4 +42,3 @@ if [[ "${USE_NOHUP}" == "1" ]]; then
 else
   "${cmd[@]}" 2>&1 | tee "${LOG_FILE}"
 fi
-

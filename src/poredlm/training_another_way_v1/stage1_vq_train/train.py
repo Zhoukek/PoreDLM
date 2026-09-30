@@ -149,6 +149,28 @@ def main() -> None:
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
 
     accelerator = Accelerator(mixed_precision=cfg["training"].get("mixed_precision", "no"))
+    wandb_run = None
+    wandb_cfg = cfg.get("wandb", {})
+    if accelerator.is_main_process and wandb_cfg.get("enabled", False):
+        try:
+            import wandb
+        except ImportError as exc:
+            raise RuntimeError(
+                "W&B logging is enabled, but the `wandb` package is not installed."
+            ) from exc
+        init_kwargs = {
+            "project": wandb_cfg.get("project", "training_another_way_v1_stage1_vq"),
+            "config": cfg,
+            "mode": os.environ.get("WANDB_MODE", "online"),
+        }
+        if wandb_cfg.get("entity"):
+            init_kwargs["entity"] = wandb_cfg["entity"]
+        if wandb_cfg.get("name"):
+            init_kwargs["name"] = wandb_cfg["name"]
+        if wandb_cfg.get("group"):
+            init_kwargs["group"] = wandb_cfg["group"]
+        wandb_run = wandb.init(**init_kwargs)
+
     model = _make_model(cfg).to(accelerator.device)
     optimizer = AdamW(
         [parameter for parameter in model.parameters() if parameter.requires_grad],
@@ -187,6 +209,20 @@ def main() -> None:
                     recon=f"{metrics['recon_loss'].item():.4f}",
                     used=f"{metrics['used_code_ratio']:.3f}",
                 )
+                if wandb_run is not None and step % int(cfg["training"].get("log_every_steps", 10)) == 0:
+                    wandb_run.log(
+                        {
+                            "train/loss": float(metrics["loss"].item()),
+                            "train/reconstruction_loss": float(metrics["recon_loss"].item()),
+                            "train/commitment_loss": float(metrics["commitment_loss"].item()),
+                            "train/diversity_loss": float(metrics["diversity_loss"].item()),
+                            "train/orthogonal_loss": float(metrics["orthogonal_loss"].item()),
+                            "train/codebook_usage_ratio": float(metrics["used_code_ratio"]),
+                            "train/learning_rate": float(optimizer.param_groups[0]["lr"]),
+                            "step": step,
+                        },
+                        step=step,
+                    )
 
             if step % eval_every == 0:
                 model.eval()
@@ -205,12 +241,16 @@ def main() -> None:
                     eval_loss = accelerator.gather_for_metrics(torch.stack(values)).mean().item()
                     if accelerator.is_local_main_process:
                         accelerator.print(f"step={step} valid_loss={eval_loss:.6f}")
+                        if wandb_run is not None:
+                            wandb_run.log({"valid/loss": float(eval_loss), "step": step}, step=step)
 
             if step % save_every == 0:
                 _save_checkpoint(accelerator, model, output_dir, step, cfg)
             if step >= max_steps:
                 break
     _save_checkpoint(accelerator, model, output_dir, step, cfg)
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,10 @@
 
 This directory contains the first implementation of the two-stage continuous-input / VQ-target route.
 
+Both stages now follow the existing `training_another_way` W&B pattern. Set
+`wandb.enabled: false` in a run config to disable logging, or use
+`WANDB_MODE=offline` for local/offline runs.
+
 ## Stage 1
 
 `stage1_vq_train` reuses the public `PoreVQCodec` and its `vector_quantize_pytorch` configuration. It trains:

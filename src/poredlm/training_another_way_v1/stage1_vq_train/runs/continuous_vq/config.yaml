@@ -1,5 +1,11 @@
 seed: 42
 
+wandb:
+  enabled: true
+  project: training_another_way_v1_stage1_vq
+  entity: zhoukek-zhejiang-university
+  name: continuous_vq_v1
+
 model:
   codebook_size: 1024
   vq:
@@ -42,10 +48,10 @@ training:
   learning_rate: 1.0e-4
   weight_decay: 0.01
   device_micro_batch_size: 8
+  log_every_steps: 10
   mixed_precision: bf16
   gradient_clipping: 1.0
   eval_every_steps: 1000
   max_eval_batches: 20
   save_every_steps: 5000
   output_dir: save/continuous_vq
-
