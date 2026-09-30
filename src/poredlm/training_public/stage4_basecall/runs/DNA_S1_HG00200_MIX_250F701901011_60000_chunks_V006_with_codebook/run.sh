@@ -42,14 +42,16 @@ feature_source="ode_hidden"
 feature_l2_normalize=false
 head_output_activation="tanh"
 head_output_scale=5
+train_blank_logit_bias="-1.0"
 backbone_chunk_size=1540
 
-# codebook/token-id feature fusion 参数
+# codebook/token-id feature fusion 参数：none / only / add / concat / gate
 codebook_fusion="gate"
 codebook_fusion_dropout="0.1"
 codebook_fusion_gate_bias="-2.0"
-# 留空时使用 HF context_encoder 的 token embedding；填 tokenizer ckpt/.pt/.npy 时使用真正 VQ codebook。
-codebook_feature_path=""
+skip_backbone_for_codebook_only=false
+# 留空时使用 HF context_encoder 的 token embedding；填 stage1 tokenizer encoder ckpt/.pt/.npy 时使用真正 VQ codebook。
+codebook_feature_path="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage1_tokenizer_train/runs/HF_VQE768C08A001_DNADLLM_V006/outputs/test_PoreCodec_VQ_64k_cnn0/checkpoint-90000"
 codebook_feature_token_offset=128
 
 # ODE 参数（feature_source="ode_hidden" 时生效）
@@ -97,6 +99,9 @@ if [[ -n "${codebook_feature_path}" ]]; then
     --codebook_feature_token_offset "${codebook_feature_token_offset}"
   )
 fi
+if [[ "${skip_backbone_for_codebook_only}" == "true" ]]; then
+  codebook_feature_args+=(--skip_backbone_for_codebook_only)
+fi
 
 nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port="${master_port}" \
   "${stage4_root}/Basecalling/basecaller_v8_0420/train_ddp_multifolder.py" \
@@ -126,6 +131,7 @@ nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port="${
   --unfreeze_elf_last_n_layers "${unfreeze_elf_last_n_layers}" \
   --feature_source "${feature_source}" \
   "${feature_norm_args[@]}" \
+  --train_blank_logit_bias "${train_blank_logit_bias}" \
   --codebook_fusion "${codebook_fusion}" \
   --codebook_fusion_dropout "${codebook_fusion_dropout}" \
   --codebook_fusion_gate_bias "${codebook_fusion_gate_bias}" \

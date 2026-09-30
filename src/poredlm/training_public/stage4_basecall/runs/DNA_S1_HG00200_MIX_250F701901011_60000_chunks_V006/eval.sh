@@ -30,11 +30,15 @@ if [[ ! -f "${ckpt}" ]]; then
   exit 1
 fi
 
-input_path="/mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/basecall/test/test_for_dlm/eval_00001_chunks.jsonl.gz"
+input_path="${1:-${EVAL_INPUT:-/mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/basecall/test/test_for_dlm/eval_00001_chunks.jsonl.gz}}"
 out_dir="${2:-${run_dir}/eval_out_cyclone_s1_test}"
 # out_dir="${2:-${run_dir}/eval_outont_r10}"
 
 input_type="${INPUT_TYPE:-jsonl}"
+ctc_decode_beamsize="${CTC_DECODE_BEAMSIZE:-1}"
+ctc_blank_logit_bias="${CTC_BLANK_LOGIT_BIAS:-0.0}"
+ctc_nonblank_logit_bias="${CTC_NONBLANK_LOGIT_BIAS:-0.0}"
+ctc_logit_temperature="${CTC_LOGIT_TEMPERATURE:-1.0}"
 
 if [[ -z "${input_path}" ]]; then
   echo "Usage: bash $0 /path/to/basecall_data [/path/to/eval_out]"
@@ -67,9 +71,16 @@ python -m Basecalling.basecaller_v8_0420.eval \
   --out_dir "${out_dir}" \
   --fastq_out "${out_dir}/eval.fastq" \
   --decoder ctc_viterbi \
+  --ctc_decode_beamsize "${ctc_decode_beamsize}" \
+  --ctc_blank_logit_bias "${ctc_blank_logit_bias}" \
+  --ctc_nonblank_logit_bias "${ctc_nonblank_logit_bias}" \
+  --ctc_logit_temperature "${ctc_logit_temperature}" \
   --pre_head_type tcn \
   --feature_source ode_hidden \
   --hidden_layer -1 \
+  --head_output_activation tanh \
+  --head_output_scale 5 \
+  --backbone_chunk_size 1540 \
   --elf_ode_steps 2 \
   --elf_ode_start_t 0.98 \
   --elf_self_cond_cfg_scale 0.5 \

@@ -72,12 +72,34 @@ def ctc_viterbi_decode(
     logits_tbc: torch.Tensor,
     input_lengths: Optional[torch.Tensor] = None,
     blank_idx: int = BLANK_IDX,
+    blank_logit_bias: float = 0.0,
+    nonblank_logit_bias: float = 0.0,
+    logit_temperature: float = 1.0,
+    beamsize: int = 1,
 ) -> List[List[int]]:
     """
     Bonito-style CTC Viterbi path collapse (beamsize=1 equivalent):
     timestep argmax -> collapse repeats -> remove blank.
     """
-    return ctc_decode(logits_tbc=logits_tbc, input_lengths=input_lengths, blank_idx=blank_idx, beamsize=1)
+    logits = logits_tbc
+    temperature = float(logit_temperature)
+    if temperature <= 0:
+        raise ValueError("logit_temperature must be > 0.")
+    if temperature != 1.0:
+        logits = logits / temperature
+    if float(blank_logit_bias) != 0.0 or float(nonblank_logit_bias) != 0.0:
+        logits = logits.clone()
+        if float(nonblank_logit_bias) != 0.0:
+            logits = logits + float(nonblank_logit_bias)
+            logits[..., blank_idx] -= float(nonblank_logit_bias)
+        if float(blank_logit_bias) != 0.0:
+            logits[..., blank_idx] += float(blank_logit_bias)
+    return ctc_decode(
+        logits_tbc=logits,
+        input_lengths=input_lengths,
+        blank_idx=blank_idx,
+        beamsize=max(1, int(beamsize)),
+    )
 
 
 

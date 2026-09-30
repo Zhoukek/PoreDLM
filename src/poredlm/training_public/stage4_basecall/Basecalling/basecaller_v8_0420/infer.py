@@ -214,6 +214,14 @@ def main():
                     help="Blank score used by CTC-CRF head logits (keep consistent with training).")
     ap.add_argument("--decoder", choices=["auto", "ctc_viterbi", "koi", "ctc_crf"], default="auto",
                     help="Decoder to use. auto picks ctc_viterbi for CTC head and ctc_crf for CTC-CRF head.")
+    ap.add_argument("--ctc_decode_beamsize", type=int, default=1,
+                    help="Beam size for plain CTC decoding. 1 is Viterbi; >1 uses fast_ctc_decode beam search.")
+    ap.add_argument("--ctc_blank_logit_bias", type=float, default=0.0,
+                    help="Additive bias applied to the CTC blank logit before decoding. Negative values reduce under-calling.")
+    ap.add_argument("--ctc_nonblank_logit_bias", type=float, default=0.0,
+                    help="Additive bias applied to non-blank CTC logits before decoding. Positive values encourage longer calls.")
+    ap.add_argument("--ctc_logit_temperature", type=float, default=1.0,
+                    help="Temperature applied to CTC logits before decoding. Mostly affects beam search; must be > 0.")
     ap.add_argument("--head_type", choices=["ctc", "ctc_crf"], default=None,
                     help="Override head type (default: infer from checkpoint).")
     ap.add_argument("--ctc_crf_state_len", type=int, default=None,
@@ -228,7 +236,9 @@ def main():
                     help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden_layer).")
     ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "embedding"], default="hidden",
                     help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, or input embeddings as head input features.")
-    ap.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "add", "concat", "gate"], default="none",
+    ap.add_argument("--feature_l2_normalize", "--feature-l2-normalize", action="store_true",
+                    help="L2-normalize backbone hidden features along the channel dimension before the pre-head. Keep consistent with training.")
+    ap.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "only", "add", "concat", "gate"], default="none",
                     help="Fuse the selected backbone feature with token-id embedding/codebook features before the pre-head.")
     ap.add_argument("--codebook_fusion_dropout", "--codebook-fusion-dropout", type=float, default=0.1,
                     help="Dropout applied to projected token-id codebook features before fusion.")
@@ -240,6 +250,8 @@ def main():
                     help="Offset subtracted from bwav token ids before external codebook lookup.")
     ap.add_argument("--codebook_feature_trainable", "--codebook-feature-trainable", action="store_true",
                     help="Allow gradients to update external codebook features. Usually off for inference.")
+    ap.add_argument("--skip_backbone_for_codebook_only", "--skip-backbone-for-codebook-only", action="store_true",
+                    help="When --codebook_fusion only, skip DLM/backbone computation and feed codebook features directly to the pre-head.")
     ap.add_argument("--elf_ode_steps", type=int, default=4,
                     help="For --feature_source ode_hidden, number of deterministic ELF ODE steps without adding noise.")
     ap.add_argument("--elf_ode_start_t", type=float, default=0.85,
@@ -250,6 +262,12 @@ def main():
                     help="Optional module before CTC-CRF head. Default auto-infers from checkpoint.")
     ap.add_argument("--pre_head_transformer_nhead", type=int, default=8,
                     help="Attention heads for --pre_head_type transformer.")
+    ap.add_argument("--head_output_activation", choices=["tanh", "relu"], default=None,
+                    help="Optional activation applied to head output logits. Keep consistent with training.")
+    ap.add_argument("--head_output_scale", type=float, default=None,
+                    help="Optional scalar applied to head output logits after activation. Keep consistent with training.")
+    ap.add_argument("--backbone_chunk_size", type=int, default=600,
+                    help="Backbone chunk size used before the basecalling head. Keep consistent with training.")
     ap.add_argument("--token_offset", type=int, default=0,
                     help="Add this offset to each <|bwav:ID|> token in input signal_str (e.g. 0->128).")
     args = ap.parse_args()
@@ -311,15 +329,19 @@ def main():
         hidden_layer=args.hidden_layer,
         learnable_fuse_last_n_layers=args.learnable_fuse_last_n_layers,
         feature_source=args.feature_source,
+        feature_l2_normalize=args.feature_l2_normalize,
         pre_head_type=pre_head_type,
         pre_head_transformer_nhead=args.pre_head_transformer_nhead,
         head_type=head_type,
+        head_output_activation=args.head_output_activation,
+        head_output_scale=args.head_output_scale,
         codebook_fusion=args.codebook_fusion,
         codebook_fusion_dropout=args.codebook_fusion_dropout,
         codebook_fusion_gate_bias=args.codebook_fusion_gate_bias,
         codebook_feature_path=args.codebook_feature_path,
         codebook_feature_token_offset=args.codebook_feature_token_offset,
         codebook_feature_trainable=args.codebook_feature_trainable,
+        skip_backbone_for_codebook_only=args.skip_backbone_for_codebook_only,
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
         head_crf_state_len=state_len,
@@ -327,6 +349,7 @@ def main():
         elf_ode_steps=args.elf_ode_steps,
         elf_ode_start_t=args.elf_ode_start_t,
         elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
+        backbone_chunk_size=args.backbone_chunk_size,
     ).to(device)
     model.load_state_dict(sd, strict=False)
     model.eval()
@@ -367,7 +390,15 @@ def main():
                 if decoder_mode == "ctc_crf":
                     pred_ids = _ctc_crf_decode_batch(logits_tbc, input_lengths)
                 elif decoder_mode == "ctc_viterbi":
-                    pred_ids = ctc_viterbi_decode(logits_tbc, input_lengths=input_lengths, blank_idx=BLANK_IDX)
+                    pred_ids = ctc_viterbi_decode(
+                        logits_tbc,
+                        input_lengths=input_lengths,
+                        blank_idx=BLANK_IDX,
+                        blank_logit_bias=args.ctc_blank_logit_bias,
+                        nonblank_logit_bias=args.ctc_nonblank_logit_bias,
+                        logit_temperature=args.ctc_logit_temperature,
+                        beamsize=args.ctc_decode_beamsize,
+                    )
                 else:
                     pred_ids = koi_beam_search_decode(
                         logits_tbc,

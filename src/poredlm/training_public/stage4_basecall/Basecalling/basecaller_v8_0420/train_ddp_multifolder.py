@@ -168,6 +168,20 @@ def apply_input_token_mask(
     return masked_input_ids, mask_positions
 
 
+def apply_ctc_blank_logit_bias(
+    logits_tbc: torch.Tensor,
+    blank_idx: int,
+    blank_logit_bias: float,
+) -> torch.Tensor:
+    """Apply a train-time CTC blank bias before computing the CTC loss."""
+    bias = float(blank_logit_bias)
+    if bias == 0.0:
+        return logits_tbc
+    logits_tbc = logits_tbc.clone()
+    logits_tbc[..., int(blank_idx)] += bias
+    return logits_tbc
+
+
 def setup_logger(log_file: str, accelerator: Accelerator) -> logging.Logger:
     logger = logging.getLogger("basecaller_ddp_multifolder")
     logger.setLevel(logging.INFO)
@@ -418,6 +432,7 @@ def train_one_epoch(
     input_mask_ratio: float,
     input_mask_token_id: int,
     label_smooth_weight: float,
+    train_blank_logit_bias: float,
     masked_token_ce_weight: float,
     masked_token_ce_active: bool,
 ) -> Tuple[float, float, float, float, float, float]:
@@ -474,8 +489,13 @@ def train_one_epoch(
                     blank_idx=BLANK_IDX,
                 )
             else:
-                ctc_loss_dict = ctc_label_smoothing_loss(
+                loss_logits_tbc = apply_ctc_blank_logit_bias(
                     logits_tbc,
+                    blank_idx=BLANK_IDX,
+                    blank_logit_bias=train_blank_logit_bias,
+                )
+                ctc_loss_dict = ctc_label_smoothing_loss(
+                    loss_logits_tbc,
                     target_labels,
                     target_lengths,
                     input_lengths=input_lengths,
@@ -591,6 +611,7 @@ def train_one_epoch(
                     "train/masked_token_ce_loss": float(masked_token_ce_loss.item()),
                     "train/masked_token_count": float(masked_token_count),
                     "train/masked_token_ce_active": float(use_masked_token_ce),
+                    "train/train_blank_logit_bias": float(train_blank_logit_bias),
                     "lr": float(lr),
                     "step": step,
                 }
@@ -865,7 +886,7 @@ def parse_args():
                    help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, input embeddings, or VQ codebook embeddings.")
     p.add_argument("--feature_l2_normalize", "--feature-l2-normalize", action="store_true",
                    help="L2-normalize backbone hidden features along the channel dimension before the pre-head.")
-    p.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "add", "concat", "gate"], default="none",
+    p.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "only", "add", "concat", "gate"], default="none",
                    help="Fuse the selected backbone feature with token-id embedding/codebook features before the pre-head.")
     p.add_argument("--codebook_fusion_dropout", "--codebook-fusion-dropout", type=float, default=0.1,
                    help="Dropout applied to projected token-id codebook features before fusion.")
@@ -877,6 +898,8 @@ def parse_args():
                    help="Offset subtracted from bwav token ids before external codebook lookup. Defaults to --tokenizer_token_offset.")
     p.add_argument("--codebook_feature_trainable", "--codebook-feature-trainable", action="store_true",
                    help="Allow gradients to update external codebook features during basecalling training.")
+    p.add_argument("--skip_backbone_for_codebook_only", "--skip-backbone-for-codebook-only", action="store_true",
+                   help="When --codebook_fusion only, skip DLM/backbone computation and feed codebook features directly to the pre-head.")
     p.add_argument("--vq_device", type=str, default="cuda",
                    help="Device used when loading VQETokenizer for --feature_source vq_embedding.")
     p.add_argument("--vq_token_batch_size", type=int, default=100,
@@ -910,6 +933,8 @@ def parse_args():
     p.add_argument("--min_lr", type=float, default=1e-5)
     p.add_argument("--label_smooth_weight", type=float, default=1.0,
                    help="Weight for the smooth term in plain CTC loss. Existing behavior is 1.0; use 0 to disable.")
+    p.add_argument("--train_blank_logit_bias", type=float, default=0.0,
+                   help="Train-time additive bias on the CTC blank logit before plain CTC loss. Negative values reduce blank dominance.")
 
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--log_interval", type=int, default=100)
@@ -1043,10 +1068,14 @@ def main():
         raise ValueError("--backbone_lr must be > 0 when provided.")
     if float(args.label_smooth_weight) < 0:
         raise ValueError("--label_smooth_weight must be >= 0.")
+    if args.head_type != "ctc" and float(args.train_blank_logit_bias) != 0.0:
+        raise ValueError("--train_blank_logit_bias currently supports --head_type ctc only.")
     if float(args.codebook_fusion_dropout) < 0:
         raise ValueError("--codebook_fusion_dropout must be >= 0.")
     if args.codebook_feature_token_offset is not None and int(args.codebook_feature_token_offset) < 0:
         raise ValueError("--codebook_feature_token_offset must be >= 0.")
+    if bool(args.skip_backbone_for_codebook_only) and args.codebook_fusion != "only":
+        raise ValueError("--skip_backbone_for_codebook_only requires --codebook_fusion only.")
     apply_quick_overrides(args)
     backend, backend_note = resolve_distributed_backend(args)
     ddp_kwargs = DistributedDataParallelKwargs(
@@ -1095,7 +1124,8 @@ def main():
             f"dropout={args.codebook_fusion_dropout} gate_bias={args.codebook_fusion_gate_bias} "
             f"feature_path={args.codebook_feature_path} "
             f"feature_token_offset={args.codebook_feature_token_offset} "
-            f"feature_trainable={args.codebook_feature_trainable}"
+            f"feature_trainable={args.codebook_feature_trainable} "
+            f"skip_backbone_for_codebook_only={args.skip_backbone_for_codebook_only}"
         )
         logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
         if args.feature_source == "ode_hidden":
@@ -1116,6 +1146,7 @@ def main():
             f"backbone={args.backbone_lr if args.backbone_lr is not None else args.lr}"
         )
         logger.info(f"[CTC] label_smooth_weight={args.label_smooth_weight}")
+        logger.info(f"[CTC] train_blank_logit_bias={args.train_blank_logit_bias}")
         if args.quick:
             logger.info("[Quick] enabled: freeze_backbone=True, ctc_crf_state_len=5, ctc_crf_blank_score=0, head_output_scale=5, head_output_activation=tanh, head_type=ctc_crf, pre_ctc_module=none")
 
@@ -1163,6 +1194,7 @@ def main():
         codebook_feature_path=args.codebook_feature_path,
         codebook_feature_token_offset=args.codebook_feature_token_offset,
         codebook_feature_trainable=args.codebook_feature_trainable,
+        skip_backbone_for_codebook_only=args.skip_backbone_for_codebook_only,
         backbone_chunk_size=args.backbone_chunk_size,
         head_crf_blank_score=float(args.ctc_crf_blank_score),
         head_crf_n_base=n_base,
@@ -1474,6 +1506,7 @@ def main():
             args.input_mask_ratio,
             args.input_mask_token_id,
             args.label_smooth_weight,
+            args.train_blank_logit_bias,
             args.masked_token_ce_weight,
             masked_token_ce_active,
         )

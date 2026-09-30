@@ -1,0 +1,51 @@
+seed: 42
+
+model:
+  codebook_size: 1024
+  vq:
+    cnn_type: 0
+    codebook_decay: 0.99
+    codebook_emadc: 2
+    # false follows the public tokenizer's EMA-updated codebook route.
+    learnable_codebook: false
+    init_codebook_path: null
+    cnn_checkpoint_path: null
+    freeze_cnn: false
+
+loss_weights:
+  commitment_weight: 1.0
+  codebook_diversity_loss_weight: 0.0
+  orthogonal_reg_weight: 0.0
+
+data:
+  train:
+    paths: /path/to/train
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 20000
+    num_workers: 4
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 2
+  valid:
+    paths: /path/to/valid
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 0
+    num_workers: 2
+    pin_memory: true
+    persistent_workers: false
+    prefetch_factor: 2
+
+training:
+  max_train_steps: 100000
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  device_micro_batch_size: 8
+  mixed_precision: bf16
+  gradient_clipping: 1.0
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  output_dir: save/continuous_vq
+

@@ -43,7 +43,9 @@ class CodebookFeatureFusion(nn.Module):
         self.dropout = nn.Dropout(float(dropout))
         self.norm = nn.LayerNorm(int(hidden_size))
 
-        if self.mode == "add":
+        if self.mode == "only":
+            self.fuse = None
+        elif self.mode == "add":
             self.fuse = None
         elif self.mode == "concat":
             self.fuse = nn.Sequential(
@@ -57,8 +59,12 @@ class CodebookFeatureFusion(nn.Module):
         else:
             raise ValueError(f"Unsupported codebook fusion mode: {self.mode!r}.")
 
-    def forward(self, hidden: torch.Tensor, code_features: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden: torch.Tensor | None, code_features: torch.Tensor) -> torch.Tensor:
         code = self.dropout(self.code_proj(code_features))
+        if self.mode == "only":
+            return self.norm(code)
+        if hidden is None:
+            raise ValueError("hidden cannot be None unless codebook fusion mode is 'only'.")
         if self.mode == "add":
             return self.norm(hidden + code)
         if self.mode == "concat":
@@ -128,6 +134,7 @@ class BasecallModel(nn.Module):
         codebook_feature_path: str | None = None,
         codebook_feature_token_offset: int | None = None,
         codebook_feature_trainable: bool = False,
+        skip_backbone_for_codebook_only: bool = False,
         backbone_chunk_size: int = 600,
         elf_ode_steps: int = 4,
         elf_ode_start_t: float = 0.85,
@@ -155,6 +162,7 @@ class BasecallModel(nn.Module):
             else int(codebook_feature_token_offset)
         )
         self.codebook_feature_trainable = bool(codebook_feature_trainable)
+        self.skip_backbone_for_codebook_only = bool(skip_backbone_for_codebook_only)
         self.freeze_backbone = bool(freeze_backbone)
         self.unfreeze_last_n_layers = max(0, int(unfreeze_last_n_layers))
         self.unfreeze_target = str(unfreeze_target)
@@ -188,9 +196,11 @@ class BasecallModel(nn.Module):
                 "model_dlm.BasecallModel supports feature_source in "
                 f"{sorted(allowed_feature_sources)}."
             )
-        allowed_codebook_fusions = {"none", "add", "concat", "gate"}
+        allowed_codebook_fusions = {"none", "only", "add", "concat", "gate"}
         if self.codebook_fusion not in allowed_codebook_fusions:
             raise ValueError(f"codebook_fusion must be one of {sorted(allowed_codebook_fusions)}.")
+        if self.skip_backbone_for_codebook_only and self.codebook_fusion != "only":
+            raise ValueError("--skip_backbone_for_codebook_only requires --codebook_fusion only.")
         if not 0.0 < self.elf_ode_start_t <= 1.0:
             raise ValueError("--elf_ode_start_t must be in (0, 1].")
         if not 0.0 < self.elf_sde_start_t <= 1.0:
@@ -316,7 +326,8 @@ class BasecallModel(nn.Module):
             print(
                 f"[CodebookFusion] mode={self.codebook_fusion} "
                 f"codebook_dim={codebook_dim} hidden_size={hidden_size} "
-                f"dropout={self.codebook_fusion_dropout} gate_bias={self.codebook_fusion_gate_bias}"
+                f"dropout={self.codebook_fusion_dropout} gate_bias={self.codebook_fusion_gate_bias} "
+                f"skip_backbone_for_codebook_only={self.skip_backbone_for_codebook_only}"
             )
         self.head_type = head_type
         self.pre_head = self._build_pre_head(
@@ -390,15 +401,36 @@ class BasecallModel(nn.Module):
     @staticmethod
     def _load_external_codebook(path: str) -> torch.Tensor:
         import os
+        import sys
+        from pathlib import Path
 
         if os.path.isdir(path):
+            direct_codebook = BasecallModel._try_load_codebook_from_checkpoint_dir(path)
+            if direct_codebook is not None:
+                return direct_codebook
+
+            VQETokenizer = None
             try:
-                from poregpt.tokenizers import VQETokenizer
-            except ModuleNotFoundError as exc:
-                raise ModuleNotFoundError(
-                    "--codebook_feature_path points to a tokenizer checkpoint directory; "
-                    "`poregpt` is required to load VQETokenizer._get_codebook_embed()."
-                ) from exc
+                from poregpt.tokenizers import VQETokenizer as PoregptVQETokenizer
+
+                VQETokenizer = PoregptVQETokenizer
+            except ModuleNotFoundError:
+                poredlm_root = Path(__file__).resolve().parents[4]
+                tokenizer_dir = poredlm_root / "data" / "stage2_BERT_Encoder"
+                for candidate in (str(poredlm_root), str(tokenizer_dir)):
+                    if candidate not in sys.path:
+                        sys.path.insert(0, candidate)
+                try:
+                    from vqe_tokenizer import VQETokenizer as LocalVQETokenizer
+
+                    VQETokenizer = LocalVQETokenizer
+                except ModuleNotFoundError as exc:
+                    raise ModuleNotFoundError(
+                        "--codebook_feature_path points to a tokenizer checkpoint directory, "
+                        "but neither `poregpt.tokenizers.VQETokenizer` nor the local "
+                        "stage2_BERT_Encoder/vqe_tokenizer.py loader could be imported."
+                    ) from exc
+
             vq_tokenizer = VQETokenizer(model_ckpt=path, device="cpu")
             codebook = vq_tokenizer._get_codebook_embed()
             return torch.as_tensor(codebook.detach().cpu() if hasattr(codebook, "detach") else codebook)
@@ -422,6 +454,80 @@ class BasecallModel(nn.Module):
                     if isinstance(value, torch.Tensor) and value.ndim == 2 and "codebook" in key:
                         return value.to(dtype=torch.float32)
         raise ValueError(f"Cannot find a [K, D] codebook tensor in {path!r}.")
+
+    @staticmethod
+    def _try_load_codebook_from_checkpoint_dir(path: str) -> torch.Tensor | None:
+        import os
+
+        candidates = [
+            os.path.join(path, "model.safetensors"),
+            os.path.join(path, "pytorch_model.bin"),
+        ]
+        for filename in os.listdir(path):
+            if filename in {"model.safetensors", "pytorch_model.bin"}:
+                continue
+            if filename.endswith((".safetensors", ".bin", ".pt", ".pth")) and "model" in filename:
+                candidates.append(os.path.join(path, filename))
+
+        for candidate in candidates:
+            if not os.path.exists(candidate):
+                continue
+            if candidate.endswith(".safetensors"):
+                from safetensors.torch import load_file
+
+                state = load_file(candidate, device="cpu")
+            else:
+                state = torch.load(candidate, map_location="cpu", weights_only=False)
+                if isinstance(state, dict):
+                    state = state.get("model_state_dict", state.get("state_dict", state))
+            if not isinstance(state, dict):
+                continue
+            codebook = BasecallModel._extract_codebook_tensor_from_state_dict(state)
+            if codebook is not None:
+                print(
+                    f"[CodebookFusion] loaded codebook tensor directly from {candidate} "
+                    f"shape={tuple(codebook.shape)}"
+                )
+                return codebook
+        return None
+
+    @staticmethod
+    def _extract_codebook_tensor_from_state_dict(state: dict) -> torch.Tensor | None:
+        exact_suffixes = (
+            "vq._codebook.embed",
+            "quantizer.codebooks",
+            "vq.codebooks",
+            "codebooks",
+        )
+        for key, value in state.items():
+            if not isinstance(value, torch.Tensor):
+                continue
+            if value.ndim not in {2, 3}:
+                continue
+            if any(str(key).endswith(suffix) for suffix in exact_suffixes):
+                return BasecallModel._normalize_codebook_tensor(value)
+
+        for key, value in state.items():
+            if not isinstance(value, torch.Tensor):
+                continue
+            if value.ndim not in {2, 3}:
+                continue
+            lowered = str(key).lower()
+            if "codebook" in lowered and ("embed" in lowered or "codebooks" in lowered):
+                return BasecallModel._normalize_codebook_tensor(value)
+        return None
+
+    @staticmethod
+    def _normalize_codebook_tensor(value: torch.Tensor) -> torch.Tensor:
+        codebook = value.detach().cpu().to(dtype=torch.float32)
+        if codebook.ndim == 3:
+            if codebook.shape[0] == 1:
+                codebook = codebook[0]
+            else:
+                codebook = codebook.reshape(codebook.shape[0] * codebook.shape[1], codebook.shape[2])
+        if codebook.ndim != 2:
+            raise ValueError(f"Unexpected codebook shape after normalization: {tuple(codebook.shape)}.")
+        return codebook.contiguous()
 
     def _find_token_embedding_module(self) -> nn.Embedding:
         """Return the token-id embedding table used by the context encoder."""
@@ -618,6 +724,18 @@ class BasecallModel(nn.Module):
         attention_mask: torch.Tensor | None = None,
         return_token_logits: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        if self.skip_backbone_for_codebook_only:
+            hidden = self._fuse_codebook_features(
+                hidden=None,
+                input_ids=input_ids,
+            )
+            hidden = self.pre_head(hidden)
+            logits_btc = self.base_head(hidden)
+            if return_token_logits:
+                token_logits = self.token_prediction_head(hidden)
+                return logits_btc, token_logits
+            return logits_btc
+
         if self.backbone_chunk_size > 0 and input_ids.shape[1] > self.backbone_chunk_size:
             hidden_parts = []
             for start in range(0, input_ids.shape[1], self.backbone_chunk_size):
@@ -656,11 +774,14 @@ class BasecallModel(nn.Module):
         code_features = self.codebook_feature_embedding(input_ids)
         return code_features.to(dtype=dtype)
 
-    def _fuse_codebook_features(self, hidden: torch.Tensor, input_ids: torch.Tensor) -> torch.Tensor:
+    def _fuse_codebook_features(self, hidden: torch.Tensor | None, input_ids: torch.Tensor) -> torch.Tensor:
         if self.codebook_feature_fuser is None:
+            if hidden is None:
+                raise ValueError("hidden cannot be None when codebook fusion is disabled.")
             return hidden
-        code_features = self._lookup_codebook_features(input_ids, dtype=hidden.dtype)
-        if code_features.shape[:2] != hidden.shape[:2]:
+        dtype = hidden.dtype if hidden is not None else next(self.codebook_feature_fuser.parameters()).dtype
+        code_features = self._lookup_codebook_features(input_ids, dtype=dtype)
+        if hidden is not None and code_features.shape[:2] != hidden.shape[:2]:
             raise ValueError(
                 "Codebook feature shape does not match hidden sequence shape: "
                 f"codebook={tuple(code_features.shape)} hidden={tuple(hidden.shape)}."
