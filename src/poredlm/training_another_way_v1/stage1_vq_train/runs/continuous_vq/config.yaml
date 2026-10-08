@@ -7,7 +7,7 @@ wandb:
   name: continuous_vq_v1
 
 model:
-  codebook_size: 1024
+  codebook_size: 8192
   vq:
     cnn_type: 0
     codebook_decay: 0.99
@@ -19,13 +19,13 @@ model:
     freeze_cnn: false
 
 loss_weights:
-  commitment_weight: 1.0
-  codebook_diversity_loss_weight: 0.0
+  commitment_weight: 9.0
+  codebook_diversity_loss_weight: 1.0
   orthogonal_reg_weight: 0.0
 
 data:
   train:
-    paths: /path/to/train
+    paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/train
     chunk_size: 6000
     memmap_dtype: float32
     buffer_size: 20000
@@ -34,7 +34,7 @@ data:
     persistent_workers: true
     prefetch_factor: 2
   valid:
-    paths: /path/to/valid
+    paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/eval
     chunk_size: 6000
     memmap_dtype: float32
     buffer_size: 0
@@ -47,7 +47,7 @@ training:
   max_train_steps: 100000
   learning_rate: 1.0e-4
   weight_decay: 0.01
-  device_micro_batch_size: 8
+  device_micro_batch_size: 64
   log_every_steps: 10
   mixed_precision: bf16
   gradient_clipping: 1.0

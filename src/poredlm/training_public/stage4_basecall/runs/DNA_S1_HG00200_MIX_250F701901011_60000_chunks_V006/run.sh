@@ -9,18 +9,18 @@ stage3_root="${project_root}/src/poredlm/training_public/stage3_DLM_train"
 stage4_root="${project_root}/src/poredlm/training_public/stage4_basecall"
 
 export PYTHONPATH="${stage4_root}:${project_root}/src:${PYTHONPATH:-}"
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 export TORCHDYNAMO_DISABLE=1
 export WANDB_API_KEY=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
 
 
 # DDP 参数
-nproc_per_node=8
-master_port=29513
+nproc_per_node=4
+master_port=29515
 ddp_backend="nccl"
 
 # 模型参数
-backbone_type="dlm"  # auto 可同时识别 DLM 和标准 Hugging Face BERT；也可显式设为 dlm/bert
+backbone_type="dlm"
 batch_size=8
 num_epochs=500
 head_lr="1e-5"
@@ -44,9 +44,18 @@ head_output_activation="tanh"
 head_output_scale=5
 backbone_chunk_size=1540
 
+# codebook/token-id feature fusion 参数：none / only / add / concat / gate
+codebook_fusion="none"
+codebook_fusion_dropout="0.1"
+codebook_fusion_gate_bias="-2.0"
+skip_backbone_for_codebook_only=false
+# 留空时使用 HF context_encoder 的 token embedding；填 stage1 tokenizer encoder ckpt/.pt/.npy 时使用真正 VQ codebook。
+codebook_feature_path="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/encoder"
+codebook_feature_token_offset=128
+
 # ODE 参数（feature_source="ode_hidden" 时生效）
-elf_ode_steps=2
-elf_ode_start_t="0.98"
+elf_ode_steps=1
+elf_ode_start_t="0.97"
 elf_ode_self_cond_cfg_scale="0.5"
 
 # SDE 参数（feature_source="sde_hidden" 时生效）
@@ -59,12 +68,12 @@ elf_sde_seed=6198
 # 日志参数
 use_wandb=true
 wandb_project="stage4_basecall_public"
-wandb_run_name="test_public_hf_dlm_basecall_60000_chunks_tcn_ctc_V006"
+wandb_run_name="test_public_hf_dlm_basecall_60000_chunks_tcn_ctc_V006_ode_hidden_base"
 
 # 输入、模型和输出路径
 base_model="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/hf_dlm"
 data_root="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/basecall/basecall_data"
-outdir="${stage4_root}/runs/DNA_S1_HG00200_MIX_250F701901011_60000_chunks_V006"
+outdir="${stage4_root}/runs/DNA_S1_HG00200_MIX_250F701901011_60000_chunks_V006_with_codebook"
 
 mkdir -p "${outdir}"
 
@@ -80,6 +89,17 @@ fi
 feature_norm_args=()
 if [[ "${feature_l2_normalize}" == "true" ]]; then
   feature_norm_args+=(--feature_l2_normalize)
+fi
+
+codebook_feature_args=()
+if [[ -n "${codebook_feature_path}" ]]; then
+  codebook_feature_args+=(
+    --codebook_feature_path "${codebook_feature_path}"
+    --codebook_feature_token_offset "${codebook_feature_token_offset}"
+  )
+fi
+if [[ "${skip_backbone_for_codebook_only}" == "true" ]]; then
+  codebook_feature_args+=(--skip_backbone_for_codebook_only)
 fi
 
 nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port="${master_port}" \
@@ -110,6 +130,10 @@ nohup torchrun --nproc_per_node="${nproc_per_node}" --nnodes=1 --master_port="${
   --unfreeze_elf_last_n_layers "${unfreeze_elf_last_n_layers}" \
   --feature_source "${feature_source}" \
   "${feature_norm_args[@]}" \
+  --codebook_fusion "${codebook_fusion}" \
+  --codebook_fusion_dropout "${codebook_fusion_dropout}" \
+  --codebook_fusion_gate_bias "${codebook_fusion_gate_bias}" \
+  "${codebook_feature_args[@]}" \
   --head_output_activation "${head_output_activation}" \
   --head_output_scale "${head_output_scale}" \
   --backbone_chunk_size "${backbone_chunk_size}" \
