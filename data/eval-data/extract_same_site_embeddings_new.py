@@ -104,7 +104,9 @@ class HFCodecTokenizer:
 
     @torch.inference_mode()
     def encode_batch(self, signals: list[np.ndarray]) -> tuple[list[np.ndarray], list[int]]:
-        signal_t = pad_signal_batch(signals).to(self.device)
+        # HF pore codecs consume [B, C, T], while the JSONL records store
+        # each read as a flat [T] array.  There is one signal channel.
+        signal_t = pad_signal_batch(signals).to(self.device).unsqueeze(1)
         if hasattr(self.model, "encode_signal"):
             indices = self.model.encode_signal(signal_t)
         else:
@@ -112,7 +114,12 @@ class HFCodecTokenizer:
             indices = output[1] if isinstance(output, tuple) else output["indices"]
         indices = indices.detach().cpu().long().numpy()
         token_ids = [row.astype(np.int64) + self.token_offset for row in indices]
-        valid_lengths = [max(1, int(math.ceil(signal.size / 5))) for signal in signals]
+        # VQ codecs in older runs use stride=5; the V011 RSQ codec uses
+        # stride=4.  Read it from the loaded model instead of hard-coding it.
+        stride = int(getattr(self.model, "cnn_stride", 5))
+        if stride <= 0:
+            raise ValueError(f"Invalid codec CNN stride: {stride}")
+        valid_lengths = [max(1, int(math.ceil(signal.size / stride))) for signal in signals]
         valid_lengths = [min(length, token_ids[i].shape[0]) for i, length in enumerate(valid_lengths)]
         return token_ids, valid_lengths
 

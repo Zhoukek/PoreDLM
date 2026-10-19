@@ -18,6 +18,10 @@ from .torch_util import barrier, get_global_rank, get_world_size
 log = logging.getLogger(__name__)
 
 
+class _DLMIndexMismatchError(OLMoConfigurationError):
+    """A shard's sample-boundary index extends beyond its token stream."""
+
+
 def _expand_token_paths(paths: Sequence[str]) -> List[str]:
     expanded: List[str] = []
     for path in paths:
@@ -84,6 +88,8 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
         pad_token_id: int,
         bos_token_id: int,
         eos_token_id: int,
+        add_cls_token: bool = False,
+        cls_token_id: int = 5,
         include_instance_metadata: bool = False,
         metadata: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> None:
@@ -105,29 +111,60 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
         self.pad_token_id = pad_token_id
         self.bos_token_id = int(bos_token_id)
         self.eos_token_id = int(eos_token_id)
+        self.add_cls_token = bool(add_cls_token)
+        self.cls_token_id = int(cls_token_id)
+        if self.add_cls_token and self.cls_token_id in {
+            self.pad_token_id,
+            self.bos_token_id,
+            self.eos_token_id,
+        }:
+            raise OLMoConfigurationError(
+                "cls_token_id must differ from pad_token_id, bos_token_id, and eos_token_id"
+            )
         self.include_instance_metadata = include_instance_metadata
         self._arrays: List[np.ndarray] = []
         self._indices: List[Optional[np.ndarray]] = []
         self._offsets: List[Tuple[int, int]] = []
 
         start = 0
-        for path in self.paths:
+        configured_paths = list(zip(self.paths, self.metadata))
+        self.paths = []
+        self.metadata = []
+        skipped_paths: List[str] = []
+        for path, item_metadata in configured_paths:
             array = self._load_array(path)
             if array.ndim == 0:
                 raise OLMoConfigurationError(f"DLM data file {path!r} is scalar; expected 1D or 2D token IDs")
             if array.ndim > 2:
                 raise OLMoConfigurationError(f"DLM data file {path!r} has shape {array.shape}; expected 1D or 2D")
-            index = self._load_index(path, array)
+            try:
+                index = self._load_index(path, array)
+            except _DLMIndexMismatchError as exc:
+                skipped_paths.append(path)
+                log.warning("Skipping DLM shard with inconsistent index: %s (%s)", path, exc)
+                continue
             num_instances = int(index.shape[0]) if index is not None else int(array.shape[0])
             if num_instances == 0:
                 raise OLMoConfigurationError(f"DLM data file {path!r} has no indexed training instances")
+            self.paths.append(path)
+            self.metadata.append(dict(item_metadata))
             self._arrays.append(array)
             self._indices.append(index)
             self._offsets.append((start, start + num_instances))
             start += num_instances
 
         self._length = start
-        log.info("Built DLM token dataset with %d instances from %d file(s)", self._length, len(self.paths))
+        if not self.paths:
+            raise OLMoConfigurationError(
+                "No valid DLM token shards remain after index validation"
+                f"; skipped {len(skipped_paths)} inconsistent shard(s)"
+            )
+        log.info(
+            "Built DLM token dataset with %d instances from %d file(s); skipped %d inconsistent shard(s)",
+            self._length,
+            len(self.paths),
+            len(skipped_paths),
+        )
 
     def _load_array(self, path: str) -> np.ndarray:
         try:
@@ -175,7 +212,7 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
                         f"Non-integer span at row {row_number} in {str(index_path)!r}: {row[:2]!r}"
                     ) from exc
                 if item_start < 0 or item_end <= item_start or item_end > array.shape[0]:
-                    raise OLMoConfigurationError(
+                    raise _DLMIndexMismatchError(
                         f"Invalid span [{item_start}, {item_end}) at row {row_number} in "
                         f"{str(index_path)!r}; token stream length is {array.shape[0]}"
                     )
@@ -198,10 +235,19 @@ class DLMTokensDataset(Dataset[Dict[str, Any]]):
                 f"DLM instance {index} in {path!r} must have BOS/EOS="
                 f"{self.bos_token_id}/{self.eos_token_id}, got {int(ids[0])}/{int(ids[-1])}"
             )
-        content = ids[1:-1][: max(0, self.chunk_size - 2)]
+        special_token_count = 2 + int(self.add_cls_token)
+        if self.chunk_size < special_token_count:
+            raise OLMoConfigurationError(
+                f"DLM max sequence length {self.chunk_size} cannot fit "
+                f"{special_token_count} boundary tokens"
+            )
+        content = ids[1:-1][: max(0, self.chunk_size - special_token_count)]
+        special_tokens = [self.bos_token_id]
+        if self.add_cls_token:
+            special_tokens.insert(0, self.cls_token_id)
         return np.concatenate(
             [
-                np.asarray([self.bos_token_id], dtype=np.int64),
+                np.asarray(special_tokens, dtype=np.int64),
                 content,
                 np.asarray([self.eos_token_id], dtype=np.int64),
             ]
@@ -250,6 +296,7 @@ class DLMDataCollator:
         *,
         max_seq_length: int,
         pad_token_id: int,
+        add_cls_token: bool = False,
         max_input_seq_length: Optional[int] = None,
         conditioning_mode: str = "unconditional",
         unconditional_prob: float = 0.1,
@@ -266,6 +313,8 @@ class DLMDataCollator:
     ) -> None:
         self.max_seq_length = max_seq_length
         self.pad_token_id = pad_token_id
+        self.add_cls_token = bool(add_cls_token)
+        self._content_start = 1 + int(self.add_cls_token)
         self.max_input_seq_length = max_input_seq_length
         self.conditioning_mode = str(conditioning_mode).lower()
         self.unconditional_prob = float(unconditional_prob)
@@ -313,7 +362,7 @@ class DLMDataCollator:
     def _mask_single_span(self, mask: np.ndarray, content_length: int) -> None:
         length = self._span_length(content_length)
         start = self._randint(0, content_length - length)
-        mask[1 + start : 1 + start + length] = False
+        mask[self._content_start + start : self._content_start + start + length] = False
 
     def _mask_prefix_suffix(self, mask: np.ndarray, content_length: int) -> None:
         # Predict one span at each content boundary. For very short sequences,
@@ -324,8 +373,10 @@ class DLMDataCollator:
             self._mask_single_span(mask, content_length)
             return
         right = self._span_length(remaining)
-        mask[1 : 1 + left] = False
-        mask[1 + content_length - right : 1 + content_length] = False
+        mask[self._content_start : self._content_start + left] = False
+        mask[
+            self._content_start + content_length - right : self._content_start + content_length
+        ] = False
 
     def _mask_multiple_spans(self, mask: np.ndarray, content_length: int) -> None:
         requested = self._randint(self.condition_multi_min_spans, self.condition_multi_max_spans)
@@ -352,24 +403,27 @@ class DLMDataCollator:
             gaps[self._randint(0, num_spans)] += 1
         cursor = gaps[0]
         for span_index, length in enumerate(lengths):
-            mask[1 + cursor : 1 + cursor + length] = False
+            mask[self._content_start + cursor : self._content_start + cursor + length] = False
             cursor += length + gaps[span_index + 1]
 
     def _sample_condition_mask(self, valid_length: int) -> Tuple[np.ndarray, int]:
         mask = np.zeros(self.max_seq_length, dtype=np.bool_)
-        if valid_length >= 2:
-            # Sequence boundaries are always known. "Unconditional" below
-            # means unconditional generation of all codec content tokens.
-            mask[0] = True
+        # Dataset layout is [BOS, content..., EOS] or
+        # [CLS, BOS, content..., EOS]. Keep all prefix special tokens and EOS
+        # fixed; only codec content participates in conditional masking.
+        content_start = self._content_start
+        special_token_count = content_start + 1  # prefix tokens plus EOS
+        if valid_length >= special_token_count:
+            mask[:content_start] = True
             mask[valid_length - 1] = True
-        if self.conditioning_mode == "unconditional" or valid_length < 3:
+        if self.conditioning_mode == "unconditional" or valid_length < special_token_count + 1:
             return mask, 0
         if self.conditioning_mode == "mixed" and torch.rand(()).item() < self.unconditional_prob:
             return mask, 0
 
-        # The sequence layout is [BOS, content..., EOS]. Select a target span in
-        # content-token coordinates; known positions become the fixed condition.
-        content_length = valid_length - 2
+        # Select a target span in content-token coordinates; known positions
+        # become the fixed condition.
+        content_length = valid_length - special_token_count
         ratio = self.condition_min_mask_ratio + torch.rand(()).item() * (
             self.condition_max_mask_ratio - self.condition_min_mask_ratio
         )
@@ -384,12 +438,12 @@ class DLMDataCollator:
             # Generate only a content suffix. BOS and EOS stay fixed because
             # waveform reconstruction uses a known token length and only codec
             # tokens are valid generation targets.
-            target_start = 1 + content_length - target_length
+            target_start = content_start + content_length - target_length
             mask[target_start : valid_length - 1] = False
         elif pattern == "infill":
             max_start = content_length - target_length
-            content_start = int(torch.randint(max_start + 1, ()).item()) if max_start else 0
-            target_start = 1 + content_start
+            content_offset = int(torch.randint(max_start + 1, ()).item()) if max_start else 0
+            target_start = content_start + content_offset
             mask[target_start : target_start + target_length] = False
         elif pattern == "prefix_suffix":
             self._mask_prefix_suffix(mask, content_length)
@@ -480,6 +534,8 @@ def build_train_dlm_dataloader(
         pad_token_id=train_config.model.pad_token_id,
         bos_token_id=getattr(train_config.model, "bos_token_id", 2),
         eos_token_id=train_config.model.eos_token_id,
+        add_cls_token=train_config.dlm.add_cls_token,
+        cls_token_id=train_config.dlm.cls_token_id,
         include_instance_metadata=include_instance_metadata,
     )
     work_dir = Path(train_config.save_folder) / "train_data_dlm"
@@ -508,6 +564,7 @@ def build_train_dlm_dataloader(
     collator = DLMDataCollator(
         max_seq_length=train_config.model.max_sequence_length,
         pad_token_id=train_config.model.pad_token_id,
+        add_cls_token=train_config.dlm.add_cls_token,
         max_input_seq_length=getattr(train_config.dlm, "max_input_length", None),
         conditioning_mode=getattr(train_config.dlm, "conditioning_mode", "unconditional"),
         unconditional_prob=getattr(train_config.dlm, "unconditional_prob", 0.1),
@@ -566,6 +623,8 @@ def build_eval_dlm_dataloader(
         pad_token_id=train_config.model.pad_token_id,
         bos_token_id=getattr(train_config.model, "bos_token_id", 2),
         eos_token_id=train_config.model.eos_token_id,
+        add_cls_token=train_config.dlm.add_cls_token,
+        cls_token_id=train_config.dlm.cls_token_id,
         include_instance_metadata=True,
         metadata=metadata,
     )
@@ -586,6 +645,7 @@ def build_eval_dlm_dataloader(
     collator = DLMDataCollator(
         max_seq_length=train_config.model.max_sequence_length,
         pad_token_id=train_config.model.pad_token_id,
+        add_cls_token=train_config.dlm.add_cls_token,
         max_input_seq_length=getattr(train_config.dlm, "max_input_length", None),
         # Keep eval deterministic and comparable: evaluate full unconditional
         # denoising here. Conditional generation is measured separately.

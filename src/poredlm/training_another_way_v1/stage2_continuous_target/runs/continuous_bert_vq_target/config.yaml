@@ -22,8 +22,14 @@ model:
   target_cosine_weight: 0.1
 
 masking:
-  start_probability: 0.065
-  span_length: 10
+  # RF-aware masking aligned with the public Stage 2 BERT run:
+  # sample anchors at 15%, mask i-4...i+4, and supervise i-1...i+1.
+  mask_probability: 0.15
+  mask_left_context: 3
+  mask_right_context: 3
+  center_loss_token_count: 3
+  loss_left_context: 0
+  loss_right_context: 0
 
 data:
   train:

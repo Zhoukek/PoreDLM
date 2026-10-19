@@ -53,6 +53,9 @@ hf_porelm/
 ## 2. 公共加载代码
 
 下面三个示例都从这段代码开始。`input_ids` 应放置模型词表中的 token ID；如果使用本项目的 waveform codebook，codec ID `k` 通常对应 DLM token ID `k + 128`。
+如果导出的 `config.json` 中 `dlm_config.add_cls_token` 为 `true`，输入序列需要包含
+`[CLS, BOS, content..., EOS]`，其中 CLS 的 ID 由 `dlm_config.cls_token_id` 指定。HF
+模型不会在推理时自动插入 CLS；训练 dataloader 会对原始 `[BOS, content..., EOS]` 样本插入它。
 
 ```python
 from pathlib import Path
@@ -95,6 +98,7 @@ with torch.inference_mode():
     outputs = model(
         input_ids=input_ids,
         attention_mask=attention_mask,
+        return_last_hidden_state=(encoding_type == "last_hidden"),
         return_context=(encoding_type == "context_hidden"),
         return_ode_hidden=(encoding_type == "ode_hidden"),
         ode_steps=2,
@@ -126,7 +130,7 @@ print(encoded.shape)
 - `sde_hidden_state`：从 `context_hidden_state` 出发，经过带随机扰动的 SDE-style refinement，可用 `sde_seed` 复现。
 - `last_hidden_state`：在给定 `t` 下执行一次 `flow_denoiser` forward 的输出；未传入 `t` 时默认 `t=1`。
 
-只会计算显式请求的附加分支。例如只设置 `return_ode_hidden=True` 时，不会额外计算 SDE hidden。
+只会计算显式请求的附加分支。例如只设置 `return_ode_hidden=True` 时，不会额外计算 SDE hidden。`return_last_hidden_state` 默认是 `False`，因此常用的 ODE 调用不会多跑一次普通 denoiser 前向；只有需要 `last_hidden_state` 时才显式设为 `True`。
 
 ## 4. 指定区间短程去噪
 

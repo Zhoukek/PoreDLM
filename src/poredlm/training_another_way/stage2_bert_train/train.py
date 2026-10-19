@@ -48,33 +48,73 @@ def build_loader(cfg: dict, split: str, train: bool):
                                        prefetch_factor=data.get("prefetch_factor", 2) if workers > 0 else None)
 
 
-def make_mask(attention_mask: torch.Tensor, probability: float) -> torch.Tensor:
-    mask = torch.rand(attention_mask.shape, device=attention_mask.device) < probability
-    mask = mask & attention_mask.bool()
-    # Keep at least one valid prediction position per non-empty sample.
-    for row in range(mask.shape[0]):
-        valid = torch.nonzero(attention_mask[row].bool(), as_tuple=False).flatten()
-        if valid.numel() and not mask[row].any():
-            mask[row, valid[torch.randint(valid.numel(), (1,), device=mask.device)]] = True
-    return mask
+def make_mask(
+    attention_mask: torch.Tensor,
+    probability: float,
+    mask_left_context: int = 0,
+    mask_right_context: int = 0,
+    loss_left_context: int = 0,
+    loss_right_context: int = 0,
+    center_loss_token_count: int = 0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return RF-aware (input_mask, loss_mask) positions.
+
+    This follows the public Stage 2 BERT masking scheme: Bernoulli-sampled
+    anchors define an input context to hide and a possibly narrower center
+    interval on which the prediction loss is computed.
+    """
+    probability = float(probability)
+    if not 0.0 < probability <= 1.0:
+        raise ValueError("mask_probability must be in (0, 1].")
+    mask_left_context = max(0, int(mask_left_context))
+    mask_right_context = max(0, int(mask_right_context))
+    loss_left_context = max(0, int(loss_left_context))
+    loss_right_context = max(0, int(loss_right_context))
+    center_loss_token_count = max(0, int(center_loss_token_count))
+    if center_loss_token_count > 0:
+        loss_left_context = (center_loss_token_count - 1) // 2
+        loss_right_context = center_loss_token_count - 1 - loss_left_context
+        mask_left_context += loss_left_context
+        mask_right_context += loss_right_context
+
+    valid_positions = attention_mask.bool()
+    anchors = (torch.rand(attention_mask.shape, device=attention_mask.device) < probability)
+    anchors &= valid_positions
+
+    def expand(left: int, right: int) -> torch.Tensor:
+        expanded = torch.zeros_like(anchors)
+        for offset in range(-left, right + 1):
+            if offset < 0:
+                expanded[:, :offset] |= anchors[:, -offset:]
+            elif offset > 0:
+                expanded[:, offset:] |= anchors[:, :-offset]
+            else:
+                expanded |= anchors
+        return expanded & valid_positions
+
+    input_mask = expand(mask_left_context, mask_right_context)
+    loss_mask = expand(loss_left_context, loss_right_context)
+    # A supervised position must never remain visible to the encoder.
+    input_mask |= loss_mask
+    return input_mask, loss_mask
 
 
 def embedding_metrics(
     predictions: torch.Tensor,
     targets: torch.Tensor,
-    mask_positions: torch.Tensor,
+    loss_positions: torch.Tensor,
     attention_mask: torch.Tensor,
 ) -> dict[str, torch.Tensor]:
     """Break the continuous reconstruction objective into monitorable scalars."""
-    pred = predictions[mask_positions]
-    target = targets[mask_positions]
-    smooth_l1 = F.smooth_l1_loss(pred, target)
+    pred = predictions[loss_positions]
+    target = targets[loss_positions]
+    mse = F.mse_loss(pred, target)
     cosine = (1.0 - F.cosine_similarity(pred, target, dim=-1)).mean()
     valid_count = attention_mask.sum().clamp_min(1)
     return {
-        "smooth_l1": smooth_l1.detach(),
+        "mse": mse.detach(),
         "cosine": cosine.detach(),
-        "mask_ratio": mask_positions.sum().float().detach() / valid_count.float().detach(),
+        "mask_ratio": loss_positions.sum().float().detach() / valid_count.float().detach(),
         "prediction_norm": pred.norm(dim=-1).mean().detach(),
         "target_norm": target.norm(dim=-1).mean().detach(),
     }
@@ -168,6 +208,14 @@ def main() -> None:
     model, optimizer, train_loader, valid_loader = accelerator.prepare(model, optimizer, train_loader, valid_loader)
     output_dir = Path(cfg["training"]["output_dir"]); output_dir.mkdir(parents=True, exist_ok=True)
     max_steps = int(cfg["training"]["max_train_steps"]); step = 0
+    masking_cfg = cfg["model"].get("masking", {}) or {}
+    mask_probability = float(cfg["model"].get("mask_probability", 0.15))
+    use_rf_aware_masking = bool(masking_cfg.get("use_rf_aware_masking", False))
+    mask_left_context = int(masking_cfg.get("mask_left_context", 0)) if use_rf_aware_masking else 0
+    mask_right_context = int(masking_cfg.get("mask_right_context", 0)) if use_rf_aware_masking else 0
+    loss_left_context = int(masking_cfg.get("loss_left_context", 0)) if use_rf_aware_masking else 0
+    loss_right_context = int(masking_cfg.get("loss_right_context", 0)) if use_rf_aware_masking else 0
+    center_loss_token_count = int(masking_cfg.get("center_loss_token_count", 0)) if use_rf_aware_masking else 0
     progress = tqdm(total=max_steps, disable=not accelerator.is_local_main_process)
     while step < max_steps:
         for batch in train_loader:
@@ -178,8 +226,16 @@ def main() -> None:
             attention = torch.ones(
                 embeddings.shape[:2], dtype=torch.long, device=embeddings.device
             )
-            positions = make_mask(attention, cfg["model"].get("mask_probability", 0.15))
-            outputs = model(embeddings, attention, embeddings.detach(), positions)
+            positions, loss_positions = make_mask(
+                attention,
+                mask_probability,
+                mask_left_context,
+                mask_right_context,
+                loss_left_context,
+                loss_right_context,
+                center_loss_token_count,
+            )
+            outputs = model(embeddings, attention, embeddings.detach(), positions, loss_positions)
             accelerator.backward(outputs.loss)
             grad_norm = accelerator.clip_grad_norm_(
                 model.parameters(), cfg["training"].get("gradient_clipping", 1.0)
@@ -189,12 +245,12 @@ def main() -> None:
                 progress.set_postfix(loss=f"{outputs.loss.item():.5f}")
                 if wandb_run is not None:
                     train_metrics = embedding_metrics(
-                        outputs.predictions, embeddings.detach(), positions, attention
+                        outputs.predictions, embeddings.detach(), loss_positions, attention
                     )
                     wandb_run.log(
                         {
                             "train/loss": float(outputs.loss.item()),
-                            "train/smooth_l1": float(train_metrics["smooth_l1"].item()),
+                            "train/mse": float(train_metrics["mse"].item()),
                             "train/cosine_loss": float(train_metrics["cosine"].item()),
                             "train/mask_ratio": float(train_metrics["mask_ratio"].item()),
                             "train/prediction_norm": float(train_metrics["prediction_norm"].item()),
@@ -215,15 +271,29 @@ def main() -> None:
                         valid_attention = torch.ones(
                             valid_embeddings.shape[:2], dtype=torch.long, device=valid_embeddings.device
                         )
-                        valid_mask = make_mask(valid_attention, cfg["model"].get("mask_probability", 0.15))
-                        result = model(valid_embeddings, valid_attention, valid_embeddings, valid_mask)
+                        valid_mask, valid_loss_mask = make_mask(
+                            valid_attention,
+                            mask_probability,
+                            mask_left_context,
+                            mask_right_context,
+                            loss_left_context,
+                            loss_right_context,
+                            center_loss_token_count,
+                        )
+                        result = model(
+                            valid_embeddings,
+                            valid_attention,
+                            valid_embeddings,
+                            valid_mask,
+                            valid_loss_mask,
+                        )
                         if result.loss is not None:
                             values.append(result.loss)
                             metric_values.append(
                                 embedding_metrics(
                                     result.predictions,
                                     valid_embeddings,
-                                    valid_mask,
+                                    valid_loss_mask,
                                     valid_attention,
                                 )
                             )
@@ -231,7 +301,7 @@ def main() -> None:
                 loss = torch.stack(values).mean() if values else torch.tensor(0.0, device=accelerator.device)
                 loss = accelerator.gather_for_metrics(loss.unsqueeze(0)).mean().item()
                 metric_names = (
-                    "smooth_l1",
+                    "mse",
                     "cosine",
                     "mask_ratio",
                     "prediction_norm",
@@ -252,7 +322,7 @@ def main() -> None:
                     wandb_run.log(
                         {
                             "valid/loss": float(loss),
-                            "valid/smooth_l1": float(valid_metrics["smooth_l1"]),
+                            "valid/mse": float(valid_metrics["mse"]),
                             "valid/cosine_loss": float(valid_metrics["cosine"]),
                             "valid/mask_ratio": float(valid_metrics["mask_ratio"]),
                             "valid/prediction_norm": float(valid_metrics["prediction_norm"]),

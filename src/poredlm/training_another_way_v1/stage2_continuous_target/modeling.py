@@ -112,15 +112,18 @@ class ContinuousTargetBert(nn.Module):
         attention_mask: torch.Tensor,
         target_embeddings: torch.Tensor | None = None,
         mask_positions: torch.Tensor | None = None,
+        loss_positions: torch.Tensor | None = None,
     ) -> ContinuousTargetOutput:
         hidden = self.encode(embeddings, attention_mask, mask_positions)
         predictions = self.prediction_head(hidden)
         loss = None
         smooth_l1 = None
         cosine = None
-        if target_embeddings is not None and mask_positions is not None and mask_positions.any():
-            pred = predictions[mask_positions]
-            target = target_embeddings[mask_positions].detach()
+        if loss_positions is None:
+            loss_positions = mask_positions
+        if target_embeddings is not None and loss_positions is not None and loss_positions.any():
+            pred = predictions[loss_positions]
+            target = target_embeddings[loss_positions].detach()
             smooth_l1 = F.smooth_l1_loss(pred, target)
             cosine = (1.0 - F.cosine_similarity(pred, target, dim=-1)).mean()
             loss = smooth_l1 + self.config.target_cosine_weight * cosine
@@ -131,4 +134,3 @@ class ContinuousTargetBert(nn.Module):
             predictions=predictions,
             last_hidden_state=hidden,
         )
-

@@ -122,3 +122,9 @@ dorado_models/
 /data/eval-data/LB07
 /src/poredlm/training/stage4_jiahen_5mc_mod/output
 /temp
+/src/poredlm/training_public/stage4_basecall_for_RNA/data/*
+!/src/poredlm/training_public/stage4_basecall_for_RNA/data/__init__.py
+!/src/poredlm/training_public/stage4_basecall_for_RNA/data/README.md
+!/src/poredlm/training_public/stage4_basecall_for_RNA/data/context_hidden_cache.py
+!/src/poredlm/training_public/stage4_basecall_for_RNA/data/precompute_context_hidden.py
+!/src/poredlm/training_public/stage4_basecall_for_RNA/data/run_precompute_context_hidden.sh

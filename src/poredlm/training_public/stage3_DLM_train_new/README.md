@@ -63,6 +63,13 @@ NUM_PROCESSES=4 bash scripts/train.sh configs/porelm_flow_matching.yaml \
   run_name=ablation-01 dlm.conditioning_mode=unconditional
 ```
 
+To match the Stage-2 BERT input format `[CLS, BOS, content..., EOS]`, set
+`dlm.add_cls_token: true` and `dlm.cls_token_id: 5`. The dataloader inserts CLS
+after validating each source sample's BOS/EOS, reserves one position for CLS
+when truncating to `dlm.max_length`, and excludes CLS from conditional target
+spans. The default training config enables this setting. Older checkpoints keep
+the input format recorded in their own `porelm_train_config.yaml`.
+
 Checkpoints contain model, optimizer, scheduler, trainer progress, dataloader
 state, and random-number generator states. Set `load_path` to a checkpoint
 directory to resume a run, and use `reset_optimizer_state` or

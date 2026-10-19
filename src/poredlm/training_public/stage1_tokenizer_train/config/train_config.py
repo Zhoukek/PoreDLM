@@ -26,11 +26,25 @@ class VQConfig:
     distill_loss_weight: float = 0.0
 
 @dataclass
+class BlockMLPVQConfig:
+    block_size: int = 5
+    chunk_size: int = 6000
+    latent_dim: int = 768
+    encoder_hidden_dims: List[int] = field(default_factory=lambda: [128, 256, 512])
+    decoder_hidden_dims: List[int] = field(default_factory=lambda: [512, 256, 128])
+    codebook_decay: float = 0.99
+    codebook_emadc: int = 2
+    learnable_codebook: bool = True
+    # LayerNorm is applied independently inside each block MLP; it never mixes tokens.
+    use_layer_norm: bool = True
+
+@dataclass
 class ModelConfig:
     model_type: str = "rsq"
     # 将分支特化参数聚合进来
     rsq: RSQConfig = field(default_factory=RSQConfig)
     vq: VQConfig = field(default_factory=VQConfig)
+    block_mlp_vq: BlockMLPVQConfig = field(default_factory=BlockMLPVQConfig)
     
     # 通用量化底座参数
     codebook_size: int = 625
@@ -128,6 +142,8 @@ class TrainConfig:
     save_interval: int = 10
     eval_interval: int = 10
     max_duration: int = 100000
+    # 每次验证最多迭代多少个 batch；None 表示完整遍历验证集。
+    max_eval_batches: Optional[int] = None
     
     global_train_batch_size: int = 256
     device_train_microbatch_size: int = 16

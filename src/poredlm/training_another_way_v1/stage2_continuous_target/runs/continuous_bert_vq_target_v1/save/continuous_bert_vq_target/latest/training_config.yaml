@@ -1,0 +1,56 @@
+seed: 42
+wandb:
+  enabled: true
+  project: training_another_way_v1_stage2_vq_target
+  entity: zhoukek-zhejiang-university
+  name: continuous_bert_vq_target_v1
+stage1:
+  checkpoint: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_another_way_v1/stage1_vq_train/runs/continuous_vq_v1/save/continuous_vq/step_25000
+  cnn_stride: 5
+model:
+  feature_dim: 768
+  hidden_size: 768
+  num_hidden_layers: 12
+  num_attention_heads: 12
+  intermediate_size: 3072
+  dropout: 0.1
+  max_position_embeddings: 1536
+  target_cosine_weight: 0.1
+masking:
+  mask_probability: 0.15
+  mask_left_context: 0
+  mask_right_context: 0
+  center_loss_token_count: 1
+  loss_left_context: 0
+  loss_right_context: 0
+data:
+  train:
+    paths: /mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/train
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 20000
+    num_workers: 4
+    pin_memory: true
+    persistent_workers: true
+    prefetch_factor: 2
+  valid:
+    paths: /mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/eval
+    chunk_size: 6000
+    memmap_dtype: float32
+    buffer_size: 0
+    num_workers: 2
+    pin_memory: true
+    persistent_workers: false
+    prefetch_factor: 2
+training:
+  max_train_steps: 200000
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  device_micro_batch_size: 64
+  log_every_steps: 10
+  mixed_precision: bf16
+  gradient_clipping: 1.0
+  eval_every_steps: 1000
+  max_eval_batches: 20
+  save_every_steps: 5000
+  output_dir: save/continuous_bert_vq_target

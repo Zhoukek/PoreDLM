@@ -2,7 +2,8 @@
 set -euo pipefail
 
 RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${RUN_DIR}/../../../.." && pwd)"
+PROJECT_ROOT="$(cd "${RUN_DIR}/../../../../../../.." && pwd)"
+STAGE1_DIR="${PROJECT_ROOT}/src/poredlm/training_public/stage1_tokenizer_train"
 
 ENV_SCRIPT="${ENV_SCRIPT:-${PROJECT_ROOT}/src/poredlm/training/set_env.sh}"
 if [[ -f "${ENV_SCRIPT}" ]]; then
@@ -10,7 +11,7 @@ if [[ -f "${ENV_SCRIPT}" ]]; then
   source "${ENV_SCRIPT}"
 fi
 
-export PYTHONPATH="${PROJECT_ROOT}/src:${RUN_DIR}:${PROJECT_ROOT}/src/poredlm:${PYTHONPATH:-}"
+export PYTHONPATH="${PROJECT_ROOT}/src:${RUN_DIR}:${STAGE1_DIR}:${PROJECT_ROOT}/src/poredlm:${PYTHONPATH:-}"
 export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
 CONFIG_PATH="${CONFIG_PATH:-${RUN_DIR}/infer_config.yaml}"
@@ -25,6 +26,8 @@ echo "CONFIG_PATH=${CONFIG_PATH}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "NPROC_PER_NODE=${NPROC_PER_NODE}"
 echo "MASTER_PORT=${MASTER_PORT}"
+echo "TOKENIZE_SPLIT=${TOKENIZE_SPLIT:-eval}"
+echo "TOKENIZER_CHECKPOINT=${TOKENIZER_CHECKPOINT:-<config default>}"
 
 cmd=(
   torchrun

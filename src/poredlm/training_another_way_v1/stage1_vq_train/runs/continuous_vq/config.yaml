@@ -20,12 +20,12 @@ model:
 
 loss_weights:
   commitment_weight: 9.0
-  codebook_diversity_loss_weight: 1.0
+  codebook_diversity_loss_weight: 0.0
   orthogonal_reg_weight: 0.0
 
 data:
   train:
-    paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/train
+    paths: /mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/train
     chunk_size: 6000
     memmap_dtype: float32
     buffer_size: 20000
@@ -34,7 +34,7 @@ data:
     persistent_workers: true
     prefetch_factor: 2
   valid:
-    paths: /mnt/si002562jbsc/poregpt/datasets/DNA_S1_HG00200_MIX_250F701901011/trank_stoneq00/eval
+    paths: /mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/eval
     chunk_size: 6000
     memmap_dtype: float32
     buffer_size: 0

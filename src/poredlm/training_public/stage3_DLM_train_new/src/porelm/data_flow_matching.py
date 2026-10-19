@@ -84,6 +84,8 @@ class FlowMatchingTokensDataset(Dataset[Dict[str, Any]]):
         pad_token_id: int,
         bos_token_id: int,
         eos_token_id: int,
+        add_cls_token: bool = False,
+        cls_token_id: int = 5,
         include_instance_metadata: bool = False,
         metadata: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> None:
@@ -105,6 +107,16 @@ class FlowMatchingTokensDataset(Dataset[Dict[str, Any]]):
         self.pad_token_id = pad_token_id
         self.bos_token_id = int(bos_token_id)
         self.eos_token_id = int(eos_token_id)
+        self.add_cls_token = bool(add_cls_token)
+        self.cls_token_id = int(cls_token_id)
+        if self.add_cls_token and self.cls_token_id in {
+            self.pad_token_id,
+            self.bos_token_id,
+            self.eos_token_id,
+        }:
+            raise PoreLMConfigurationError(
+                "cls_token_id must differ from pad_token_id, bos_token_id, and eos_token_id"
+            )
         self.include_instance_metadata = include_instance_metadata
         self._arrays: List[np.ndarray] = []
         self._indices: List[Optional[np.ndarray]] = []
@@ -198,10 +210,17 @@ class FlowMatchingTokensDataset(Dataset[Dict[str, Any]]):
                 f"flow matching instance {index} in {path!r} must have BOS/EOS="
                 f"{self.bos_token_id}/{self.eos_token_id}, got {int(ids[0])}/{int(ids[-1])}"
             )
-        content = ids[1:-1][: max(0, self.chunk_size - 2)]
+        special_token_count = 2 + int(self.add_cls_token)
+        if self.chunk_size < special_token_count:
+            raise PoreLMConfigurationError(
+                f"flow matching max sequence length {self.chunk_size} cannot fit "
+                f"{special_token_count} boundary tokens"
+            )
+        content = ids[1:-1][: max(0, self.chunk_size - special_token_count)]
+        prefix = [self.cls_token_id, self.bos_token_id] if self.add_cls_token else [self.bos_token_id]
         return np.concatenate(
             [
-                np.asarray([self.bos_token_id], dtype=np.int64),
+                np.asarray(prefix, dtype=np.int64),
                 content,
                 np.asarray([self.eos_token_id], dtype=np.int64),
             ]
@@ -260,6 +279,7 @@ class FlowMatchingDataCollator:
         condition_max_span_length: int = 50,
         condition_multi_min_spans: int = 4,
         condition_multi_max_spans: int = 8,
+        add_cls_token: bool = False,
         condition_prefix_suffix_weight: float = 1.0,
         condition_single_span_weight: float = 1.0,
         condition_multi_span_weight: float = 1.0,
@@ -276,6 +296,7 @@ class FlowMatchingDataCollator:
         self.condition_max_span_length = int(condition_max_span_length)
         self.condition_multi_min_spans = int(condition_multi_min_spans)
         self.condition_multi_max_spans = int(condition_multi_max_spans)
+        self._content_start = 1 + int(add_cls_token)
         self.condition_pattern_weights = torch.tensor(
             [
                 float(condition_prefix_suffix_weight),
@@ -313,7 +334,7 @@ class FlowMatchingDataCollator:
     def _mask_single_span(self, mask: np.ndarray, content_length: int) -> None:
         length = self._span_length(content_length)
         start = self._randint(0, content_length - length)
-        mask[1 + start : 1 + start + length] = False
+        mask[self._content_start + start : self._content_start + start + length] = False
 
     def _mask_prefix_suffix(self, mask: np.ndarray, content_length: int) -> None:
         # Predict one span at each content boundary. For very short sequences,
@@ -324,8 +345,10 @@ class FlowMatchingDataCollator:
             self._mask_single_span(mask, content_length)
             return
         right = self._span_length(remaining)
-        mask[1 : 1 + left] = False
-        mask[1 + content_length - right : 1 + content_length] = False
+        mask[self._content_start : self._content_start + left] = False
+        mask[
+            self._content_start + content_length - right : self._content_start + content_length
+        ] = False
 
     def _mask_multiple_spans(self, mask: np.ndarray, content_length: int) -> None:
         requested = self._randint(self.condition_multi_min_spans, self.condition_multi_max_spans)
@@ -352,24 +375,26 @@ class FlowMatchingDataCollator:
             gaps[self._randint(0, num_spans)] += 1
         cursor = gaps[0]
         for span_index, length in enumerate(lengths):
-            mask[1 + cursor : 1 + cursor + length] = False
+            mask[self._content_start + cursor : self._content_start + cursor + length] = False
             cursor += length + gaps[span_index + 1]
 
     def _sample_condition_mask(self, valid_length: int) -> Tuple[np.ndarray, int]:
         mask = np.zeros(self.max_seq_length, dtype=np.bool_)
-        if valid_length >= 2:
+        special_token_count = self._content_start + 1  # prefix token(s) plus EOS
+        if valid_length >= special_token_count:
             # Sequence boundaries are always known. "Unconditional" below
             # means unconditional generation of all codec content tokens.
-            mask[0] = True
+            mask[: self._content_start] = True
             mask[valid_length - 1] = True
-        if self.conditioning_mode == "unconditional" or valid_length < 3:
+        if self.conditioning_mode == "unconditional" or valid_length < special_token_count + 1:
             return mask, 0
         if self.conditioning_mode == "mixed" and torch.rand(()).item() < self.unconditional_prob:
             return mask, 0
 
-        # The sequence layout is [BOS, content..., EOS]. Select a target span in
-        # content-token coordinates; known positions become the fixed condition.
-        content_length = valid_length - 2
+        # The sequence layout is [BOS, content..., EOS] or
+        # [CLS, BOS, content..., EOS]. Select target spans in content-token
+        # coordinates; known positions become the fixed condition.
+        content_length = valid_length - special_token_count
         ratio = self.condition_min_mask_ratio + torch.rand(()).item() * (
             self.condition_max_mask_ratio - self.condition_min_mask_ratio
         )
@@ -384,12 +409,12 @@ class FlowMatchingDataCollator:
             # Generate only a content suffix. BOS and EOS stay fixed because
             # waveform reconstruction uses a known token length and only codec
             # tokens are valid generation targets.
-            target_start = 1 + content_length - target_length
+            target_start = self._content_start + content_length - target_length
             mask[target_start : valid_length - 1] = False
         elif pattern == "infill":
             max_start = content_length - target_length
             content_start = int(torch.randint(max_start + 1, ()).item()) if max_start else 0
-            target_start = 1 + content_start
+            target_start = self._content_start + content_start
             mask[target_start : target_start + target_length] = False
         elif pattern == "prefix_suffix":
             self._mask_prefix_suffix(mask, content_length)
@@ -480,6 +505,8 @@ def build_train_flow_matching_dataloader(
         pad_token_id=train_config.model.pad_token_id,
         bos_token_id=getattr(train_config.model, "bos_token_id", 2),
         eos_token_id=train_config.model.eos_token_id,
+        add_cls_token=getattr(train_config.dlm, "add_cls_token", False),
+        cls_token_id=getattr(train_config.dlm, "cls_token_id", 5),
         include_instance_metadata=include_instance_metadata,
     )
     work_dir = Path(train_config.save_folder) / "train_data_dlm"
@@ -518,6 +545,7 @@ def build_train_flow_matching_dataloader(
         condition_max_span_length=getattr(train_config.dlm, "condition_max_span_length", 50),
         condition_multi_min_spans=getattr(train_config.dlm, "condition_multi_min_spans", 4),
         condition_multi_max_spans=getattr(train_config.dlm, "condition_multi_max_spans", 8),
+        add_cls_token=getattr(train_config.dlm, "add_cls_token", False),
         condition_prefix_suffix_weight=getattr(train_config.dlm, "condition_prefix_suffix_weight", 1.0),
         condition_single_span_weight=getattr(train_config.dlm, "condition_single_span_weight", 1.0),
         condition_multi_span_weight=getattr(train_config.dlm, "condition_multi_span_weight", 1.0),
@@ -566,6 +594,8 @@ def build_eval_flow_matching_dataloader(
         pad_token_id=train_config.model.pad_token_id,
         bos_token_id=getattr(train_config.model, "bos_token_id", 2),
         eos_token_id=train_config.model.eos_token_id,
+        add_cls_token=getattr(train_config.dlm, "add_cls_token", False),
+        cls_token_id=getattr(train_config.dlm, "cls_token_id", 5),
         include_instance_metadata=True,
         metadata=metadata,
     )
@@ -590,6 +620,7 @@ def build_eval_flow_matching_dataloader(
         # Keep eval deterministic and comparable: evaluate full unconditional
         # denoising here. Conditional generation is measured separately.
         conditioning_mode="unconditional",
+        add_cls_token=getattr(train_config.dlm, "add_cls_token", False),
     )
     return DataLoader(
         dataset,

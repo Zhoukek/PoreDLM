@@ -962,6 +962,10 @@ class DLMConfig(BaseConfig):
 
     max_length: Optional[int] = None
     max_input_length: Optional[int] = None
+    add_cls_token: bool = False
+    """Whether to prepend the configured CLS token to each DLM sample."""
+    cls_token_id: int = 5
+    """Token ID used when ``add_cls_token`` is enabled."""
 
     encoder_model_name: str = "t5-small"
     encoder_checkpoint: Optional[str] = None

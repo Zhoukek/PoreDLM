@@ -2165,10 +2165,89 @@ class _HFContextEncoderAdapter(nn.Module):
         self.config = model.config
 
     @staticmethod
-    def _to_key_padding_attention_mask(attention_mask: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-        if attention_mask is not None and attention_mask.dim() == 3:
-            return attention_mask.to(dtype=torch.bool).any(dim=1).to(dtype=attention_mask.dtype)
+    def _prepare_attention_mask(attention_mask: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+        # Preserve pairwise masks. Collapsing [batch, query, key] with ``any``
+        # makes target keys visible to every query and leaks targets into the
+        # conditional representations.
         return attention_mask
+
+    def _is_pairwise_mask_compatible_porebert(self) -> bool:
+        backbone = getattr(self.model, "bert", None)
+        return (
+            getattr(self.config, "model_type", None) == "porebert"
+            and backbone is not None
+            and all(
+                hasattr(backbone, name)
+                for name in (
+                    "token_embedding",
+                    "position_embedding",
+                    "embedding_norm",
+                    "embedding_dropout",
+                    "encoder",
+                    "norm",
+                )
+            )
+        )
+
+    def _forward_porebert_with_pairwise_mask(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        *,
+        return_dict: bool,
+        output_hidden_states: Optional[bool],
+    ) -> Any:
+        """Run the custom PoreBERT backbone with per-query attention visibility."""
+        backbone = self.model.bert
+        batch_size, seq_len = input_ids.shape
+        expected_shape = (batch_size, seq_len, seq_len)
+        if tuple(attention_mask.shape) != expected_shape:
+            raise PoreLMConfigurationError(
+                "PoreBERT pairwise attention_mask must have shape "
+                f"[batch, seq_len, seq_len]={expected_shape}, got {tuple(attention_mask.shape)}."
+            )
+
+        # The collator uses 1/True for visible positions. PyTorch Transformer
+        # boolean masks use True for blocked positions and expect a flattened
+        # batch/head dimension for per-example attention masks.
+        visible = attention_mask.to(device=input_ids.device, dtype=torch.bool)
+        num_heads = int(backbone.encoder.layers[0].self_attn.num_heads)
+        blocked_attention = (~visible).repeat_interleave(num_heads, dim=0)
+        key_padding_mask = ~visible.any(dim=1)
+
+        position_ids = (
+            torch.arange(seq_len, device=input_ids.device)
+            .unsqueeze(0)
+            .expand(batch_size, seq_len)
+        )
+        hidden = backbone.token_embedding(input_ids) + backbone.position_embedding(position_ids)
+        hidden = backbone.embedding_dropout(backbone.embedding_norm(hidden))
+
+        should_output_hidden_states = (
+            output_hidden_states
+            if output_hidden_states is not None
+            else getattr(self.config, "output_hidden_states", False)
+        )
+        all_hidden_states = (hidden,) if should_output_hidden_states else None
+        if should_output_hidden_states:
+            for layer in backbone.encoder.layers:
+                hidden = layer(
+                    hidden,
+                    src_mask=blocked_attention,
+                    src_key_padding_mask=key_padding_mask,
+                )
+                all_hidden_states += (hidden,)
+        else:
+            hidden = backbone.encoder(
+                hidden,
+                mask=blocked_attention,
+                src_key_padding_mask=key_padding_mask,
+            )
+
+        hidden = backbone.norm(hidden)
+        if return_dict:
+            return SimpleNamespace(last_hidden_state=hidden, hidden_states=all_hidden_states)
+        return (hidden,) if all_hidden_states is None else (hidden, all_hidden_states)
 
     def forward(
         self,
@@ -2177,13 +2256,26 @@ class _HFContextEncoderAdapter(nn.Module):
         return_dict: bool = True,
         **kwargs: Any,
     ) -> Any:
-        attention_mask = self._to_key_padding_attention_mask(attention_mask)
-        output = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            return_dict=True,
-            **kwargs,
+        attention_mask = self._prepare_attention_mask(attention_mask)
+        use_porebert_pairwise_mask = (
+            attention_mask is not None
+            and attention_mask.dim() == 3
+            and self._is_pairwise_mask_compatible_porebert()
         )
+        if use_porebert_pairwise_mask:
+            output = self._forward_porebert_with_pairwise_mask(
+                input_ids,
+                attention_mask,
+                return_dict=True,
+                output_hidden_states=kwargs.pop("output_hidden_states", None),
+            )
+        else:
+            output = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True,
+                **kwargs,
+            )
         if hasattr(output, "last_hidden_state"):
             hidden = output.last_hidden_state
         elif isinstance(output, (tuple, list)) and output:
@@ -2201,7 +2293,7 @@ class _HFContextEncoderAdapter(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        attention_mask = self._to_key_padding_attention_mask(attention_mask)
+        attention_mask = self._prepare_attention_mask(attention_mask)
         output = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,

@@ -11,6 +11,7 @@ import traceback
 from tqdm import tqdm  # 🚀 新增：引入进度条
 
 import modeling_pore_vq_codec  # noqa: F401
+import modeling_pore_block_mlp_vq  # noqa: F401
 
 
 # 保持你原有的导入路径
@@ -59,16 +60,22 @@ def main():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
-    input_data_paths = cfg['dataset']['input_data_paths']
+    split = os.environ.get("TOKENIZE_SPLIT", "eval").lower()
+    if split not in {"train", "eval"}:
+        raise ValueError("TOKENIZE_SPLIT must be either 'train' or 'eval'.")
+    input_data_paths = cfg['dataset'].get(f'{split}_input_data_paths', cfg['dataset']['input_data_paths'])
     if not isinstance(input_data_paths, list):
         raise ValueError(f"配置文件中的 input_data_paths 必须是列表格式")
 
-    model_dir = cfg['model']['model_dir']
+    model_dir = os.environ.get("TOKENIZER_CHECKPOINT", cfg['model']['model_dir'])
     target_layer = cfg['model'].get('target_layer', 0)
 
     feature_extraction = cfg['dataset']['feature_extraction']
     batch_size = cfg['dataset'].get('batch_size', 1)
-    save_folder = cfg['dataset']['save_folder']
+    save_folder = os.environ.get(
+        "TOKENIZE_OUTPUT_DIR",
+        cfg['dataset'].get(f'{split}_save_folder', cfg['dataset']['save_folder']),
+    )
     output_prefix = cfg['dataset']['output_prefix']
 
     items_per_file = cfg['dolma_spec']['items_per_file']
@@ -194,7 +201,11 @@ def main():
                     signal_tensor = signal_tensor.unsqueeze(1)
 
                 # GPU 侧批量前向压缩：一次性获取整个 Batch 的离散 Token IDs
-                token_ids_tensor = model.encode_signal(signal_tensor, layer=target_layer)
+                model_type = getattr(getattr(model, "config", None), "model_type", "")
+                if model_type == "pore_block_mlp_vq":
+                    token_ids_tensor = model.encode_signal(signal_tensor)
+                else:
+                    token_ids_tensor = model.encode_signal(signal_tensor, layer=target_layer)
                 token_npy = token_ids_tensor.cpu().numpy()
 
                 # CPU 侧高效流式解包与多路指针合并

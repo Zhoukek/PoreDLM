@@ -7,6 +7,8 @@ dlm:
   training_objective: self_flow
   freeze_context_encoder: true
   max_length: 1536
+  add_cls_token: true
+  cls_token_id: 5
 
   model: flow_matching_b
   bottleneck_dim: 128

@@ -26,12 +26,14 @@ from trainer import PoreTrainer
 from dataset import PoreSignalDataset  # 🌟 名字对齐最终版类名
 from wrappers.pore_rsq_wrapper import PoreRSQWrapper
 from wrappers.pore_vq_wrapper import PoreVQWrapper
+from wrappers.pore_block_mlp_vq_wrapper import BlockMLPVQWrapper
 from monitor.codebook_monitor import CodebookMonitor
 from callbacks.codebook_callback import CodebookCallback
 
 # 找到你的 import 区域，添加这一行：
 from modeling_pore_codec import PoreRSQCodec, PoreRSQCodecConfig
 from modeling_pore_vq_codec import PoreVQCodec, PoreVQCodecConfig
+from modeling_pore_block_mlp_vq import BlockMLPVQCodec, BlockMLPVQCodecConfig
 
 # 初始化全局日志
 logging.basicConfig(level=logging.INFO)
@@ -278,6 +280,30 @@ def train(cfg: TrainConfig):
         codebook_cb = CodebookCallback(monitor=monitor, target_layer=model.codec.vq)
 
         #callbacks = [codebook_cb]
+    elif cfg.model.model_type == "vq_block_mlp":
+        block_cfg = cfg.model.block_mlp_vq
+        codec_config = BlockMLPVQCodecConfig(
+            codebook_size=cfg.model.codebook_size,
+            codebook_decay=block_cfg.codebook_decay,
+            codebook_emadc=block_cfg.codebook_emadc,
+            commitment_weight=cfg.loss_weights.commitment_weight,
+            codebook_diversity_loss_weight=cfg.loss_weights.codebook_diversity_loss_weight,
+            orthogonal_reg_weight=cfg.loss_weights.orthogonal_reg_weight,
+            block_size=block_cfg.block_size,
+            chunk_size=block_cfg.chunk_size,
+            latent_dim=block_cfg.latent_dim,
+            encoder_hidden_dims=block_cfg.encoder_hidden_dims,
+            decoder_hidden_dims=block_cfg.decoder_hidden_dims,
+            learnable_codebook=block_cfg.learnable_codebook,
+            use_layer_norm=block_cfg.use_layer_norm,
+        )
+        raw_codec = BlockMLPVQCodec(codec_config)
+        model = BlockMLPVQWrapper(
+            raw_codec,
+            commitment_weight=cfg.loss_weights.commitment_weight,
+            codebook_diversity_loss_weight=cfg.loss_weights.codebook_diversity_loss_weight,
+            orthogonal_reg_weight=cfg.loss_weights.orthogonal_reg_weight,
+        )
     elif cfg.model.model_type in ("vq", "vq_distill"):
         teacher_model_path = cfg.model.vq.teacher_model_path
         if cfg.model.model_type == "vq_distill" and not teacher_model_path:

@@ -8,7 +8,7 @@
 2. 对已知 token 序列做短程 ODE refinement，并只替换指定区间的 token。
 3. 固定指定区间之外的 token，从高斯噪声出发生成指定区间，也就是 infill。
 
-区间均使用 Python 左闭右开坐标 `[start, end)`，坐标直接对应完整 token 序列位置。如果序列包含 BOS/EOS，它们也占位置。例如 `[BOS, 100 个 content token, EOS]` 的 content token 位于 `[1, 101)`。
+本文以下示例使用带 CLS 的序列 `[CLS, BOS, content..., EOS]`，并假设 `CLS=5`、`BOS=2`、`EOS=3`。区间均使用 Python 左闭右开坐标 `[start, end)`，坐标直接对应完整 token 序列位置，CLS/BOS/EOS 都占位置。因此 100 个 content token 位于 `[2, 102)`。这些示例应配合 `dlm_config.add_cls_token=true` 的 checkpoint 使用；旧的无 CLS checkpoint 仍须按其配置输入。
 
 ## 1. 转换 Checkpoint
 
@@ -52,7 +52,7 @@ hf_porelm/
 
 ## 2. 公共加载代码
 
-下面三个示例都从这段代码开始。`input_ids` 应放置模型词表中的 token ID；如果使用本项目的 waveform codebook，codec ID `k` 通常对应 DLM token ID `k + 128`。
+下面三个示例都从这段代码开始。`input_ids` 应放置模型词表中的 token ID；如果使用本项目的 waveform codebook，codec ID `k` 通常对应 DLM token ID `k + 128`。这里按新版训练配置使用 `[CLS, BOS, content..., EOS]`：训练 dataloader 会将 CLS 插入原始样本，HF 模型推理时不会自动插入，因此调用方要显式传入 CLS。
 
 ```python
 from pathlib import Path
@@ -70,8 +70,11 @@ model = AutoModel.from_pretrained(
 ).to(device).eval()
 tokenizer = AutoTokenizer.from_pretrained(str(model_dir), trust_remote_code=True)
 
+if not model.config.dlm_config.get("add_cls_token", False):
+    raise ValueError("This example expects a checkpoint trained with dlm.add_cls_token=true")
+cls_token_id = int(model.config.dlm_config.get("cls_token_id", 5))
 input_ids = torch.tensor(
-    [[2, 129, 130, 131, 132, 133, 134, 135, 136, 3]],
+    [[cls_token_id, 2, 129, 130, 131, 132, 133, 134, 135, 136, 3]],
     dtype=torch.long,
     device=device,
 )
@@ -86,37 +89,23 @@ export TORCHDYNAMO_DISABLE=1
 
 ## 3. 对已知 Token 编码
 
-`model(...)` 可以返回多种 hidden states。默认推荐 `ode_hidden_state`，即先由 Stage 2 context encoder 编码，再经过短程确定性 ODE refinement。
+本 README 推荐用 `ode_hidden_state` 作为编码结果，并同时返回 `context_hidden_state`。ODE 从 Stage 2 context encoder 的输出开始，经过短程确定性 refinement；下面示例采用 `ode_steps=1`、`ode_start_t=0.97`。
 
 ```python
-encoding_type = "ode_hidden"  # context_hidden, ode_hidden, sde_hidden, last_hidden
-
 with torch.inference_mode():
     outputs = model(
         input_ids=input_ids,
         attention_mask=attention_mask,
-        return_context=(encoding_type == "context_hidden"),
-        return_ode_hidden=(encoding_type == "ode_hidden"),
-        ode_steps=2,
-        ode_start_t=0.98,
+        return_context=True,
+        return_ode_hidden=True,
+        ode_steps=1,
+        ode_start_t=0.97,
         ode_self_cond_cfg_scale=0.5,
-        return_sde_hidden=(encoding_type == "sde_hidden"),
-        sde_steps=2,
-        sde_start_t=0.98,
-        sde_gamma=0.1,
-        sde_self_cond_cfg_scale=0.5,
-        sde_seed=6198,
     )
 
-output_key = {
-    "context_hidden": "context_hidden_state",
-    "ode_hidden": "ode_hidden_state",
-    "sde_hidden": "sde_hidden_state",
-    "last_hidden": "last_hidden_state",
-}[encoding_type]
-
-encoded = outputs[output_key]
-print(encoded.shape)
+context_hidden = outputs["context_hidden_state"]
+ode_hidden = outputs["ode_hidden_state"]
+print(context_hidden.shape, ode_hidden.shape)
 ```
 
 各输出含义：
@@ -126,13 +115,36 @@ print(encoded.shape)
 - `sde_hidden_state`：从 `context_hidden_state` 出发，经过带随机扰动的 SDE-style refinement，可用 `sde_seed` 复现。
 - `last_hidden_state`：在给定 `t` 下执行一次 `flow_denoiser` forward 的输出；未传入 `t` 时默认 `t=1`。
 
-只会计算显式请求的附加分支。例如只设置 `return_ode_hidden=True` 时，不会额外计算 SDE hidden。
+`return_context=True` 只把计算 ODE 时已经生成的 context 表示加入返回值，不会额外运行 context encoder。只会计算显式请求的附加分支；例如上述调用不会计算 SDE hidden。`return_last_hidden_state` 默认是 `False`，因此常用的 ODE 调用不会多跑一次普通 denoiser 前向；只有需要 `last_hidden_state` 时才显式设为 `True`。如需 SDE 或普通 `last_hidden_state`，可分别设置 `return_sde_hidden=True` 或 `return_last_hidden_state=True`。
+
+如需 SDE-style refinement，可单独请求 `sde_hidden_state`。SDE 参数可按任务调整；下面示例使用 2 步、从 `t=0.98` 开始，并固定随机种子以便复现：
+
+```python
+with torch.inference_mode():
+    sde_outputs = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        return_context=True,
+        return_sde_hidden=True,
+        sde_steps=2,
+        sde_start_t=0.98,
+        sde_gamma=0.1,
+        sde_self_cond_cfg_scale=0.5,
+        sde_seed=6198,
+    )
+
+context_hidden = sde_outputs["context_hidden_state"]
+sde_hidden = sde_outputs["sde_hidden_state"]
+```
+
+如需在同一次调用中同时取得 ODE 和 SDE 结果，可同时设置 `return_ode_hidden=True` 与 `return_sde_hidden=True`；两条 refinement 分支都会运行。
 
 ## 4. 指定区间短程去噪
 
-下面示例先对完整序列编码，然后在 `t=0.98` 到 `t=1.0` 之间做 2 步 ODE refinement。最后只替换 `[denoise_start, denoise_end)` 区间，区间外 token 保持原值。
+下面示例先对完整序列编码，然后沿用上面的推荐设置，在 `t=0.97` 到 `t=1.0` 之间做 1 步 ODE refinement。最后只替换 `[denoise_start, denoise_end)` 区间，区间外 token 保持原值。
 
 ```python
+# Full-sequence positions: CLS=0, BOS=1, content starts at 2.
 denoise_start = 3
 denoise_end = 7
 
@@ -146,8 +158,8 @@ with torch.inference_mode():
     denoised_latents = model.ode_from_context_hidden(
         context,
         attention_mask=attention_mask,
-        ode_start_t=0.98,
-        ode_steps=2,
+        ode_start_t=0.97,
+        ode_steps=1,
         self_cond_cfg_scale=0.5,
     )
 
@@ -183,6 +195,7 @@ print("after: ", denoised_ids[:, denoise_start:denoise_end])
 区间 infill 使用 `model.generate()`。`condition_token_mask=True` 的位置作为固定条件，`condition_token_mask=False` 的位置从高斯噪声开始生成。`condition_attention_mask` 表示真实 token/非 padding 位置，不要用它代替 `condition_token_mask`。
 
 ```python
+# Full-sequence positions: CLS=0, BOS=1, content starts at 2.
 generate_start = 3
 generate_end = 7
 

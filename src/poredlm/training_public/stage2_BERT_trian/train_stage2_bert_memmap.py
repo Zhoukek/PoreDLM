@@ -41,19 +41,93 @@ def mask_token_ids(
     random_token_min_id: int,
     random_token_max_id: int,
     special_token_ids: set[int] | None = None,
+    mask_left_context: int = 0,
+    mask_right_context: int = 0,
+    loss_left_context: int = 0,
+    loss_right_context: int = 0,
+    center_loss_token_count: int = 0,
+    force_mask_context: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply standard MLM or RF-aware center/span masking.
+
+    When either mask context is non-zero, Bernoulli sampling selects anchor
+    positions. The input is masked over each anchor's configured context
+    interval, while labels are emitted only over the separately configured
+    loss interval. This supports, for example, masking ``i-3:i+3`` while
+    computing loss only at ``i``.
+
+    ``force_mask_context=True`` disables the standard BERT 80/10/10 behavior
+    for the expanded mask interval: every valid context position is replaced
+    by ``mask_token_id``. This is required when the expanded interval is used
+    to remove information that may be present in neighboring representations.
+    """
+    mask_left_context = max(0, int(mask_left_context))
+    mask_right_context = max(0, int(mask_right_context))
+    loss_left_context = max(0, int(loss_left_context))
+    loss_right_context = max(0, int(loss_right_context))
+    center_loss_token_count = max(0, int(center_loss_token_count))
+    if center_loss_token_count > 0:
+        # Odd counts are symmetric around the anchor. For an even count,
+        # the extra supervised position is placed on the right.
+        loss_left_context = (center_loss_token_count - 1) // 2
+        loss_right_context = center_loss_token_count - 1 - loss_left_context
+        # In center-count mode, mask_left/right_context mean the number of
+        # non-loss context tokens on each side. Thus count=3 and context=3
+        # mask nine positions: [i-4, ..., i+4] around the three loss tokens.
+        mask_left_context += loss_left_context
+        mask_right_context += loss_right_context
+
     labels = input_ids.clone()
     probability = torch.full(labels.shape, float(mask_probability), device=input_ids.device)
     probability = probability.masked_fill(attention_mask == 0, 0.0)
+    special_mask = torch.zeros_like(input_ids, dtype=torch.bool)
     if special_token_ids:
-        special_mask = torch.zeros_like(input_ids, dtype=torch.bool)
         for token_id in special_token_ids:
             special_mask |= input_ids == int(token_id)
         probability = probability.masked_fill(special_mask, 0.0)
-    masked_indices = torch.bernoulli(probability).bool()
-    labels[~masked_indices] = -100
+
+    anchor_indices = torch.bernoulli(probability).bool()
+
+    # The zero-context path preserves the existing BERT-style behavior.
+    span_mode = any((mask_left_context, mask_right_context, loss_left_context, loss_right_context))
+    if not span_mode:
+        labels[~anchor_indices] = -100
+        masked_indices = anchor_indices
+    else:
+        expanded_mask = torch.zeros_like(anchor_indices)
+        loss_indices = torch.zeros_like(anchor_indices)
+        # Sequence lengths are small enough for this explicit dilation to be
+        # easier to audit than a padded convolution-based implementation.
+        for offset in range(-mask_left_context, mask_right_context + 1):
+            if offset < 0:
+                expanded_mask[:, :offset] |= anchor_indices[:, -offset:]
+            elif offset > 0:
+                expanded_mask[:, offset:] |= anchor_indices[:, :-offset]
+            else:
+                expanded_mask |= anchor_indices
+        for offset in range(-loss_left_context, loss_right_context + 1):
+            if offset < 0:
+                loss_indices[:, :offset] |= anchor_indices[:, -offset:]
+            elif offset > 0:
+                loss_indices[:, offset:] |= anchor_indices[:, :-offset]
+            else:
+                loss_indices |= anchor_indices
+
+        valid_positions = (attention_mask != 0) & ~special_mask
+        expanded_mask &= valid_positions
+        loss_indices &= valid_positions
+        # A supervised position must not remain visible. This also makes the
+        # function safe when loss context is configured wider than mask context.
+        expanded_mask |= loss_indices
+        labels.fill_(-100)
+        labels[loss_indices] = input_ids[loss_indices]
+        masked_indices = expanded_mask
 
     corrupted = input_ids.clone()
+    if force_mask_context and span_mode:
+        corrupted[masked_indices] = int(mask_token_id)
+        return corrupted, labels
+
     replace_with_mask = torch.bernoulli(torch.full(labels.shape, 0.8, device=input_ids.device)).bool()
     corrupted[masked_indices & replace_with_mask] = int(mask_token_id)
 
@@ -164,6 +238,28 @@ def get_special_token_ids(model_cfg: dict[str, Any]) -> set[int]:
         int(model_cfg.get("bos_token_id", 2)),
         int(model_cfg.get("eos_token_id", 3)),
         int(model_cfg.get("cls_token_id", 4)),
+    }
+
+
+def get_masking_kwargs(model_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Read the optional RF-aware/span masking extension from YAML."""
+    masking_cfg = model_cfg.get("masking", {}) or {}
+    if not bool(masking_cfg.get("use_rf_aware_masking", False)):
+        # Explicitly preserve the original BERT masking path.
+        return {
+            "mask_left_context": 0,
+            "mask_right_context": 0,
+            "loss_left_context": 0,
+            "loss_right_context": 0,
+            "force_mask_context": False,
+        }
+    return {
+        "mask_left_context": int(masking_cfg.get("mask_left_context", 0)),
+        "mask_right_context": int(masking_cfg.get("mask_right_context", 0)),
+        "loss_left_context": int(masking_cfg.get("loss_left_context", 0)),
+        "loss_right_context": int(masking_cfg.get("loss_right_context", 0)),
+        "center_loss_token_count": int(masking_cfg.get("center_loss_token_count", 0)),
+        "force_mask_context": bool(masking_cfg.get("force_mask_context", False)),
     }
 
 
@@ -344,6 +440,7 @@ def evaluate(
                 random_token_min_id=int(model_cfg.get("random_token_min_id", 4)),
                 random_token_max_id=int(model_cfg.get("random_token_max_id", model_cfg["vocab_size"])),
                 special_token_ids=get_special_token_ids(model_cfg),
+                **get_masking_kwargs(model_cfg),
             )
             outputs = model(input_ids=corrupted, attention_mask=attention_mask, labels=labels)
             masked = labels != -100
@@ -376,10 +473,13 @@ def train(config: dict[str, Any]) -> None:
 
     training_cfg = config["training"]
     model_cfg = config["model"]
+    wandb_enabled = bool(config.get("wandb", {}).get("use_wandb", False)) and os.environ.get(
+        "POREDLM_DISABLE_WANDB", "0"
+    ) != "1"
     accelerator = Accelerator(
         gradient_accumulation_steps=int(training_cfg.get("gradient_accumulation_steps", 1)),
         mixed_precision=str(training_cfg.get("mixed_precision", "no")),
-        log_with="wandb" if config.get("wandb", {}).get("use_wandb", False) else None,
+        log_with="wandb" if wandb_enabled else None,
         project_dir=str(training_cfg.get("log_dir", "log")),
     )
 
@@ -400,7 +500,7 @@ def train(config: dict[str, Any]) -> None:
         total_steps=scheduler_steps,
     )
 
-    if config.get("wandb", {}).get("use_wandb", False):
+    if wandb_enabled:
         accelerator.init_trackers(
             project_name=str(config["wandb"].get("project", "poredlm-stage2-bert")),
             config=config,
@@ -438,6 +538,7 @@ def train(config: dict[str, Any]) -> None:
                     random_token_min_id=int(model_cfg.get("random_token_min_id", 4)),
                     random_token_max_id=int(model_cfg.get("random_token_max_id", model_cfg["vocab_size"])),
                     special_token_ids=get_special_token_ids(model_cfg),
+                    **get_masking_kwargs(model_cfg),
                 )
                 outputs = model(input_ids=corrupted, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss

@@ -6,8 +6,8 @@ reproducibility:
 data:
   # Team-required loader. FlowMapDataset reads samples from `data_name`.
   dataset_type: "flowmap"
-  train_dir: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-009/train"
-  valid_dir: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-009/eval"
+  train_dir: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_block_mlp_vqe768c08a-010/train"
+  valid_dir: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_block_mlp_vqe768c08a-010/eval"
   data_name: "data"
   file_pattern: "*.npy"
   token_dtype: "uint32"
@@ -31,14 +31,14 @@ model:
   # infer.py writes shifted codebook tokens: token_id = codebook_id + token_offset.
   # For a 64K VQ codebook with token_offset=128, the max token id is 65663,
   # so vocab_size must be at least 65664.
-  vocab_size: 8320
+  vocab_size: 65664
   pad_token_id: 1
   mask_token_id: 4
   bos_token_id: 2
   eos_token_id: 3
   cls_token_id: 5
   random_token_min_id: 128
-  random_token_max_id: 8320
+  random_token_max_id: 65664
   hidden_size: 768
   num_hidden_layers: 12
   num_attention_heads: 12

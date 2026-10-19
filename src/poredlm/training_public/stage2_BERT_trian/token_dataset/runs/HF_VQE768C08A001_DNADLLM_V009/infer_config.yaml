@@ -3,16 +3,24 @@
 # ==============================================================================
 
 model:
-  model_dir: "/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage1_tokenizer_train/runs/HF_VQE768C08A001_DNADLLM_V009/outputs/test_PoreCodec_VQ_8k_cnn0/checkpoint-110000"    # 量化编码器模型路径；可替换为本地 VQ/VQ-distill save_pretrained 输出目录
-  target_layer: 1                                      # RSQ 使用目标量化层级；VQ/VQ-distill 会兼容该字段但实际忽略
+  model_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage1_tokenizer_train/runs/HF_VQE768C08A001_DNADLLM_V010/save/porecodec_block_mlp_vq_output/checkpoint-2000000"    # 可用 TOKENIZER_CHECKPOINT 覆盖
+  target_layer: 1                                      # 普通 VQ/RSQ 使用；BlockMLP 忽略
 
 dataset:
   # -------------------- 基础 I/O 航道配置 --------------------
   input_data_paths:                                    # 原始电信号文件/目录列表
     - "/mnt/si002562jbsc/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/basecall_f25_trank_stoneq50/eval"
     - "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/eval"
+  train_input_data_paths:
+    - "/mnt/zzbnew/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/basecall_f25_trank_stoneq50/train"
+    - "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/train"
+  eval_input_data_paths:
+    - "/mnt/zzbnew/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/basecall_f25_trank_stoneq50/eval"
+    - "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/eval"
   
-  save_folder: "/mnt/si002562jbsc/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_appleq50_pore_codec_vqe768c08a-009/eval"                  # 转换后标准 Dolma 格式存放目录
+  save_folder: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_block_mlp_vqe768c08a-010/eval"                  # 默认 eval
+  train_save_folder: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_block_mlp_vqe768c08a-010/train"
+  eval_save_folder: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_block_mlp_vqe768c08a-010/eval"
   output_prefix: "pore_tokens"                         # 输出文件名前缀
 
   # 🌟 ----------------- 🚀 新增：内存流式蓄水池控制 -----------------

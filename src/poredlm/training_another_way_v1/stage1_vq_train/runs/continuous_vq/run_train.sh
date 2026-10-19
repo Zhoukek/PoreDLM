@@ -5,8 +5,8 @@ RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRAIN_DIR="$(cd "${RUN_DIR}/../.." && pwd)"
 PROJECT_ROOT="$(cd "${TRAIN_DIR}/../../../.." && pwd)"
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
-NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
+NPROC_PER_NODE="${NPROC_PER_NODE:-2}"
 MASTER_PORT="29530"
 ENV_SCRIPT="${ENV_SCRIPT:-${PROJECT_ROOT}/src/poredlm/training/set_env.sh}"
 if [[ -f "${ENV_SCRIPT}" ]]; then source "${ENV_SCRIPT}"; fi

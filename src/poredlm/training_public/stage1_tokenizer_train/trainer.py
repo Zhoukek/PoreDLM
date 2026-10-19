@@ -1,4 +1,5 @@
 import logging
+from itertools import islice
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,6 +7,23 @@ from transformers import Trainer, AutoConfig, AutoModel
 from config.train_config import TrainConfig
 from collections import deque
 logger = logging.getLogger(__name__)
+
+
+class _LimitedDataLoader:
+    """保留 DataLoader 属性，只限制评估时实际消费的 batch 数。"""
+
+    def __init__(self, dataloader, max_batches):
+        self.dataloader = dataloader
+        self.max_batches = max_batches
+
+    def __iter__(self):
+        return islice(iter(self.dataloader), self.max_batches)
+
+    def __len__(self):
+        return min(len(self.dataloader), self.max_batches)
+
+    def __getattr__(self, name):
+        return getattr(self.dataloader, name)
 
 
 # ===========================================================================
@@ -375,6 +393,17 @@ class PoreTrainer(Trainer):
         metric_key_prefix = kwargs.get("metric_key_prefix", "eval")
         if len(args) >= 4:
             metric_key_prefix = args[3]
+
+        max_eval_batches = getattr(self.cfg, "max_eval_batches", None)
+        if max_eval_batches is not None:
+            max_eval_batches = int(max_eval_batches)
+            if max_eval_batches <= 0:
+                raise ValueError("`max_eval_batches` must be positive or null.")
+            dataloader = _LimitedDataLoader(dataloader, max_eval_batches)
+            logger.info(
+                "限制验证集评估为最多 %d 个 batch（每个 rank 独立限制）。",
+                max_eval_batches,
+            )
 
         self._reset_eval_accumulators()
         output = super().evaluation_loop(dataloader, *args, **kwargs)

@@ -20,14 +20,19 @@ class FlowMatchingTrainer(Trainer):
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Dict[str, torch.Tensor]]]:
         del batch_size_in_tokens
         content_condition_mask = micro_batch["cond_seq_mask"].bool().clone()
-        content_condition_mask[:, 0] = False
+        # Exclude sequence-boundary tokens from content-only conditioning metrics.
+        # Layout is [BOS, content..., EOS] or [CLS, BOS, content..., EOS].
+        prefix_token_count = 1 + int(getattr(self.cfg.dlm, "add_cls_token", False))
+        content_condition_mask[:, :prefix_token_count] = False
         valid_lengths = micro_batch["attention_mask"].sum(dim=1).long()
         content_condition_mask.scatter_(
             1,
             (valid_lengths - 1).clamp_min(0).unsqueeze(1),
             False,
         )
-        content_token_count = (valid_lengths - 2).clamp_min(0).sum().clamp_min(1)
+        content_token_count = (
+            (valid_lengths - prefix_token_count - 1).clamp_min(0).sum().clamp_min(1)
+        )
         task_ids = micro_batch.get("condition_task_ids")
         # # 打印 micro_batch 的所有内容
         # print("=" * 50)

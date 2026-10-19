@@ -2167,11 +2167,82 @@ class _HFContextEncoderAdapter(nn.Module):
         self.model = model
         self.config = model.config
 
-    @staticmethod
-    def _to_key_padding_attention_mask(attention_mask: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-        if attention_mask is not None and attention_mask.dim() == 3:
-            return attention_mask.to(dtype=torch.bool).any(dim=1).to(dtype=attention_mask.dtype)
-        return attention_mask
+    def _forward_with_conditional_mask(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> Any:
+        """Run the repository's SimpleBERT while preserving query-key masking.
+
+        ``DLMDataCollator`` supplies an allowed-attention mask with shape
+        ``(batch, query_position, key_position)``.  Passing it through HF's
+        usual 2-D ``attention_mask`` interface loses the query-dependent part
+        and lets condition positions see target positions.  SimpleBERT uses
+        ``nn.TransformerEncoder``, which supports the required per-example
+        attention mask when it is expanded once per attention head.
+        """
+        backbone = getattr(self.model, "bert", None)
+        if backbone is not None and all(
+            hasattr(backbone, name)
+            for name in (
+                "token_embedding",
+                "position_embedding",
+                "embedding_norm",
+                "embedding_dropout",
+                "encoder",
+                "norm",
+            )
+        ):
+            token_embedding = backbone.token_embedding
+            position_embedding = backbone.position_embedding
+            embedding_norm = backbone.embedding_norm
+            embedding_dropout = backbone.embedding_dropout
+            encoder = backbone.encoder
+            final_norm = backbone.norm
+        elif all(
+            hasattr(self.model, name)
+            for name in (
+                "token_embeddings",
+                "position_embeddings",
+                "embedding_layer_norm",
+                "dropout",
+                "encoder",
+                "final_layer_norm",
+            )
+        ):
+            # Previous Stage-2 checkpoints use Stage2MaskedSignalLM's names.
+            backbone = self.model
+            token_embedding = backbone.token_embeddings
+            position_embedding = backbone.position_embeddings
+            embedding_norm = backbone.embedding_layer_norm
+            embedding_dropout = backbone.dropout
+            encoder = backbone.encoder
+            final_norm = backbone.final_layer_norm
+        else:
+            raise OLMoConfigurationError(
+                f"HF context encoder {self.model.__class__.__name__} does not support "
+                "the 3-D conditional attention mask; refusing to collapse it to a 2-D mask."
+            )
+
+        batch_size, seq_len = input_ids.shape
+        position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+        x = token_embedding(input_ids) + position_embedding(position_ids)
+        x = embedding_dropout(embedding_norm(x))
+
+        # The collator uses 1 for "allowed". TransformerEncoder uses boolean
+        # True for "blocked", and expects one mask per batch-head pair.
+        allowed = attention_mask.to(device=input_ids.device, dtype=torch.bool)
+        num_heads = int(getattr(self.model.config, "num_attention_heads", 0))
+        if allowed.shape != (batch_size, seq_len, seq_len) or num_heads <= 0:
+            raise OLMoConfigurationError(
+                f"Invalid conditional attention mask shape {tuple(allowed.shape)} for "
+                f"{self.model.__class__.__name__} with {num_heads} attention heads"
+            )
+        src_mask = (~allowed).repeat_interleave(num_heads, dim=0)
+        for layer in encoder.layers:
+            x = layer(x, src_mask=src_mask)
+        hidden = final_norm(x)
+        return SimpleNamespace(last_hidden_state=hidden)
 
     def forward(
         self,
@@ -2180,7 +2251,11 @@ class _HFContextEncoderAdapter(nn.Module):
         return_dict: bool = True,
         **kwargs: Any,
     ) -> Any:
-        attention_mask = self._to_key_padding_attention_mask(attention_mask)
+        if attention_mask is not None and attention_mask.dim() == 3:
+            output = self._forward_with_conditional_mask(input_ids, attention_mask)
+            if return_dict:
+                return output
+            return (output.last_hidden_state,)
         output = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -2204,7 +2279,11 @@ class _HFContextEncoderAdapter(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        attention_mask = self._to_key_padding_attention_mask(attention_mask)
+        if attention_mask is not None and attention_mask.dim() == 3:
+            raise OLMoConfigurationError(
+                "The BERT masked-LM objective requires a 2-D padding mask; "
+                "a 3-D conditional mask is not valid for this path."
+            )
         output = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,

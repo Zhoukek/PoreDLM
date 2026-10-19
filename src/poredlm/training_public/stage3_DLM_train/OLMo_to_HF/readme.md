@@ -107,6 +107,7 @@ with torch.inference_mode():
     outputs = model(
         input_ids=input_ids,
         attention_mask=attention_mask,
+        return_last_hidden_state=(encoding_type == "last_hidden"),
         return_context=(encoding_type == "context_hidden"),
         return_ode_hidden=(encoding_type == "ode_hidden"),
         ode_steps=2,

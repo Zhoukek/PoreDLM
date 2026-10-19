@@ -717,6 +717,7 @@ class PoreLMForDiffusion(PreTrainedModel):
         self_cond: Optional[torch.Tensor] = None,
         self_cond_cfg_scale: Optional[torch.Tensor] = None,
         decoder_step_active: Optional[torch.Tensor] = None,
+        return_last_hidden_state: bool = False,
         return_context: bool = False,
         return_ode_hidden: bool = False,
         ode_steps: int = 4,
@@ -747,25 +748,27 @@ class PoreLMForDiffusion(PreTrainedModel):
 
         if cond_seq_mask is not None:
             cond_seq_mask = cond_seq_mask.to(device=context.device, dtype=context.dtype).unsqueeze(-1)
-        if t is None:
-            t = torch.ones(input_ids.shape[0], device=context.device, dtype=context.dtype)
-        if self_cond is not None:
-            model_input = torch.cat([context, self_cond.to(context)], dim=-1)
-        else:
-            model_input = context
+        output = {}
+        if return_last_hidden_state:
+            if t is None:
+                t = torch.ones(input_ids.shape[0], device=context.device, dtype=context.dtype)
+            if self_cond is not None:
+                model_input = torch.cat([context, self_cond.to(context)], dim=-1)
+            else:
+                model_input = context
 
-        pred, decoder_logits = self.flow_denoiser(
-            model_input,
-            t.to(device=context.device, dtype=context.dtype),
-            attention_mask=attention_mask,
-            self_cond_cfg_scale=self_cond_cfg_scale,
-            decoder_step_active=decoder_step_active,
-        )
-        if cond_seq_mask is not None:
-            pred = cond_seq_mask * context + (1.0 - cond_seq_mask) * pred
-        output = {"last_hidden_state": pred}
-        if decoder_logits is not None:
-            output["logits"] = decoder_logits
+            pred, decoder_logits = self.flow_denoiser(
+                model_input,
+                t.to(device=context.device, dtype=context.dtype),
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=decoder_step_active,
+            )
+            if cond_seq_mask is not None:
+                pred = cond_seq_mask * context + (1.0 - cond_seq_mask) * pred
+            output["last_hidden_state"] = pred
+            if decoder_logits is not None:
+                output["logits"] = decoder_logits
         if return_context:
             output["context_hidden_state"] = context
         if return_ode_hidden:

@@ -44,30 +44,56 @@ def _build_loader(cfg: dict, split: str, train: bool):
     return torch.utils.data.DataLoader(dataset, **kwargs)
 
 
-def _make_span_mask(
+def _make_rf_aware_mask(
     attention_mask: torch.Tensor,
-    start_probability: float,
-    span_length: int,
-) -> torch.Tensor:
-    """Sample overlapping masked spans without touching padded positions."""
-    if start_probability <= 0:
-        raise ValueError("mask_probability must be positive.")
-    starts = (torch.rand(attention_mask.shape, device=attention_mask.device) < start_probability)
-    starts &= attention_mask.bool()
-    mask = torch.zeros_like(starts)
-    for offset in range(max(1, int(span_length))):
-        shifted = torch.zeros_like(starts)
-        if offset == 0:
-            shifted = starts
-        elif offset < starts.shape[1]:
-            shifted[:, offset:] = starts[:, :-offset]
-        mask |= shifted
-    mask &= attention_mask.bool()
-    for row in range(mask.shape[0]):
-        valid = torch.nonzero(attention_mask[row].bool(), as_tuple=False).flatten()
-        if valid.numel() and not mask[row].any():
-            mask[row, valid[torch.randint(valid.numel(), (1,), device=mask.device)]] = True
-    return mask
+    mask_probability: float,
+    mask_left_context: int,
+    mask_right_context: int,
+    loss_left_context: int,
+    loss_right_context: int,
+    center_loss_token_count: int = 0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sample RF-aware anchors and return (input_mask, loss_mask).
+
+    This mirrors the public Stage 2 BERT masking scheme. Anchor positions are
+    sampled independently with ``mask_probability``. The input mask covers a
+    context around every anchor, while the loss mask can be restricted to a
+    smaller center interval.
+    """
+    mask_probability = float(mask_probability)
+    if not 0.0 < mask_probability <= 1.0:
+        raise ValueError("mask_probability must be in (0, 1].")
+    mask_left_context = max(0, int(mask_left_context))
+    mask_right_context = max(0, int(mask_right_context))
+    loss_left_context = max(0, int(loss_left_context))
+    loss_right_context = max(0, int(loss_right_context))
+    center_loss_token_count = max(0, int(center_loss_token_count))
+    if center_loss_token_count > 0:
+        loss_left_context = (center_loss_token_count - 1) // 2
+        loss_right_context = center_loss_token_count - 1 - loss_left_context
+        mask_left_context += loss_left_context
+        mask_right_context += loss_right_context
+
+    valid_positions = attention_mask.bool()
+    anchors = (torch.rand(attention_mask.shape, device=attention_mask.device) < mask_probability)
+    anchors &= valid_positions
+
+    def _expand(left: int, right: int) -> torch.Tensor:
+        expanded = torch.zeros_like(anchors)
+        for offset in range(-left, right + 1):
+            if offset < 0:
+                expanded[:, :offset] |= anchors[:, -offset:]
+            elif offset > 0:
+                expanded[:, offset:] |= anchors[:, :-offset]
+            else:
+                expanded |= anchors
+        return expanded & valid_positions
+
+    input_mask = _expand(mask_left_context, mask_right_context)
+    loss_mask = _expand(loss_left_context, loss_right_context)
+    # Every supervised position must also be hidden from the model.
+    input_mask |= loss_mask
+    return input_mask, loss_mask
 
 
 def _encoded_attention(lengths: torch.Tensor, sequence_length: int, stride: int) -> torch.Tensor:
@@ -169,8 +195,13 @@ def main() -> None:
     save_every = int(cfg["training"].get("save_every_steps", 5000))
     max_eval_batches = int(cfg["training"].get("max_eval_batches", 20))
     stride = int(cfg["stage1"].get("cnn_stride", 5))
-    mask_probability = float(cfg["masking"].get("start_probability", 0.065))
-    span_length = int(cfg["masking"].get("span_length", 10))
+    masking_cfg = cfg["masking"]
+    mask_probability = float(masking_cfg.get("mask_probability", 0.15))
+    mask_left_context = int(masking_cfg.get("mask_left_context", 3))
+    mask_right_context = int(masking_cfg.get("mask_right_context", 3))
+    loss_left_context = int(masking_cfg.get("loss_left_context", 0))
+    loss_right_context = int(masking_cfg.get("loss_right_context", 0))
+    center_loss_token_count = int(masking_cfg.get("center_loss_token_count", 3))
     progress = tqdm(total=max_steps, disable=not accelerator.is_local_main_process)
 
     step = 0
@@ -185,14 +216,21 @@ def main() -> None:
             encoded_attention = _encoded_attention(
                 lengths, embeddings.shape[1], stride
             )
-            mask_positions = _make_span_mask(
-                encoded_attention, mask_probability, span_length
+            mask_positions, loss_positions = _make_rf_aware_mask(
+                encoded_attention,
+                mask_probability,
+                mask_left_context,
+                mask_right_context,
+                loss_left_context,
+                loss_right_context,
+                center_loss_token_count,
             )
             outputs = model(
                 embeddings,
                 encoded_attention,
                 target_embeddings.detach(),
                 mask_positions,
+                loss_positions,
             )
             if outputs.loss is None:
                 raise RuntimeError("Stage 2 produced no masked target positions.")
@@ -208,16 +246,18 @@ def main() -> None:
                     cosine=f"{outputs.cosine_loss.item():.4f}",
                 )
                 if wandb_run is not None and step % int(cfg["training"].get("log_every_steps", 10)) == 0:
-                    selected = mask_positions
+                    selected = loss_positions
                     prediction_norm = outputs.predictions[selected].norm(dim=-1).mean()
                     target_norm = target_embeddings[selected].norm(dim=-1).mean()
-                    mask_ratio = selected.sum().float() / encoded_attention.sum().clamp_min(1).float()
+                    mask_ratio = mask_positions.sum().float() / encoded_attention.sum().clamp_min(1).float()
+                    loss_ratio = selected.sum().float() / encoded_attention.sum().clamp_min(1).float()
                     wandb_run.log(
                         {
                             "train/loss": float(outputs.loss.item()),
                             "train/smooth_l1": float(outputs.smooth_l1_loss.item()),
                             "train/cosine_loss": float(outputs.cosine_loss.item()),
                             "train/mask_ratio": float(mask_ratio.item()),
+                            "train/loss_ratio": float(loss_ratio.item()),
                             "train/prediction_norm": float(prediction_norm.item()),
                             "train/target_norm": float(target_norm.item()),
                             "train/codebook_usage_ratio": float(
@@ -246,21 +286,28 @@ def main() -> None:
                         valid_attention = _encoded_attention(
                             valid_lengths, valid_embeddings.shape[1], stride
                         )
-                        valid_mask = _make_span_mask(
-                            valid_attention, mask_probability, span_length
+                        valid_mask, valid_loss_mask = _make_rf_aware_mask(
+                            valid_attention,
+                            mask_probability,
+                            mask_left_context,
+                            mask_right_context,
+                            loss_left_context,
+                            loss_right_context,
+                            center_loss_token_count,
                         )
                         result = model(
                             valid_embeddings,
                             valid_attention,
                             valid_targets,
                             valid_mask,
+                            valid_loss_mask,
                         )
                         if result.loss is not None:
                             values.append(result.loss.detach())
                             smooth_values.append(result.smooth_l1_loss.detach())
                             cosine_values.append(result.cosine_loss.detach())
                             mask_ratios.append(
-                                valid_mask.sum().float()
+                                valid_loss_mask.sum().float()
                                 / valid_attention.sum().clamp_min(1).float()
                             )
                             codebook_usages.append(

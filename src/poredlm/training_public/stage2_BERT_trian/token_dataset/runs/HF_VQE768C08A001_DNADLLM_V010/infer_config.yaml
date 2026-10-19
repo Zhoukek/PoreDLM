@@ -1,0 +1,32 @@
+# BlockMLP tokenizer -> Stage2 BERT token dataset
+
+model:
+  # 推荐通过 TOKENIZER_CHECKPOINT 指定实际训练完成的 checkpoint。
+  model_dir: "/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage1_tokenizer_train/runs/HF_VQE768C08A001_DNADLLM_V010/save/porecodec_block_mlp_vq_output/checkpoint-2000000"
+  target_layer: 0  # BlockMLP 不使用；保留以兼容普通 VQ/RSQ 配置
+
+dataset:
+  # 每次只配置当前要转换的一组数据；train/eval 分别改这里运行两遍。
+  input_data_paths:
+    - "/mnt/zzbnew/rnamodel/data/DNA_data/ONT/ONT-R10-HG002-5K/PBA15131/basecall_f25_trank_stoneq50/eval"
+    - "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tranks_stoneq00_s1/eval"
+  save_folder: "/mnt/zzbnew/poregpt/datasets/Cyclone_DNA_S1_ONT_R10_MIX_TOKENS/tokens_block_mlp_vqe768c08a-010/eval"
+  output_prefix: "pore_tokens"
+
+  buffer_size: 65536
+  logic_chunk_size: 6000
+  memmap_dtype: "float32"
+  shuffle_buffer: false
+  batch_size: 32
+  feature_extraction: false
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 64
+  persistent_workers: true
+
+dolma_spec:
+  items_per_file: 262144
+  memmap_dtype: "uint32"
+  token_offset: 128
+  bos_token_id: 2
+  eos_token_id: 3

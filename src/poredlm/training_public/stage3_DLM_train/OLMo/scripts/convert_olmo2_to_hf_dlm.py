@@ -211,6 +211,107 @@ class Stage2MaskedSignalLM(nn.Module):
         return (hidden,)
 
 
+class PoreBERTConfig(PretrainedConfig):
+    model_type = "porebert"
+
+    def __init__(
+        self,
+        vocab_size: int = 2560,
+        hidden_size: int = 768,
+        num_hidden_layers: int = 12,
+        num_attention_heads: int = 12,
+        max_position_embeddings: int = 1536,
+        pad_token_id: int = 0,
+        dropout: float = 0.1,
+        initializer_range: float = 0.02,
+        **kwargs: Any,
+    ):
+        super().__init__(pad_token_id=pad_token_id, **kwargs)
+        self.vocab_size = int(vocab_size)
+        self.hidden_size = int(hidden_size)
+        self.num_hidden_layers = int(num_hidden_layers)
+        self.num_attention_heads = int(num_attention_heads)
+        self.max_position_embeddings = int(max_position_embeddings)
+        self.dropout = float(dropout)
+        self.initializer_range = float(initializer_range)
+
+
+class PoreBERTBackbone(nn.Module):
+    """State-dict-compatible copy of the teammate's SimpleMLM backbone."""
+
+    def __init__(self, config: PoreBERTConfig):
+        super().__init__()
+        self.config = config
+        self.token_embedding = nn.Embedding(
+            config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id
+        )
+        self.position_embedding = nn.Embedding(
+            config.max_position_embeddings, config.hidden_size
+        )
+        self.embedding_norm = nn.LayerNorm(config.hidden_size)
+        self.embedding_dropout = nn.Dropout(config.dropout)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=config.hidden_size,
+            nhead=config.num_attention_heads,
+            dim_feedforward=config.hidden_size * 4,
+            dropout=config.dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_hidden_layers)
+        self.norm = nn.LayerNorm(config.hidden_size)
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
+        batch_size, seq_len = input_ids.shape
+        if seq_len > self.position_embedding.num_embeddings:
+            raise ValueError(
+                f"Input sequence length ({seq_len}) exceeds max_position_embeddings "
+                f"({self.position_embedding.num_embeddings})."
+            )
+        positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+        hidden = self.token_embedding(input_ids) + self.position_embedding(positions)
+        hidden = self.embedding_dropout(self.embedding_norm(hidden))
+        if attention_mask is not None and attention_mask.dim() == 3:
+            if attention_mask.shape != (batch_size, seq_len, seq_len):
+                raise ValueError(
+                    "3D attention_mask must have shape [batch, seq_len, seq_len], "
+                    f"got {tuple(attention_mask.shape)}."
+                )
+            blocked = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            blocked = blocked.repeat_interleave(self.config.num_attention_heads, dim=0)
+            hidden = self.encoder(hidden, mask=blocked)
+        else:
+            key_padding_mask = attention_mask == 0 if attention_mask is not None else None
+            hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        return self.norm(hidden)
+
+
+class PoreBERTModel(nn.Module):
+    """Backbone with the same module names as SimpleBERTModel."""
+
+    def __init__(self, config: PoreBERTConfig):
+        super().__init__()
+        self.config = config
+        self.bert = PoreBERTBackbone(config)
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        **kwargs: Any,
+    ):
+        if input_ids is None and "data" in kwargs:
+            input_ids = kwargs["data"]
+        if input_ids is None:
+            raise ValueError("input_ids must be provided.")
+        hidden = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        if return_dict:
+            return SimpleNamespace(last_hidden_state=hidden)
+        return (hidden,)
+
+
 class HFContextEncoderAdapter(nn.Module):
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
@@ -300,13 +401,17 @@ class PoreDLMForDiffusion(PreTrainedModel):
         if config.context_encoder_type == "masked_signal":
             self.context_encoder = MaskedSignalContextEncoder(**config.context_encoder_config)
         elif config.context_encoder_type == "hf_auto":
-            if config.context_encoder_config.get("model_type") == Stage2BertConfig.model_type:
+            context_model_type = config.context_encoder_config.get("model_type")
+            if context_model_type == Stage2BertConfig.model_type:
                 context_config = Stage2BertConfig(**config.context_encoder_config)
                 self.context_encoder = HFContextEncoderAdapter(Stage2MaskedSignalLM(context_config))
+            elif context_model_type == PoreBERTConfig.model_type:
+                context_config = PoreBERTConfig(**config.context_encoder_config)
+                self.context_encoder = HFContextEncoderAdapter(PoreBERTModel(context_config))
             else:
                 raise ValueError(
                     "context_encoder_type='hf_auto' currently supports only "
-                    f"{Stage2BertConfig.model_type!r}; got "
+                    f"{Stage2BertConfig.model_type!r} and {PoreBERTConfig.model_type!r}; got "
                     f"{config.context_encoder_config.get('model_type')!r}."
                 )
         elif config.context_encoder_type == "bert":
@@ -750,6 +855,7 @@ class PoreDLMForDiffusion(PreTrainedModel):
         self_cond: Optional[torch.Tensor] = None,
         self_cond_cfg_scale: Optional[torch.Tensor] = None,
         decoder_step_active: Optional[torch.Tensor] = None,
+        return_last_hidden_state: bool = True,
         return_context: bool = False,
         return_ode_hidden: bool = False,
         ode_steps: int = 4,
@@ -780,25 +886,27 @@ class PoreDLMForDiffusion(PreTrainedModel):
 
         if cond_seq_mask is not None:
             cond_seq_mask = cond_seq_mask.to(device=context.device, dtype=context.dtype).unsqueeze(-1)
-        if t is None:
-            t = torch.ones(input_ids.shape[0], device=context.device, dtype=context.dtype)
-        if self_cond is not None:
-            model_input = torch.cat([context, self_cond.to(context)], dim=-1)
-        else:
-            model_input = context
+        output = {}
+        if return_last_hidden_state:
+            if t is None:
+                t = torch.ones(input_ids.shape[0], device=context.device, dtype=context.dtype)
+            if self_cond is not None:
+                model_input = torch.cat([context, self_cond.to(context)], dim=-1)
+            else:
+                model_input = context
 
-        pred, decoder_logits = self.elf_denoiser(
-            model_input,
-            t.to(device=context.device, dtype=context.dtype),
-            attention_mask=attention_mask,
-            self_cond_cfg_scale=self_cond_cfg_scale,
-            decoder_step_active=decoder_step_active,
-        )
-        if cond_seq_mask is not None:
-            pred = cond_seq_mask * context + (1.0 - cond_seq_mask) * pred
-        output = {"last_hidden_state": pred}
-        if decoder_logits is not None:
-            output["logits"] = decoder_logits
+            pred, decoder_logits = self.elf_denoiser(
+                model_input,
+                t.to(device=context.device, dtype=context.dtype),
+                attention_mask=attention_mask,
+                self_cond_cfg_scale=self_cond_cfg_scale,
+                decoder_step_active=decoder_step_active,
+            )
+            if cond_seq_mask is not None:
+                pred = cond_seq_mask * context + (1.0 - cond_seq_mask) * pred
+            output["last_hidden_state"] = pred
+            if decoder_logits is not None:
+                output["logits"] = decoder_logits
         if return_context:
             output["context_hidden_state"] = context
         if return_ode_hidden:
@@ -874,6 +982,26 @@ def _context_encoder_hf_config(model: OLMoDLM) -> tuple[str, Dict[str, Any]]:
     raise RuntimeError(f"Unsupported context encoder type: {context_encoder.__class__.__name__}")
 
 
+def _normalize_context_token_ids(
+    context_encoder_type: str,
+    context_encoder_config: Dict[str, Any],
+    model: OLMoDLM,
+) -> Dict[str, Any]:
+    """Make converted context/token IDs agree with the Stage-3 tokenizer.
+
+    The new PoreBERT checkpoint was trained with a config that omitted BOS/EOS
+    and declared PAD as 0, while its tokenizer and Stage-3 data use
+    PAD/BOS/EOS = 1/2/3.  The DLM always supplies an explicit attention mask,
+    but keeping these IDs consistent is important for downstream HF callers.
+    """
+    normalized = dict(context_encoder_config)
+    if context_encoder_type == "hf_auto" and normalized.get("model_type") == "porebert":
+        normalized["pad_token_id"] = int(model.config.pad_token_id)
+        normalized["bos_token_id"] = 2
+        normalized["eos_token_id"] = int(model.config.eos_token_id)
+    return normalized
+
+
 def _load_model(input_dir: Path) -> tuple[OLMoDLM, TrainConfig]:
     config_path = input_dir / "config.yaml"
     model_path = input_dir / "model.pt"
@@ -905,6 +1033,11 @@ def _load_model(input_dir: Path) -> tuple[OLMoDLM, TrainConfig]:
 
 def _write_config(output_dir: Path, model: OLMoDLM, cfg: TrainConfig) -> None:
     context_encoder_type, context_encoder_config = _context_encoder_hf_config(model)
+    context_encoder_config = _normalize_context_token_ids(
+        context_encoder_type,
+        context_encoder_config,
+        model,
+    )
     hf_config = {
         "model_type": "poredlm_dlm",
         "architectures": ["PoreDLMForDiffusion"],
@@ -916,6 +1049,10 @@ def _write_config(output_dir: Path, model: OLMoDLM, cfg: TrainConfig) -> None:
         "context_encoder_config": context_encoder_config,
         "dlm_config": _json_safe(cfg.dlm.asdict()),
         "model_config": _json_safe(cfg.model.asdict()),
+        # Keep the common HF token IDs available at the outer DLM config too.
+        "bos_token_id": int(context_encoder_config.get("bos_token_id", 2)),
+        "pad_token_id": int(cfg.model.pad_token_id),
+        "eos_token_id": int(cfg.model.eos_token_id),
         "elf_src_path": str(ELF_SRC) if ELF_SRC.is_dir() else None,
         "torch_dtype": "float32",
     }
@@ -956,12 +1093,20 @@ def _write_tokenizer(output_dir: Path, tokenizer_json_path: Path | None, cfg: Tr
 
     base = Tokenizer.from_file(str(tokenizer_path))
     vocab = base.get_vocab()
+
+    def special_token(*names: str) -> str | None:
+        for name in names:
+            if name in vocab:
+                return name
+        return None
+
     tokenizer = PreTrainedTokenizerFast(
         tokenizer_object=base,
         pad_token=_decode_token(base, cfg.model.pad_token_id, "[PAD]"),
+        bos_token=_decode_token(base, 2, "[BOS]"),
         eos_token=_decode_token(base, cfg.model.eos_token_id, "[EOS]"),
-        unk_token="[UNK]" if "[UNK]" in vocab else None,
-        mask_token="[MASK]" if "[MASK]" in vocab else None,
+        unk_token=special_token("<|unk|>", "[UNK]"),
+        mask_token=special_token("<|mask|>", "[MASK]", "<mask>"),
     )
     tokenizer.model_max_length = cfg.model.max_sequence_length
     tokenizer.save_pretrained(output_dir)
