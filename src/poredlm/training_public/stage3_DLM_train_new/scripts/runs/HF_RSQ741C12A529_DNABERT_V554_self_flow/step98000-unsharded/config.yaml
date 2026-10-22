@@ -195,7 +195,7 @@ save_num_unsharded_checkpoints_to_keep: 5
 save_overwrite: true
 force_save_unsharded: false
 no_pre_train_checkpoint: false
-load_path: null
+load_path: /mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_RSQ741C12A529_DNABERT_V554_self_flow/step50000-unsharded
 load_path_sharded_checkpointer: null
 try_load_latest_save: false
 reset_optimizer_state: false

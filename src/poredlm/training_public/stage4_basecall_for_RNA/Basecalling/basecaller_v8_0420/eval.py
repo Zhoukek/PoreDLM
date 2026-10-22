@@ -318,6 +318,8 @@ def main() -> None:
                     help="Self-conditioning CFG scale passed to ELF for --feature_source ode_hidden.")
     ap.add_argument("--pre_head_type", choices=["auto", "none", "bilstm", "transformer", "tcn"], default="auto",
                     help="Optional module before CTC-CRF head. Default auto-infers from checkpoint.")
+    ap.add_argument("--pre_head_smoothing", choices=["none", "box3"], default="none",
+                    help="Optional centered 3-point mean on signal features immediately before the pre-head/TCN; set consistently with training.")
     ap.add_argument("--pre_head_transformer_nhead", type=int, default=8,
                     help="Attention heads for --pre_head_type transformer.")
     ap.add_argument("--head_output_activation", choices=["tanh", "relu"], default=None,
@@ -398,6 +400,7 @@ def main() -> None:
         feature_source=args.feature_source,
         feature_l2_normalize=args.feature_l2_normalize,
         pre_head_type=pre_head_type,
+        pre_head_smoothing=args.pre_head_smoothing,
         pre_head_transformer_nhead=args.pre_head_transformer_nhead,
         head_type=head_type,
         head_output_activation=args.head_output_activation,

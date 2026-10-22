@@ -229,7 +229,12 @@ class PoreBERTBackbone(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_hidden_layers)
         self.norm = nn.LayerNorm(config.hidden_size)
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        output_hidden_states: bool = False,
+    ):
         batch_size, seq_len = input_ids.shape
         if seq_len > self.position_embedding.num_embeddings:
             raise ValueError(
@@ -239,6 +244,7 @@ class PoreBERTBackbone(nn.Module):
         positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
         hidden = self.token_embedding(input_ids) + self.position_embedding(positions)
         hidden = self.embedding_dropout(self.embedding_norm(hidden))
+        all_hidden_states = [hidden] if output_hidden_states else None
         if attention_mask is not None and attention_mask.dim() == 3:
             if attention_mask.shape != (batch_size, seq_len, seq_len):
                 raise ValueError(
@@ -247,11 +253,26 @@ class PoreBERTBackbone(nn.Module):
                 )
             blocked = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
             blocked = blocked.repeat_interleave(self.config.num_attention_heads, dim=0)
-            hidden = self.encoder(hidden, mask=blocked)
+            key_padding_mask = ~attention_mask.to(device=input_ids.device, dtype=torch.bool).any(dim=1)
+            if output_hidden_states:
+                for layer in self.encoder.layers:
+                    hidden = layer(hidden, src_mask=blocked, src_key_padding_mask=key_padding_mask)
+                    all_hidden_states.append(hidden)
+            else:
+                hidden = self.encoder(hidden, mask=blocked, src_key_padding_mask=key_padding_mask)
         else:
             key_padding_mask = attention_mask == 0 if attention_mask is not None else None
-            hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
-        return self.norm(hidden)
+            if output_hidden_states:
+                for layer in self.encoder.layers:
+                    hidden = layer(hidden, src_key_padding_mask=key_padding_mask)
+                    all_hidden_states.append(hidden)
+            else:
+                hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        hidden = self.norm(hidden)
+        if all_hidden_states is not None:
+            all_hidden_states[-1] = hidden
+            return hidden, tuple(all_hidden_states)
+        return hidden
 
 
 class PoreBERTModel(nn.Module):
@@ -267,16 +288,25 @@ class PoreBERTModel(nn.Module):
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
+        output_hidden_states: bool = False,
         **kwargs: Any,
     ):
         if input_ids is None and "data" in kwargs:
             input_ids = kwargs["data"]
         if input_ids is None:
             raise ValueError("input_ids must be provided.")
-        hidden = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        result = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=output_hidden_states,
+        )
+        if output_hidden_states:
+            hidden, hidden_states = result
+        else:
+            hidden, hidden_states = result, None
         if return_dict:
-            return SimpleNamespace(last_hidden_state=hidden)
-        return (hidden,)
+            return SimpleNamespace(last_hidden_state=hidden, hidden_states=hidden_states)
+        return (hidden,) if hidden_states is None else (hidden, hidden_states)
 
 
 class HFContextEncoderAdapter(nn.Module):
@@ -306,8 +336,12 @@ class HFContextEncoderAdapter(nn.Module):
                 f"HF context encoder {self.model.__class__.__name__} did not return last_hidden_state."
             )
         if return_dict:
-            return SimpleNamespace(last_hidden_state=hidden)
-        return (hidden,)
+            return SimpleNamespace(
+                last_hidden_state=hidden,
+                hidden_states=getattr(output, "hidden_states", None),
+            )
+        hidden_states = getattr(output, "hidden_states", None)
+        return (hidden,) if hidden_states is None else (hidden, hidden_states)
 
 
 class PoreDLMConfig(PretrainedConfig):
@@ -823,6 +857,7 @@ class PoreDLMForDiffusion(PreTrainedModel):
         self_cond_cfg_scale: Optional[torch.Tensor] = None,
         decoder_step_active: Optional[torch.Tensor] = None,
         return_context: bool = False,
+        context_hidden_layer: int = -1,
         return_ode_hidden: bool = False,
         ode_steps: int = 4,
         ode_start_t: float = 0.85,
@@ -849,7 +884,21 @@ class PoreDLMForDiffusion(PreTrainedModel):
             input_ids=input_ids,
             attention_mask=encoder_attention_mask,
             return_dict=True,
-        ).last_hidden_state.to(dtype=context_dtype)
+            output_hidden_states=context_hidden_layer not in {-1, 0},
+        )
+        context_hidden = context.last_hidden_state
+        if context_hidden_layer not in {-1, 0}:
+            hidden_states = getattr(context, "hidden_states", None)
+            if hidden_states is None:
+                raise ValueError("Context encoder did not return hidden_states for --hidden-layer selection.")
+            try:
+                context_hidden = hidden_states[context_hidden_layer]
+            except IndexError as exc:
+                raise ValueError(
+                    f"context_hidden_layer={context_hidden_layer} is out of range "
+                    f"for {len(hidden_states)} context hidden states."
+                ) from exc
+        context = context_hidden.to(dtype=context_dtype)
 
         if cond_seq_mask is not None:
             cond_seq_mask = cond_seq_mask.to(device=context.device, dtype=context.dtype).unsqueeze(-1)

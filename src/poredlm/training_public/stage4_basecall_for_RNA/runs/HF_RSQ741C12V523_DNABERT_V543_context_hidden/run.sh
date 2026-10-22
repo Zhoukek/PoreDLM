@@ -2,20 +2,20 @@
 set -euo pipefail
 
 # 加载运行环境
-project_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM"
+project_root="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM"
 source "${project_root}/src/poredlm/training/set_env.sh"
 
 stage3_root="${project_root}/src/poredlm/training_public/stage3_DLM_train"
 stage4_root="${project_root}/src/poredlm/training_public/stage4_basecall_for_RNA"
 
 export PYTHONPATH="${stage4_root}:${project_root}/src:${PYTHONPATH:-}"
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1
 export TORCHDYNAMO_DISABLE=1
 export WANDB_API_KEY=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
 
 
 # DDP 参数
-nproc_per_node=4
+nproc_per_node=2
 master_port=29516
 ddp_backend="nccl"
 
@@ -32,7 +32,8 @@ warmup_ratio="0.1"
 min_lr="1e-6"
 
 # 模型参数
-hidden_layer=-1
+# For feature_source=context_hidden: -1 selects the final layer, -2 the penultimate layer.
+hidden_layer=-2
 unfreeze_last_n_layers=0
 unfreeze_target="auto"
 unfreeze_context_last_n_layers=4
@@ -53,7 +54,7 @@ codebook_fusion_dropout="0.1"
 codebook_fusion_gate_bias="-2.0"
 skip_backbone_for_codebook_only=false
 # 留空时使用 HF context_encoder 的 token embedding；填 stage1 tokenizer encoder ckpt/.pt/.npy 时使用真正 VQ codebook。
-codebook_feature_path="/mnt/si002562jbsc/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/encoder"
+codebook_feature_path="/mnt/zzbnew/poregpt/models/HF_VQE768C08A001_DNADLLM_V006/encoder"
 codebook_feature_token_offset=128
 
 # ODE 参数（feature_source="ode_hidden" 时生效）
@@ -74,8 +75,8 @@ wandb_project="stage4_basecall_public"
 wandb_run_name="test_public_hf_dlm_basecall_100000_chunks_tcn_ctc_V543_RNA_context_hidden"
 
 # 输入、模型和输出路径
-base_model="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_RSQ741C12V523_DNABERT_V543/hf_dlm_elf_mixed_with_cls_token_step65000-unsharded"
-data_root="/mnt/si002562jbsc/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage4_basecall_for_RNA/data/RNA_S0_HEK293T_MIX_250NC02106021/basecall_20000_chunks"
+base_model="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_RSQ741C12V523_DNABERT_V543/hf_dlm_elf_mixed_with_cls_token_step65000-unsharded"
+data_root="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage4_basecall_for_RNA/data/RNA_S0_HEK293T_MIX_250NC02106021/basecall_20000_chunks"
 outdir="${stage4_root}/runs/HF_RSQ741C12V523_DNABERT_V543_context_hidden"
 
 mkdir -p "${outdir}"

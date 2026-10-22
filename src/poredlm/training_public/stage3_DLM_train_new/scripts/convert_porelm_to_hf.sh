@@ -15,8 +15,8 @@ export PYTHONPATH="${STAGE3_ROOT}/src:${PROJECT_ROOT}/src:${PYTHONPATH:-}"
 export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_RSQ741C12A529_DNABERT_V554_flow_matching/step100000-unsharded"
-OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_RSQ741C12A529_DNABERT_V554_flow_matching/hf_dlm_step10000"
+INPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_RSQ741C12A529_DNABERT_V554_self_flow/step100000-unsharded"
+OUTPUT_DIR="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train_new/scripts/runs/HF_RSQ741C12A529_DNABERT_V554_self_flow/hf_dlm_step10000"
 TOKENIZER_JSON_PATH="/mnt/zzbnew/poregpt/models/HF_RSQ741C12A529_DNABERT_V554/base/tokenizer.json"
 
 ARGS=(

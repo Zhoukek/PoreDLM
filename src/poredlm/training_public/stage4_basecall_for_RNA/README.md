@@ -22,11 +22,25 @@ tokenizer is packaged with the model instead, pass
 `--tokenizer_type auto --tokenizer_name_or_path /path/to/tokenizer` after the
 script name.
 
+`--backbone_type gpt` supports decoder-only Hugging Face models that expose
+standard `last_hidden_state`/`hidden_states` outputs (including compatible
+`AutoModel` implementations). Use `--feature_source hidden`; DLM-specific
+context/ELF features are not available for GPT backbones. The `auto` setting
+recognizes common causal-LM architectures from their HF config, including
+Olmo/Olmo2. For `bwav` input, all emitted token IDs must fit the model's
+embedding vocabulary; this is checked by the tokenizer at data load time.
+
 The default feature is `denoised_hidden` (`last_hidden_state` from the DLM). For
 experiments, append `--feature_source context_hidden` or
 `--feature_source ode_hidden --elf_ode_steps 2 --elf_ode_start_t 0.98`.
 SDE features are selected with `--feature_source sde_hidden`; the corresponding
 step, start-time, gamma, CFG-scale, and seed settings are exposed in `run.sh`.
+For `--feature_source context_hidden`, select the context encoder layer with
+`--hidden-layer`: `-1` is the final layer and `-2` is the penultimate layer.
+The same selection is supported for `--feature_source ode_hidden`; in that
+case ODE refinement starts from the selected context layer. Non-final layer
+selection runs directly through the context encoder, so it is not compatible
+with a final-layer-only `--context_hidden_cache_dir` cache.
 
 The HF model directory is expected to contain its own
 `ELF-pytorch-port/src` directory. The launcher does not add a separate Stage 3

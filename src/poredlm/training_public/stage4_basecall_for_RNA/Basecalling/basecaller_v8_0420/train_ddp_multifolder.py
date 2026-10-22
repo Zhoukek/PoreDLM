@@ -910,8 +910,8 @@ def parse_args():
 
     p.add_argument("--model_name_or_path", type=str, required=True,
                    help="Backbone model path for hidden/embedding; VQ tokenizer checkpoint path for vq_embedding.")
-    p.add_argument("--backbone_type", "--backbone-type", choices=["auto", "dlm", "bert"], default="auto",
-                   help="Backbone architecture. 'auto' detects PoreDLM versus a standard Hugging Face BERT model.")
+    p.add_argument("--backbone_type", "--backbone-type", choices=["auto", "dlm", "bert", "gpt"], default="auto",
+                   help="Backbone architecture: PoreDLM, encoder-style BERT, or decoder-only GPT. 'auto' detects common HF configs.")
     p.add_argument("--tokenizer_name_or_path", type=str, default=None,
                    help="Optional tokenizer path. Defaults to --model_name_or_path; useful when hf_dlm stores model and tokenizer separately.")
     p.add_argument("--tokenizer_type", choices=["bwav", "auto"], default="bwav",
@@ -922,7 +922,7 @@ def parse_args():
                    help="Prepend a CLS token to each bwav signal-token sequence.")
     p.add_argument("--cls_token_id", type=int, default=5,
                    help="Token id used when --add_cls_token is enabled (default: 5).")
-    p.add_argument("--hidden-layer",type=int,default=-1, help="Which backbone hidden layer to use when --feature_source hidden (-1=last, -2=second last, etc.)")
+    p.add_argument("--hidden-layer",type=int,default=-1, help="Which hidden layer to use for BERT hidden or DLM context_hidden/ode_hidden features (-1=last, -2=second last, etc.)")
     p.add_argument("--learnable_fuse_last_n_layers", type=int, default=0,
                    help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden-layer).")
     p.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "sde_hidden", "embedding", "vq_embedding"], default="hidden",
@@ -1038,6 +1038,8 @@ def parse_args():
                    help="Head type: plain CTC linear head or CTC-CRF head.")
     p.add_argument("--pre_head_type", choices=["none", "bilstm", "transformer", "tcn"], default="none",
                    help="Optional module before CTC-CRF head.")
+    p.add_argument("--pre_head_smoothing", choices=["none", "box3"], default="none",
+                   help="Optional centered 3-point mean on signal features immediately before the pre-head/TCN.")
     p.add_argument("--pre_ctc_module", dest="pre_head_type", choices=["none", "bilstm", "transformer", "tcn"],
                    help="Alias of --pre_head_type for selecting module before CTC/CTC-CRF head.")
     p.add_argument("--pre_head_transformer_nhead", type=int, default=8,
@@ -1158,7 +1160,10 @@ def main():
         logger.info(f"[Args] {vars(args)}")
         if backend_note:
             logger.warning(backend_note)
-        logger.info(f"[PreHead] type={args.pre_head_type} transformer_nhead={args.pre_head_transformer_nhead}")
+        logger.info(
+            f"[PreHead] type={args.pre_head_type} transformer_nhead={args.pre_head_transformer_nhead} "
+            f"smoothing={args.pre_head_smoothing}"
+        )
         logger.info(
             f"[FeatureSource] source={args.feature_source} hidden_layer={args.hidden_layer} "
             f"learnable_fuse_last_n_layers={args.learnable_fuse_last_n_layers} "
@@ -1233,6 +1238,7 @@ def main():
         head_output_activation=args.head_output_activation,
         head_output_scale=args.head_output_scale,
         pre_head_type=args.pre_head_type,
+        pre_head_smoothing=args.pre_head_smoothing,
         pre_head_transformer_nhead=args.pre_head_transformer_nhead,
         head_type=args.head_type,
         codebook_fusion=args.codebook_fusion,

@@ -3,10 +3,10 @@ set -euo pipefail
 
 RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${RUN_DIR}/../../../../../.." && pwd)"
-NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
+NPROC_PER_NODE="${NPROC_PER_NODE:-2}"
 MASTER_PORT="${MASTER_PORT:-29515}"
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 
 ENV_SCRIPT="${ENV_SCRIPT:-${PROJECT_ROOT}/src/poredlm/training/set_env.sh}"
 if [[ -f "${ENV_SCRIPT}" ]]; then
@@ -53,7 +53,7 @@ ddp_backend="nccl"
 backbone_type="dlm"
 add_cls_token=true
 cls_token_id=5
-batch_size=16
+batch_size=8
 num_epochs=200
 head_lr="1e-5"
 backbone_lr="1e-5"
@@ -62,6 +62,7 @@ warmup_ratio="0.1"
 min_lr="1e-6"
 
 # 模型参数
+# For feature_source=ode_hidden: -1 uses the final context layer, -2 starts ODE from the penultimate layer.
 hidden_layer=-1
 unfreeze_last_n_layers=0
 unfreeze_target="auto"
@@ -70,6 +71,8 @@ unfreeze_elf_last_n_layers=4
 head_type="ctc"
 train_decoder="ctc_viterbi"
 pre_head_type="tcn"
+# Set to box3 to apply a centered 3-point mean to ODE features before the TCN.
+pre_head_smoothing="none"
 feature_source="ode_hidden"
 feature_l2_normalize=false
 head_output_activation="tanh"
@@ -101,11 +104,11 @@ elf_sde_seed=6198
 # 日志参数
 use_wandb=true
 wandb_project="stage4_basecall_public"
-wandb_run_name="test_public_hf_dlm_basecall_100000_chunks_tcn_ctc_V543_RNA_ode_hidden_A800"
+wandb_run_name="test_public_hf_dlm_basecall_100000_chunks_tcn_ctc_V543_DNA_ode_hidden_A800"
 
 # 输入、模型和输出路径
 base_model="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage3_DLM_train/runs/HF_RSQ741C12V523_DNABERT_V543/hf_dlm_elf_mixed_with_cls_token_step65000-unsharded"
-data_root="/mnt/zzbnew/rnamodel/zhoukexuan/PoreDLM/src/poredlm/training_public/stage4_basecall_for_RNA/data/RNA_S0_HEK293T_MIX_250NC02106021/basecall_data"
+data_root="/mnt/zzbnew/poregpt/models/HF_RSQ741C12V523_DNADLLM_V011/basecall/basecall_30000_chunks"
 outdir="${stage4_root}/runs/HF_RSQ741C12V523_DNABERT_V543_ode_hidden_A800"
 
 mkdir -p "${outdir}"
@@ -183,6 +186,7 @@ nohup "${PYTHON_BIN}" -m torch.distributed.run \
   --head_type "${head_type}" \
   --hidden-layer "${hidden_layer}" \
   --pre_head_type "${pre_head_type}" \
+  --pre_head_smoothing "${pre_head_smoothing}" \
   --train_decoder "${train_decoder}" \
   --unfreeze_last_n_layers "${unfreeze_last_n_layers}" \
   --unfreeze_target "${unfreeze_target}" \

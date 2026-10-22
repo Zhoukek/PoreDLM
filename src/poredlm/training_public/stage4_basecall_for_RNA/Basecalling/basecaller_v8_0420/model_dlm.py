@@ -128,6 +128,7 @@ class BasecallModel(nn.Module):
         head_crf_state_len: int | None = None,
         head_crf_expand_blanks: bool = True,
         pre_head_type: str = "none",
+        pre_head_smoothing: str = "none",
         pre_head_transformer_nhead: int = 8,
         head_type: str = "ctc_crf",
         codebook_fusion: str = "none",
@@ -190,8 +191,8 @@ class BasecallModel(nn.Module):
             else None
         )
 
-        if self.backbone_type not in {"auto", "dlm", "bert"}:
-            raise ValueError("backbone_type must be one of: auto, dlm, bert.")
+        if self.backbone_type not in {"auto", "dlm", "bert", "gpt"}:
+            raise ValueError("backbone_type must be one of: auto, dlm, bert, gpt.")
         allowed_feature_sources = {"hidden", "denoised_hidden", "context_hidden", "ode_hidden", "sde_hidden"}
         if self.feature_source not in allowed_feature_sources:
             raise ValueError(
@@ -222,7 +223,16 @@ class BasecallModel(nn.Module):
                 getattr(config, name, None) is not None
                 for name in ("dlm_config", "context_encoder_config", "model_config")
             ) or any(hasattr(self.backbone, name) for name in ("context_encoder", "elf_denoiser"))
-            self.backbone_type = "dlm" if is_dlm else "bert"
+            architectures = getattr(config, "architectures", None) or []
+            architecture_names = " ".join(str(name).lower() for name in architectures)
+            model_type = str(getattr(config, "model_type", "")).lower()
+            is_gpt = (
+                "forcausallm" in architecture_names
+                or model_type.startswith("gpt")
+                or model_type in {"olmo", "olmo2", "llama", "mistral", "qwen2", "gemma", "phi"}
+                or bool(getattr(config, "is_decoder", False))
+            )
+            self.backbone_type = "dlm" if is_dlm else ("gpt" if is_gpt else "bert")
         print(f"[Backbone] detected type={self.backbone_type} class={type(self.backbone).__name__}")
 
         max_positions = getattr(self.backbone.config, "max_position_embeddings", None)
@@ -237,11 +247,16 @@ class BasecallModel(nn.Module):
         if self.backbone_type == "dlm":
             if self.learnable_fuse_last_n_layers > 0:
                 raise ValueError("PoreDLM HF wrapper does not expose per-layer hidden_states; use hidden_layer=-1.")
-            if self.hidden_layer not in {-1, 0}:
+            if self.feature_source in {"context_hidden", "ode_hidden"} and self.hidden_layer > 0:
+                raise ValueError(
+                    "For DLM context_hidden/ode_hidden, --hidden-layer must be -1 or a non-positive index."
+                )
+            if self.feature_source not in {"context_hidden", "ode_hidden"} and self.hidden_layer not in {-1, 0}:
                 raise ValueError("PoreDLM HF wrapper exposes one sequence feature. Use hidden_layer=-1 or 0.")
         elif self.feature_source != "hidden":
             raise ValueError(
-                f"BERT backbone only supports feature_source='hidden', got {self.feature_source!r}."
+                f"{self.backbone_type.upper()} backbone only supports feature_source='hidden', "
+                f"got {self.feature_source!r}."
             )
 
         if tokenizer_type == "auto":
@@ -345,6 +360,12 @@ class BasecallModel(nn.Module):
                 f"skip_backbone_for_codebook_only={self.skip_backbone_for_codebook_only}"
             )
         self.head_type = head_type
+        self.pre_head_smoothing = str(pre_head_smoothing).lower()
+        if self.pre_head_smoothing not in {"none", "box3"}:
+            raise ValueError(
+                "pre_head_smoothing must be one of {'none', 'box3'}, "
+                f"got {pre_head_smoothing!r}."
+            )
         self.pre_head = self._build_pre_head(
             pre_head_type=pre_head_type,
             hidden_size=hidden_size,
@@ -617,7 +638,7 @@ class BasecallModel(nn.Module):
             return TCNPreHead(model_dim=hidden_size)
         raise ValueError(f"Unsupported pre_head_type: {pre_head_type}")
 
-    def _get_transformer_layers(self, target: str = "auto") -> nn.ModuleList:
+    def _get_transformer_layers(self, target: str = "auto", *, log_selection: bool = True) -> nn.ModuleList:
         target = str(target)
         candidate_groups = {
             "auto": (
@@ -655,7 +676,8 @@ class BasecallModel(nn.Module):
                     break
                 obj = getattr(obj, attr)
             if obj is not None and isinstance(obj, (nn.ModuleList, list, tuple)):
-                print(f"[PoreDLM] partial unfreeze target={target} layers from: {'.'.join(path)}")
+                if log_selection:
+                    print(f"[PoreDLM] partial unfreeze target={target} layers from: {'.'.join(path)}")
                 return nn.ModuleList(list(obj))
         raise ValueError(f"Cannot locate PoreDLM transformer layers for partial unfreezing target={target!r}.")
 
@@ -748,6 +770,7 @@ class BasecallModel(nn.Module):
             )
             token_hidden = self.pre_head(hidden) if return_token_logits else None
             hidden = self._slice_ctc_signal_hidden(hidden)
+            hidden = self._smooth_pre_head_features(hidden)
             hidden = self.pre_head(hidden)
             logits_btc = self.base_head(hidden)
             if return_token_logits:
@@ -760,6 +783,16 @@ class BasecallModel(nn.Module):
                 raise ValueError(
                     "Cached context_hidden can only be used with a DLM backbone and "
                     "feature_source='context_hidden' or 'ode_hidden'."
+                )
+            if self.feature_source == "ode_hidden" and self.hidden_layer not in {-1, 0}:
+                raise ValueError(
+                    "The context-hidden cache contains final-layer features only; "
+                    "disable the cache to use --hidden-layer with feature_source='ode_hidden'."
+                )
+            if self.feature_source == "context_hidden" and self.hidden_layer not in {-1, 0}:
+                raise ValueError(
+                    "The context-hidden cache contains final-layer features only; "
+                    "disable the cache to use --hidden-layer with feature_source='context_hidden'."
                 )
             context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
             context_hidden = context_hidden.to(dtype=context_dtype)
@@ -794,12 +827,21 @@ class BasecallModel(nn.Module):
         hidden = self._fuse_codebook_features(hidden, input_ids)
         token_hidden = self.pre_head(hidden) if return_token_logits else None
         hidden = self._slice_ctc_signal_hidden(hidden)
+        hidden = self._smooth_pre_head_features(hidden)
         hidden = self.pre_head(hidden)
         logits_btc = self.base_head(hidden)
         if return_token_logits:
             token_logits = self.token_prediction_head(token_hidden)
             return logits_btc, token_logits
         return logits_btc
+
+    def _smooth_pre_head_features(self, hidden: torch.Tensor) -> torch.Tensor:
+        """Optionally apply a centered 3-point mean before the pre-head/TCN."""
+        if self.pre_head_smoothing == "none":
+            return hidden
+        channels_first = hidden.transpose(1, 2)
+        padded = F.pad(channels_first, (1, 1), mode="replicate")
+        return F.avg_pool1d(padded, kernel_size=3, stride=1).transpose(1, 2)
 
     def _slice_ctc_signal_hidden(self, hidden: torch.Tensor) -> torch.Tensor:
         """Keep only signal-code hidden states on the CTC time axis.
@@ -844,7 +886,7 @@ class BasecallModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.backbone_type == "bert":
+        if self.backbone_type in {"bert", "gpt"}:
             outputs = self.backbone(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -868,11 +910,17 @@ class BasecallModel(nn.Module):
                     f"hidden_layer={self.hidden_layer} out of range for {len(hidden_states)} BERT hidden states."
                 ) from exc
 
+        if self.feature_source == "ode_hidden" and self.hidden_layer not in {-1, 0}:
+            return self._forward_ode_hidden_from_context_layer(input_ids, attention_mask)
+        if self.feature_source == "context_hidden" and self.hidden_layer not in {-1, 0}:
+            return self._forward_context_hidden_from_context_layer(input_ids, attention_mask)
+
         outputs = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,
             return_last_hidden_state=self.feature_source not in {"context_hidden", "ode_hidden", "sde_hidden"},
             return_context=(self.feature_source == "context_hidden"),
+            context_hidden_layer=self.hidden_layer if self.feature_source == "context_hidden" else -1,
             return_ode_hidden=(self.feature_source == "ode_hidden"),
             ode_steps=self.elf_ode_steps,
             ode_start_t=self.elf_ode_start_t,
@@ -896,6 +944,108 @@ class BasecallModel(nn.Module):
         if hidden is None:
             raise ValueError(f"PoreDLM backbone output does not contain {output_key}.")
         return hidden
+
+    def _forward_ode_hidden_from_context_layer(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Capture a selected context-encoder block output, then run ELF ODE from it.
+
+        This keeps layer selection in the Stage 4 basecaller and does not depend on
+        the exported HF DLM wrapper exposing per-layer hidden_states.
+        """
+        layers = self._get_transformer_layers("context_encoder", log_selection=False)
+        layer_index = len(layers) + int(self.hidden_layer)
+        if not 0 <= layer_index < len(layers):
+            raise ValueError(
+                f"hidden_layer={self.hidden_layer} is out of range for a context encoder "
+                f"with {len(layers)} Transformer layers; valid block indices are -1 through -{len(layers)}."
+            )
+
+        captured: dict[str, torch.Tensor] = {}
+
+        def capture_layer_output(_module, _inputs, output) -> None:
+            value = output[0] if isinstance(output, (tuple, list)) else output
+            if not isinstance(value, torch.Tensor):
+                raise TypeError(
+                    f"Context encoder layer {layer_index} returned unsupported output type {type(value).__name__}."
+                )
+            captured["hidden"] = value
+
+        handle = layers[layer_index].register_forward_hook(capture_layer_output)
+        try:
+            # Let the wrapped DLM run its normal context encoder path (including
+            # its attention-mask handling), but skip its final-layer ODE branch.
+            self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_last_hidden_state=False,
+                return_context=True,
+                return_ode_hidden=False,
+                return_sde_hidden=False,
+            )
+        finally:
+            handle.remove()
+
+        context_hidden = captured.get("hidden")
+        if context_hidden is None:
+            raise RuntimeError(
+                f"Did not capture context encoder layer {layer_index}; "
+                "the loaded DLM may use an unsupported context encoder implementation."
+            )
+        return self._ode_from_context_hidden(context_hidden, attention_mask=attention_mask)
+
+    def _forward_context_hidden_from_context_layer(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Capture a selected context-encoder block output for basecalling.
+
+        Some exported HF DLM wrappers silently ignore ``context_hidden_layer``.
+        Capturing the block output here keeps ``--hidden-layer`` effective for
+        ``feature_source=context_hidden`` across both old and new exports.
+        """
+        layers = self._get_transformer_layers("context_encoder", log_selection=False)
+        layer_index = len(layers) + int(self.hidden_layer)
+        if not 0 <= layer_index < len(layers):
+            raise ValueError(
+                f"hidden_layer={self.hidden_layer} is out of range for a context encoder "
+                f"with {len(layers)} Transformer layers; valid block indices are -1 through -{len(layers)}."
+            )
+
+        captured: dict[str, torch.Tensor] = {}
+
+        def capture_layer_output(_module, _inputs, output) -> None:
+            value = output[0] if isinstance(output, (tuple, list)) else output
+            if not isinstance(value, torch.Tensor):
+                raise TypeError(
+                    f"Context encoder layer {layer_index} returned unsupported output type {type(value).__name__}."
+                )
+            captured["hidden"] = value
+
+        handle = layers[layer_index].register_forward_hook(capture_layer_output)
+        try:
+            self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_last_hidden_state=False,
+                return_context=True,
+                return_ode_hidden=False,
+                return_sde_hidden=False,
+            )
+        finally:
+            handle.remove()
+
+        context_hidden = captured.get("hidden")
+        if context_hidden is None:
+            raise RuntimeError(
+                f"Did not capture context encoder layer {layer_index}; "
+                "the loaded DLM may use an unsupported context encoder implementation."
+            )
+        context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
+        return context_hidden.to(dtype=context_dtype)
 
     def _get_dlm_config_value(self, key: str, default):
         dlm_cfg = getattr(self.backbone.config, "dlm_config", None) or {}
