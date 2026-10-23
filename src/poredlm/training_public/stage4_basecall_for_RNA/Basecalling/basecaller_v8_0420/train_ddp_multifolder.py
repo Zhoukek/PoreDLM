@@ -1017,12 +1017,13 @@ def parse_args():
     p.add_argument("--unfreeze_last_n_layers", type=int, default=0,
                    help="Unfreeze only the last N backbone layers (default: 0).")
     p.add_argument("--unfreeze_target", type=str, default="auto",
-                   choices=["auto", "elf_denoiser", "context_encoder"],
-                   help="Backbone submodule used by --unfreeze_last_n_layers/--unfreeze_layer_*.")
+                   choices=["auto", "denoiser", "flow_denoiser", "elf_denoiser", "context_encoder"],
+                   help="Backbone submodule used by --unfreeze_last_n_layers/--unfreeze_layer_*; denoiser selects flow_denoiser or legacy elf_denoiser.")
     p.add_argument("--unfreeze_context_last_n_layers", type=int, default=0,
-                   help="Unfreeze only the last N context_encoder layers; independent of elf_denoiser.")
-    p.add_argument("--unfreeze_elf_last_n_layers", type=int, default=0,
-                   help="Unfreeze only the last N elf_denoiser layers; independent of context_encoder.")
+                   help="Unfreeze only the last N context_encoder layers; independent of the DLM denoiser.")
+    p.add_argument("--unfreeze_denoiser_last_n_layers", "--unfreeze_flow_last_n_layers", "--unfreeze_elf_last_n_layers",
+                   dest="unfreeze_denoiser_last_n_layers", type=int, default=0,
+                   help="Unfreeze only the last N DLM denoiser layers (flow_denoiser for self-flow, elf_denoiser for legacy DLM).")
     p.add_argument("--unfreeze_layer_start", type=int, default=None,
                    help="Unfreeze backbone layers in [start, end). Optional finer control.")
     p.add_argument("--unfreeze_layer_end", type=int, default=None,
@@ -1046,20 +1047,20 @@ def parse_args():
                    help="Attention heads for --pre_head_type transformer.")
     p.add_argument("--backbone_chunk_size", type=int, default=600,
                    help="Encode long token sequences through the backbone in chunks of this length, then concatenate hidden states before the basecalling head. Use 0 to disable chunking.")
-    p.add_argument("--elf_ode_steps", type=int, default=4,
-                   help="For --feature_source ode_hidden, number of deterministic ELF ODE steps without adding noise.")
-    p.add_argument("--elf_ode_start_t", type=float, default=0.85,
-                   help="For --feature_source ode_hidden, starting timestep for deterministic ELF ODE.")
-    p.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
-                   help="Self-conditioning CFG scale passed to ELF for --feature_source ode_hidden.")
-    p.add_argument("--elf_sde_steps", type=int, default=4,
-                   help="For --feature_source sde_hidden, number of stochastic ELF refinement steps.")
-    p.add_argument("--elf_sde_start_t", type=float, default=0.85,
-                   help="For --feature_source sde_hidden, starting timestep for ELF SDE refinement.")
-    p.add_argument("--elf_sde_gamma", type=float, default=0.1,
+    p.add_argument("--ode_steps", "--elf_ode_steps", dest="elf_ode_steps", type=int, default=4,
+                   help="For --feature_source ode_hidden, number of deterministic DLM ODE steps without adding noise.")
+    p.add_argument("--ode_start_t", "--elf_ode_start_t", dest="elf_ode_start_t", type=float, default=0.85,
+                   help="For --feature_source ode_hidden, starting timestep for deterministic DLM ODE.")
+    p.add_argument("--ode_self_cond_cfg_scale", "--elf_self_cond_cfg_scale", dest="elf_self_cond_cfg_scale", type=float, default=1.0,
+                   help="Self-conditioning CFG scale passed to the DLM denoiser for --feature_source ode_hidden.")
+    p.add_argument("--sde_steps", "--elf_sde_steps", dest="elf_sde_steps", type=int, default=4,
+                   help="For --feature_source sde_hidden, number of stochastic DLM refinement steps.")
+    p.add_argument("--sde_start_t", "--elf_sde_start_t", dest="elf_sde_start_t", type=float, default=0.85,
+                   help="For --feature_source sde_hidden, starting timestep for DLM SDE refinement.")
+    p.add_argument("--sde_gamma", "--elf_sde_gamma", dest="elf_sde_gamma", type=float, default=0.1,
                    help="Noise strength for --feature_source sde_hidden; 0 approaches deterministic ODE behavior.")
-    p.add_argument("--elf_sde_self_cond_cfg_scale", type=float, default=1.0,
-                   help="Self-conditioning CFG scale passed to ELF for --feature_source sde_hidden.")
+    p.add_argument("--sde_self_cond_cfg_scale", "--elf_sde_self_cond_cfg_scale", dest="elf_sde_self_cond_cfg_scale", type=float, default=1.0,
+                   help="Self-conditioning CFG scale passed to the DLM denoiser for --feature_source sde_hidden.")
     p.add_argument("--elf_sde_seed", type=int, default=None,
                    help="Optional fixed random seed for reproducible SDE hidden states.")
 
@@ -1180,7 +1181,7 @@ def main():
         logger.info(f"[Backbone] chunk_size={args.backbone_chunk_size}")
         if args.feature_source == "ode_hidden":
             logger.info(
-                f"[ELF-ODE] no_noise=True steps={args.elf_ode_steps} "
+                f"[DLM-ODE] no_noise=True steps={args.elf_ode_steps} "
                 f"start_t={args.elf_ode_start_t} self_cond_cfg_scale={args.elf_self_cond_cfg_scale}"
             )
         logger.info(
@@ -1232,7 +1233,7 @@ def main():
         unfreeze_last_n_layers=args.unfreeze_last_n_layers,
         unfreeze_target=args.unfreeze_target,
         unfreeze_context_last_n_layers=args.unfreeze_context_last_n_layers,
-        unfreeze_elf_last_n_layers=args.unfreeze_elf_last_n_layers,
+        unfreeze_denoiser_last_n_layers=args.unfreeze_denoiser_last_n_layers,
         unfreeze_layer_start=args.unfreeze_layer_start,
         unfreeze_layer_end=args.unfreeze_layer_end,
         head_output_activation=args.head_output_activation,

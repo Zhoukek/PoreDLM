@@ -292,8 +292,8 @@ def main() -> None:
                     help="Which backbone hidden layer to use when --feature_source hidden.")
     ap.add_argument("--learnable_fuse_last_n_layers", type=int, default=0,
                     help="If >0, learn a softmax-weighted fusion over the last N hidden layers (overrides --hidden_layer).")
-    ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "embedding"], default="hidden",
-                    help="Use Stage3 hidden states, raw context_encoder hidden states, no-noise ELF ODE hidden states, or input embeddings as head input features.")
+    ap.add_argument("--feature_source", "--feature-source", choices=["hidden", "denoised_hidden", "context_hidden", "ode_hidden", "sde_hidden", "embedding"], default="hidden",
+                    help="Select backbone hidden states, context/ODE/SDE refined states, or input embeddings as head input features.")
     ap.add_argument("--feature_l2_normalize", "--feature-l2-normalize", action="store_true",
                     help="L2-normalize backbone hidden features along the channel dimension before the pre-head. Keep consistent with training.")
     ap.add_argument("--codebook_fusion", "--codebook-fusion", choices=["none", "only", "add", "concat", "gate"], default="none",
@@ -310,12 +310,22 @@ def main() -> None:
                     help="Allow gradients to update external codebook features. Usually off for eval.")
     ap.add_argument("--skip_backbone_for_codebook_only", "--skip-backbone-for-codebook-only", action="store_true",
                     help="When --codebook_fusion only, skip DLM/backbone computation and feed codebook features directly to the pre-head.")
-    ap.add_argument("--elf_ode_steps", type=int, default=4,
-                    help="For --feature_source ode_hidden, number of deterministic ELF ODE steps without adding noise.")
-    ap.add_argument("--elf_ode_start_t", type=float, default=0.85,
-                    help="For --feature_source ode_hidden, starting timestep for deterministic ELF ODE.")
-    ap.add_argument("--elf_self_cond_cfg_scale", type=float, default=1.0,
-                    help="Self-conditioning CFG scale passed to ELF for --feature_source ode_hidden.")
+    ap.add_argument("--ode_steps", "--elf_ode_steps", dest="elf_ode_steps", type=int, default=4,
+                    help="For --feature_source ode_hidden, number of deterministic DLM ODE steps without adding noise.")
+    ap.add_argument("--ode_start_t", "--elf_ode_start_t", dest="elf_ode_start_t", type=float, default=0.85,
+                    help="For --feature_source ode_hidden, starting timestep for deterministic DLM ODE.")
+    ap.add_argument("--ode_self_cond_cfg_scale", "--elf_self_cond_cfg_scale", dest="elf_self_cond_cfg_scale", type=float, default=1.0,
+                    help="Self-conditioning CFG scale passed to the DLM denoiser for --feature_source ode_hidden.")
+    ap.add_argument("--sde_steps", "--elf_sde_steps", dest="elf_sde_steps", type=int, default=4,
+                    help="For --feature_source sde_hidden, number of stochastic DLM refinement steps.")
+    ap.add_argument("--sde_start_t", "--elf_sde_start_t", dest="elf_sde_start_t", type=float, default=0.85,
+                    help="For --feature_source sde_hidden, starting timestep for stochastic DLM refinement.")
+    ap.add_argument("--sde_gamma", "--elf_sde_gamma", dest="elf_sde_gamma", type=float, default=0.1,
+                    help="Noise strength for --feature_source sde_hidden; 0 approaches deterministic ODE behavior.")
+    ap.add_argument("--sde_self_cond_cfg_scale", "--elf_sde_self_cond_cfg_scale", dest="elf_sde_self_cond_cfg_scale", type=float, default=1.0,
+                    help="Self-conditioning CFG scale passed to the DLM denoiser for --feature_source sde_hidden.")
+    ap.add_argument("--sde_seed", "--elf_sde_seed", dest="elf_sde_seed", type=int, default=None,
+                    help="Optional SDE noise seed for repeatable evaluation.")
     ap.add_argument("--pre_head_type", choices=["auto", "none", "bilstm", "transformer", "tcn"], default="auto",
                     help="Optional module before CTC-CRF head. Default auto-infers from checkpoint.")
     ap.add_argument("--pre_head_smoothing", choices=["none", "box3"], default="none",
@@ -419,6 +429,11 @@ def main() -> None:
         elf_ode_steps=args.elf_ode_steps,
         elf_ode_start_t=args.elf_ode_start_t,
         elf_self_cond_cfg_scale=args.elf_self_cond_cfg_scale,
+        elf_sde_steps=args.elf_sde_steps,
+        elf_sde_start_t=args.elf_sde_start_t,
+        elf_sde_gamma=args.elf_sde_gamma,
+        elf_sde_self_cond_cfg_scale=args.elf_sde_self_cond_cfg_scale,
+        elf_sde_seed=args.elf_sde_seed,
         backbone_chunk_size=args.backbone_chunk_size,
     ).to(device)
     model.load_state_dict(state_dict, strict=False)

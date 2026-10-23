@@ -42,6 +42,13 @@ generation; the reference suffix is stitched back afterward. Output includes one
 generator-prefixed PNG and NPZ per sample plus `summary_dlm.json` or
 `summary_gpt.json`.
 
+The DLM input can prepend its training-time CLS token with
+`generation.dlm_add_cls_token` and `generation.dlm_cls_token_id`. The configured
+DLM uses `[CLS=5, BOS, content..., EOS]`; `total_length` and mask coordinates
+still refer only to content tokens. The raw eval shards and codec decode inputs
+remain `[BOS, content..., EOS]` without CLS. This option does not change the
+standalone BERT baseline or GPT inputs.
+
 The DLM PNG contains three panels: full reference versus DLM, masked-region
 reference versus DLM, and masked-region reference versus BERT. The GPT PNG is
 separate and contains full-sequence and masked-region reference-versus-GPT panels.

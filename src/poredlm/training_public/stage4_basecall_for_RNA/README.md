@@ -33,8 +33,11 @@ embedding vocabulary; this is checked by the tokenizer at data load time.
 The default feature is `denoised_hidden` (`last_hidden_state` from the DLM). For
 experiments, append `--feature_source context_hidden` or
 `--feature_source ode_hidden --elf_ode_steps 2 --elf_ode_start_t 0.98`.
-SDE features are selected with `--feature_source sde_hidden`; the corresponding
-step, start-time, gamma, CFG-scale, and seed settings are exposed in `run.sh`.
+SDE features can be selected for inference or evaluation with
+`--feature_source sde_hidden --sde_steps 4 --sde_start_t 0.85 --sde_gamma 0.1`.
+Use `--sde_seed N` to make the SDE noise repeatable. The ODE-trained
+basecalling head can be evaluated with these SDE features, but this changes its
+input feature distribution; compare against the ODE baseline on validation data.
 For `--feature_source context_hidden`, select the context encoder layer with
 `--hidden-layer`: `-1` is the final layer and `-2` is the penultimate layer.
 The same selection is supported for `--feature_source ode_hidden`; in that
@@ -42,9 +45,13 @@ case ODE refinement starts from the selected context layer. Non-final layer
 selection runs directly through the context encoder, so it is not compatible
 with a final-layer-only `--context_hidden_cache_dir` cache.
 
-The HF model directory is expected to contain its own
-`ELF-pytorch-port/src` directory. The launcher does not add a separate Stage 3
-ELF source tree to `PYTHONPATH`.
+For a self-flow DLM checkpoint, keep its packaged `flow_matching_core/src`
+directory beside `modeling_poredlm.py`; the checkpoint adds that source tree
+when its custom HF model is loaded. Stage 4 supports both the newer
+`flow_denoiser` interface and older `elf_denoiser` checkpoints. Use
+`--unfreeze_denoiser_last_n_layers` and `--ode_*` for new runs. The prior
+`--unfreeze_elf_last_n_layers` and `--elf_ode_*` option names remain aliases for
+existing launch scripts.
 
 W&B is disabled by default. Enable it by appending `--use_wandb` and the desired
 W&B arguments; credentials should be provided by the environment rather than

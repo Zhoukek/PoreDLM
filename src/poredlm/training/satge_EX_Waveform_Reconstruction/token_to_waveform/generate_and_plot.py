@@ -455,6 +455,11 @@ def process_sample(
         raise ValueError("Require 0 <= mask_start < mask_start + mask_length <= total_length.")
     bos = int(data.get("bos_token_id", 2))
     eos = int(data.get("eos_token_id", 3))
+    dlm_add_cls_token = generator_type == "dlm" and bool(
+        generation.get("dlm_add_cls_token", False)
+    )
+    cls_token_id = int(generation.get("dlm_cls_token_id", 5))
+    content_start = 1 + int(dlm_add_cls_token)
     offset = int(data.get("token_offset", 128))
     codebook_size = int(data.get("codebook_size", 65536))
     codec_layer = int(data.get("codec_layer", 0))
@@ -467,15 +472,16 @@ def process_sample(
             f"but {total_content_length} are required."
         )
     reference_content = available_reference_content[:total_content_length]
+    sequence_prefix = [cls_token_id, bos] if dlm_add_cls_token else [bos]
     full_ids = torch.cat(
         [
-            torch.tensor([bos], device=device),
+            torch.tensor(sequence_prefix, device=device),
             reference_content,
             torch.tensor([eos], device=device),
         ]
     ).unsqueeze(0)
     masked_positions = torch.zeros_like(full_ids, dtype=torch.bool)
-    masked_positions[:, 1 + mask_start : 1 + mask_end] = True
+    masked_positions[:, content_start + mask_start : content_start + mask_end] = True
     bert_content: torch.Tensor | None = None
     bert_raw_region: torch.Tensor | None = None
     if generator_type == "dlm":
@@ -496,7 +502,7 @@ def process_sample(
             condition_input_ids=masked_input_ids,
             condition_attention_mask=torch.ones_like(masked_input_ids),
             condition_token_mask=condition_token_mask,
-            max_length=2 + total_content_length,
+            max_length=2 + int(dlm_add_cls_token) + total_content_length,
             num_steps=int(generation.get("num_steps", 50)),
             sampling_method=str(generation.get("sampling_method", "ode")),
             sde_gamma=float(generation.get("sde_gamma", 0.1)),
@@ -552,7 +558,7 @@ def process_sample(
         )
     else:
         raise ValueError("generator_type must be 'dlm' or 'gpt'.")
-    generated_content = generated[0, 1 : 1 + total_content_length]
+    generated_content = generated[0, content_start : content_start + total_content_length]
     generated_content, invalid_count = validate_or_fix_generated_ids(
         generated_content,
         offset,

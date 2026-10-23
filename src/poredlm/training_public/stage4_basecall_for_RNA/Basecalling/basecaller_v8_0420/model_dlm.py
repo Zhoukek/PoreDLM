@@ -119,6 +119,7 @@ class BasecallModel(nn.Module):
         unfreeze_target: str = "auto",
         unfreeze_context_last_n_layers: int = 0,
         unfreeze_elf_last_n_layers: int = 0,
+        unfreeze_denoiser_last_n_layers: int = 0,
         unfreeze_layer_start: int | None = None,
         unfreeze_layer_end: int | None = None,
         head_output_activation: str | None = None,
@@ -170,7 +171,14 @@ class BasecallModel(nn.Module):
         self.unfreeze_last_n_layers = max(0, int(unfreeze_last_n_layers))
         self.unfreeze_target = str(unfreeze_target)
         self.unfreeze_context_last_n_layers = max(0, int(unfreeze_context_last_n_layers))
-        self.unfreeze_elf_last_n_layers = max(0, int(unfreeze_elf_last_n_layers))
+        legacy_elf_unfreeze = max(0, int(unfreeze_elf_last_n_layers))
+        generic_denoiser_unfreeze = max(0, int(unfreeze_denoiser_last_n_layers))
+        if legacy_elf_unfreeze and generic_denoiser_unfreeze and legacy_elf_unfreeze != generic_denoiser_unfreeze:
+            raise ValueError(
+                "Set only one of unfreeze_elf_last_n_layers or "
+                "unfreeze_denoiser_last_n_layers, or set them to the same value."
+            )
+        self.unfreeze_denoiser_last_n_layers = generic_denoiser_unfreeze or legacy_elf_unfreeze
         self.unfreeze_layer_start = unfreeze_layer_start
         self.unfreeze_layer_end = unfreeze_layer_end
         self.backbone_chunk_size = max(0, int(backbone_chunk_size))
@@ -222,7 +230,7 @@ class BasecallModel(nn.Module):
             is_dlm = any(
                 getattr(config, name, None) is not None
                 for name in ("dlm_config", "context_encoder_config", "model_config")
-            ) or any(hasattr(self.backbone, name) for name in ("context_encoder", "elf_denoiser"))
+            ) or any(hasattr(self.backbone, name) for name in ("context_encoder", "elf_denoiser", "flow_denoiser"))
             architectures = getattr(config, "architectures", None) or []
             architecture_names = " ".join(str(name).lower() for name in architectures)
             model_type = str(getattr(config, "model_type", "")).lower()
@@ -300,7 +308,7 @@ class BasecallModel(nn.Module):
             self.freeze_backbone
             or self.unfreeze_last_n_layers > 0
             or self.unfreeze_context_last_n_layers > 0
-            or self.unfreeze_elf_last_n_layers > 0
+            or self.unfreeze_denoiser_last_n_layers > 0
             or unfreeze_layer_start is not None
             or unfreeze_layer_end is not None
         ):
@@ -311,8 +319,8 @@ class BasecallModel(nn.Module):
 
         if self.unfreeze_context_last_n_layers > 0:
             self._unfreeze_last_layers("context_encoder", self.unfreeze_context_last_n_layers)
-        if self.unfreeze_elf_last_n_layers > 0:
-            self._unfreeze_last_layers("elf_denoiser", self.unfreeze_elf_last_n_layers)
+        if self.unfreeze_denoiser_last_n_layers > 0:
+            self._unfreeze_last_layers("denoiser", self.unfreeze_denoiser_last_n_layers)
 
         if self.unfreeze_last_n_layers > 0 or unfreeze_layer_start is not None or unfreeze_layer_end is not None:
             layers = self._get_transformer_layers(self.unfreeze_target)
@@ -642,6 +650,7 @@ class BasecallModel(nn.Module):
         target = str(target)
         candidate_groups = {
             "auto": (
+                ("flow_denoiser", "blocks"),
                 ("elf_denoiser", "blocks"),
                 ("context_encoder", "encoder", "layers"),
                 ("context_encoder", "encoder", "layer"),
@@ -651,6 +660,13 @@ class BasecallModel(nn.Module):
                 ("model", "layers"),
                 ("layers",),
                 ("blocks",),
+            ),
+            "denoiser": (
+                ("flow_denoiser", "blocks"),
+                ("elf_denoiser", "blocks"),
+            ),
+            "flow_denoiser": (
+                ("flow_denoiser", "blocks"),
             ),
             "elf_denoiser": (
                 ("elf_denoiser", "blocks"),
@@ -728,7 +744,7 @@ class BasecallModel(nn.Module):
     def _set_frozen_backbone_submodules_eval(self) -> None:
         if self.backbone is None:
             return
-        for name in ("context_encoder", "elf_denoiser"):
+        for name in ("context_encoder", "flow_denoiser", "elf_denoiser"):
             module = getattr(self.backbone, name, None)
             if module is None:
                 continue
@@ -739,7 +755,7 @@ class BasecallModel(nn.Module):
         return (
             self.unfreeze_last_n_layers > 0
             or self.unfreeze_context_last_n_layers > 0
-            or self.unfreeze_elf_last_n_layers > 0
+            or self.unfreeze_denoiser_last_n_layers > 0
             or self.unfreeze_layer_start is not None
             or self.unfreeze_layer_end is not None
         )
@@ -794,7 +810,7 @@ class BasecallModel(nn.Module):
                     "The context-hidden cache contains final-layer features only; "
                     "disable the cache to use --hidden-layer with feature_source='context_hidden'."
                 )
-            context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
+            context_dtype = self._get_denoiser_dtype()
             context_hidden = context_hidden.to(dtype=context_dtype)
             if self.feature_source == "ode_hidden":
                 hidden = self._ode_from_context_hidden(context_hidden, attention_mask=attention_mask)
@@ -1044,94 +1060,39 @@ class BasecallModel(nn.Module):
                 f"Did not capture context encoder layer {layer_index}; "
                 "the loaded DLM may use an unsupported context encoder implementation."
             )
-        context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
+        context_dtype = self._get_denoiser_dtype()
         return context_hidden.to(dtype=context_dtype)
 
-    def _get_dlm_config_value(self, key: str, default):
-        dlm_cfg = getattr(self.backbone.config, "dlm_config", None) or {}
-        return dlm_cfg.get(key, default)
+    def _get_denoiser(self) -> nn.Module:
+        for name in ("flow_denoiser", "elf_denoiser"):
+            denoiser = getattr(self.backbone, name, None)
+            if denoiser is not None:
+                return denoiser
+        raise ValueError(
+            "DLM feature refinement requires backbone.flow_denoiser or backbone.elf_denoiser."
+        )
 
-    def _elf_t_eps(self) -> float:
-        return float(self._get_dlm_config_value("t_eps", 0.05))
-
-    @staticmethod
-    def _elf_net_out_to_v_x(net_out, z: torch.Tensor, t: torch.Tensor, t_eps: float) -> tuple[torch.Tensor, torch.Tensor]:
-        if isinstance(net_out, tuple):
-            net_out = net_out[0]
-        t_reshaped = t.view(-1, 1, 1)
-        x_pred = net_out
-        v_pred = (x_pred - z) / torch.clamp(1.0 - t_reshaped, min=t_eps)
-        return v_pred, x_pred
-
-    def _elf_forward_ode_sample(
-        self,
-        z: torch.Tensor,
-        t_batch: torch.Tensor,
-        x_pred_prev: torch.Tensor | None,
-        attention_mask: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        elf = getattr(self.backbone, "elf_denoiser", None)
-        if elf is None:
-            raise ValueError("feature_source='ode_hidden' requires backbone.elf_denoiser.")
-
-        num_self_cond_cfg_tokens = int(getattr(elf, "num_self_cond_cfg_tokens", 0))
-        if num_self_cond_cfg_tokens > 0:
-            if x_pred_prev is None:
-                x_pred_prev = torch.zeros_like(z)
-            model_input = torch.cat([z, x_pred_prev], dim=-1)
-            self_cond_cfg_scale = torch.full(
-                (z.shape[0],),
-                self.elf_self_cond_cfg_scale,
-                device=z.device,
-                dtype=z.dtype,
-            )
-            net_out = elf(
-                model_input,
-                t_batch,
-                attention_mask=attention_mask,
-                self_cond_cfg_scale=self_cond_cfg_scale,
-                decoder_step_active=False,
-            )
-        else:
-            net_out = elf(
-                z,
-                t_batch,
-                attention_mask=attention_mask,
-                decoder_step_active=False,
-            )
-        return self._elf_net_out_to_v_x(net_out, z, t_batch, self._elf_t_eps())
+    def _get_denoiser_dtype(self) -> torch.dtype:
+        try:
+            return next(self._get_denoiser().parameters()).dtype
+        except StopIteration as exc:
+            raise ValueError("The DLM denoiser has no parameters from which to infer dtype.") from exc
 
     def _ode_from_context_hidden(
         self,
         context: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        context_dtype = next(self.backbone.elf_denoiser.parameters()).dtype
-        context = context.to(dtype=context_dtype)
-        z = context
-        x_pred = torch.zeros_like(z)
-        t_steps = torch.linspace(
-            self.elf_ode_start_t,
-            1.0,
-            self.elf_ode_steps + 1,
-            device=context.device,
-            dtype=context.dtype,
-        )
-
-        for idx in range(self.elf_ode_steps):
-            t = t_steps[idx]
-            t_next = t_steps[idx + 1]
-            t_batch = torch.full((z.shape[0],), float(t.detach().item()), device=z.device, dtype=z.dtype)
-            v_pred, x_pred = self._elf_forward_ode_sample(
-                z,
-                t_batch,
-                x_pred,
-                attention_mask=attention_mask,
+        ode_fn = getattr(self.backbone, "ode_from_context_hidden", None)
+        if not callable(ode_fn):
+            raise ValueError(
+                "feature_source='ode_hidden' requires the DLM backbone to expose "
+                "ode_from_context_hidden()."
             )
-            z = z + (t_next - t) * v_pred
-            if attention_mask is not None:
-                valid_mask = attention_mask.to(device=context.device, dtype=torch.bool).unsqueeze(-1)
-                z = torch.where(valid_mask, z, context)
-                x_pred = torch.where(valid_mask, x_pred, context)
-
-        return z
+        return ode_fn(
+            context,
+            attention_mask=attention_mask,
+            ode_steps=self.elf_ode_steps,
+            ode_start_t=self.elf_ode_start_t,
+            self_cond_cfg_scale=self.elf_self_cond_cfg_scale,
+        )

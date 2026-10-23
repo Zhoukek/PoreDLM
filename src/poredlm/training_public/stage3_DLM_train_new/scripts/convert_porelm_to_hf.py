@@ -42,6 +42,7 @@ import torch.nn.functional as F
 from torch import nn
 from types import SimpleNamespace
 from transformers import BertConfig, BertModel, PretrainedConfig, PreTrainedModel
+from transformers.modeling_outputs import BaseModelOutput
 
 
 class MaskedSignalContextEncoder(nn.Module):
@@ -134,6 +135,126 @@ class Stage2BertConfig(PretrainedConfig):
         self.eos_token_id = int(eos_token_id)
         self.cls_token_id = int(cls_token_id)
         self.layer_norm_eps = float(layer_norm_eps)
+
+
+class PoreBertConfig(PretrainedConfig):
+    model_type = "porebert"
+
+    def __init__(
+        self,
+        vocab_size: int = 2560,
+        hidden_size: int = 768,
+        num_hidden_layers: int = 12,
+        num_attention_heads: int = 12,
+        max_position_embeddings: int = 1536,
+        pad_token_id: int = 0,
+        dropout: float = 0.1,
+        initializer_range: float = 0.02,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(pad_token_id=pad_token_id, **kwargs)
+        self.vocab_size = int(vocab_size)
+        self.hidden_size = int(hidden_size)
+        self.num_hidden_layers = int(num_hidden_layers)
+        self.num_attention_heads = int(num_attention_heads)
+        self.max_position_embeddings = int(max_position_embeddings)
+        self.dropout = float(dropout)
+        self.initializer_range = float(initializer_range)
+
+
+class PoreBertBackbone(nn.Module):
+    """PoreBERT backbone with the same parameter names as modeling_bert.py."""
+
+    def __init__(self, config: PoreBertConfig) -> None:
+        super().__init__()
+        self.num_attention_heads = config.num_attention_heads
+        self.token_embedding = nn.Embedding(
+            config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id
+        )
+        self.position_embedding = nn.Embedding(
+            config.max_position_embeddings, config.hidden_size
+        )
+        self.embedding_norm = nn.LayerNorm(config.hidden_size)
+        self.embedding_dropout = nn.Dropout(config.dropout)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=config.hidden_size,
+            nhead=config.num_attention_heads,
+            dim_feedforward=config.hidden_size * 4,
+            dropout=config.dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=config.num_hidden_layers
+        )
+        self.norm = nn.LayerNorm(config.hidden_size)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if input_ids.ndim != 2:
+            raise ValueError(
+                f"input_ids must have shape [batch, seq_len], got {tuple(input_ids.shape)}."
+            )
+        batch_size, seq_len = input_ids.shape
+        if seq_len > self.position_embedding.num_embeddings:
+            raise ValueError(
+                f"Input sequence length ({seq_len}) exceeds max_position_embeddings "
+                f"({self.position_embedding.num_embeddings})."
+            )
+
+        position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
+        hidden = self.token_embedding(input_ids) + self.position_embedding(position_ids)
+        hidden = self.embedding_dropout(self.embedding_norm(hidden))
+        if attention_mask is None:
+            hidden = self.encoder(hidden)
+        elif attention_mask.dim() == 2:
+            if attention_mask.shape != (batch_size, seq_len):
+                raise ValueError("2D attention_mask must have shape [batch, seq_len].")
+            padding_mask = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            hidden = self.encoder(hidden, src_key_padding_mask=padding_mask)
+        elif attention_mask.dim() == 3:
+            if attention_mask.shape != (batch_size, seq_len, seq_len):
+                raise ValueError(
+                    "3D attention_mask must have shape [batch, seq_len, seq_len]."
+                )
+            # The stage-3 infill path supplies [batch, query, key]; PyTorch
+            # expects one boolean attention mask per batch/head, with True
+            # marking disallowed query/key pairs.
+            attn_mask = ~attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            attn_mask = attn_mask.repeat_interleave(self.num_attention_heads, dim=0)
+            hidden = self.encoder(hidden, mask=attn_mask)
+        else:
+            raise ValueError("attention_mask must be 2D or 3D.")
+        return self.norm(hidden)
+
+
+class PoreBertModel(PreTrainedModel):
+    config_class = PoreBertConfig
+    base_model_prefix = "bert"
+
+    def __init__(self, config: PoreBertConfig) -> None:
+        super().__init__(config)
+        self.bert = PoreBertBackbone(config)
+        self.post_init()
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        return_dict: Optional[bool] = None,
+        **kwargs: Any,
+    ) -> Any:
+        del kwargs
+        if input_ids is None:
+            raise ValueError("input_ids must be provided.")
+        hidden = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        if return_dict is False:
+            return (hidden,)
+        return BaseModelOutput(last_hidden_state=hidden)
 
 
 class Stage2MaskedSignalLM(nn.Module):
@@ -303,10 +424,13 @@ class PoreLMForDiffusion(PreTrainedModel):
             if config.context_encoder_config.get("model_type") == Stage2BertConfig.model_type:
                 context_config = Stage2BertConfig(**config.context_encoder_config)
                 self.context_encoder = HFContextEncoderAdapter(Stage2MaskedSignalLM(context_config))
+            elif config.context_encoder_config.get("model_type") == PoreBertConfig.model_type:
+                context_config = PoreBertConfig(**config.context_encoder_config)
+                self.context_encoder = HFContextEncoderAdapter(PoreBertModel(context_config))
             else:
                 raise ValueError(
-                    "context_encoder_type='hf_auto' currently supports only "
-                    f"{Stage2BertConfig.model_type!r}; got "
+                    "context_encoder_type='hf_auto' supports only "
+                    f"{Stage2BertConfig.model_type!r} and {PoreBertConfig.model_type!r}; got "
                     f"{config.context_encoder_config.get('model_type')!r}."
                 )
         elif config.context_encoder_type == "bert":
